@@ -162,25 +162,6 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
           </button>
         </div>
 
-        {/* Dedicated Admin Switch Banner */}
-        <div className="bg-amber-50 border-b border-amber-200 px-5 py-2.5 flex items-center justify-between gap-3 text-xs text-amber-950">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
-            <span>¿Eres <strong>Administrador o Funcionario</strong>?</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              setIsAdminModalOpen(true);
-            }}
-            className="font-bold text-amber-900 hover:text-amber-800 bg-amber-200/80 hover:bg-amber-200 px-3 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0 border border-amber-300"
-          >
-            <span>Ingresar al ERP</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
         {/* Tab Switcher */}
         <div className="grid grid-cols-2 bg-slate-100 p-1 border-b border-slate-200 text-xs font-bold">
           <button
@@ -326,24 +307,6 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                     </button>
                   ))}
                 </div>
-              </div>
-
-              {/* Direct Link to Admin ERP Access */}
-              <div className="pt-3 border-t border-slate-200 text-center">
-                <p className="text-xs text-slate-600">
-                  ¿Eres Administrador o personal de la bodega?{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      setIsAdminModalOpen(true);
-                    }}
-                    className="text-indigo-600 hover:text-indigo-800 font-bold hover:underline cursor-pointer inline-flex items-center gap-1 ml-1"
-                  >
-                    <span>Ingresar al ERP Aquí</span>
-                    <ArrowRight className="w-3 h-3" />
-                  </button>
-                </p>
               </div>
             </div>
           ) : (
