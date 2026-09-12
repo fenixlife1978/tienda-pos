@@ -42,6 +42,7 @@ export const CustomerDashboard: React.FC = () => {
     setCustomerPortalTab,
     setIsNotificationSettingsOpen,
     notifications,
+    setIsAdminModalOpen,
   } = useApp();
 
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -163,6 +164,19 @@ export const CustomerDashboard: React.FC = () => {
                   )}
                 </div>
                 <span className="hidden xs:inline">${cartTotalUSD.toFixed(2)}</span>
+              </button>
+
+              {/* Switch to Admin ERP button */}
+              <button
+                onClick={() => {
+                  logoutCustomer();
+                  setIsAdminModalOpen(true);
+                }}
+                className="hidden md:flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl transition cursor-pointer"
+                title="Cerrar portal cliente y abrir Acceso Administrador ERP"
+              >
+                <ShieldCheck className="w-4 h-4 text-amber-700" />
+                <span>Acceso ERP</span>
               </button>
 
               {/* Logout Button */}

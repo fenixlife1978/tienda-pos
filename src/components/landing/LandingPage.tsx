@@ -19,7 +19,6 @@ import {
   CheckCircle2,
   Lock,
 } from 'lucide-react';
-import { AdminLoginModal } from '../common/AdminLoginModal';
 
 export const LandingPage: React.FC = () => {
   const {
@@ -27,9 +26,9 @@ export const LandingPage: React.FC = () => {
     products,
     setIsAuthModalOpen,
     setAuthInitialTab,
+    isAdminModalOpen,
+    setIsAdminModalOpen,
   } = useApp();
-
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
   const handleOpenLogin = () => {
     setAuthInitialTab('login');
@@ -69,28 +68,42 @@ export const LandingPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Right actions: BCV Ticker & Auth Buttons */}
+            {/* Right actions: BCV Ticker, Admin Button & Customer Auth Buttons */}
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold">
+              <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold">
                 <TrendingUp className="w-4 h-4 text-emerald-600" />
                 <span>Tasa Oficial BCV:</span>
                 <span className="font-mono font-bold">{settings.bcvRate.toFixed(2)} Bs/$</span>
               </div>
 
+              {/* Botón Destacado Principal: Acceso Administrador / ERP */}
+              <button
+                onClick={() => setIsAdminModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 sm:px-4 py-2 text-xs sm:text-sm font-extrabold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xs transition cursor-pointer border border-amber-500/40"
+                title="Acceder al Panel de Control ERP y Dashboard de Administrador"
+              >
+                <Lock className="w-3.5 h-3.5 text-slate-950" />
+                <span>Acceso Administrador / ERP</span>
+              </button>
+
+              <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
+
               <button
                 onClick={handleOpenLogin}
-                className="flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold text-slate-700 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded-xl transition cursor-pointer"
+                className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold text-slate-700 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 rounded-xl transition cursor-pointer"
+                title="Acceso para clientes y comercios"
               >
                 <LogIn className="w-4 h-4 text-blue-600" />
-                <span>Iniciar Sesión</span>
+                <span>Login Clientes</span>
               </button>
 
               <button
                 onClick={handleOpenRegister}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md hover:shadow-lg transition cursor-pointer"
+                className="hidden md:flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer"
+                title="Registrar cuenta de cliente"
               >
                 <UserPlus className="w-4 h-4" />
-                <span>Registrarse</span>
+                <span>Registro Clientes</span>
               </button>
             </div>
 
@@ -99,7 +112,7 @@ export const LandingPage: React.FC = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-blue-900 via-slate-900 to-slate-950 text-white py-16 sm:py-24">
+      <section className="relative overflow-hidden bg-gradient-to-b from-blue-900 via-slate-900 to-slate-950 text-white py-14 sm:py-20">
         <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px]"></div>
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
@@ -124,11 +137,19 @@ export const LandingPage: React.FC = () => {
               {/* Call to Actions */}
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-2">
                 <button
+                  onClick={() => setIsAdminModalOpen(true)}
+                  className="w-full sm:w-auto px-6 py-3.5 text-sm font-extrabold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-lg transition cursor-pointer flex items-center justify-center gap-2 border border-amber-300"
+                >
+                  <Lock className="w-4 h-4 text-slate-950" />
+                  <span>Entrar al Dashboard de Administrador</span>
+                </button>
+
+                <button
                   onClick={handleOpenLogin}
-                  className="w-full sm:w-auto px-6 py-3.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-lg hover:shadow-blue-500/25 transition cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto px-6 py-3.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-md transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   <LogIn className="w-4 h-4" />
-                  <span>Ingresar a Mi Cuenta</span>
+                  <span>Portal Clientes (Catálogo)</span>
                 </button>
 
                 <button
@@ -136,7 +157,37 @@ export const LandingPage: React.FC = () => {
                   className="w-full sm:w-auto px-6 py-3.5 text-sm font-bold text-slate-200 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700 rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   <UserPlus className="w-4 h-4 text-blue-400" />
-                  <span>Registrar Nueva Cuenta de Cliente</span>
+                  <span>Crear Cuenta Cliente</span>
+                </button>
+              </div>
+
+              {/* Notice Box: Dedicated Admin ERP Access */}
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-amber-400/40 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left backdrop-blur-xs shadow-xl">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-400/20 text-amber-400 border border-amber-400/40 shrink-0 mt-0.5 sm:mt-0">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-white text-sm">
+                        ¿Cómo ingresar a tu Dashboard de Administrador?
+                      </p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400 text-slate-950">
+                        Admin ERP
+                      </span>
+                    </div>
+                    <p className="text-slate-300 text-xs mt-1 leading-relaxed">
+                      Haz clic en <strong>"Acceso Administrador / ERP"</strong> e ingresa con el usuario genérico (o tus administradores creados). Accederás inmediatamente al inventario, facturación POS en mostrador, cuentas por cobrar, cuentas por pagar y configuración.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsAdminModalOpen(true)}
+                  className="w-full sm:w-auto shrink-0 px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-xs transition cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <Lock className="w-3.5 h-3.5 text-slate-950" />
+                  <span>Ingresar como Administrador →</span>
                 </button>
               </div>
 
@@ -465,12 +516,6 @@ export const LandingPage: React.FC = () => {
 
         </div>
       </footer>
-
-      {/* Admin Login Modal */}
-      <AdminLoginModal
-        isOpen={isAdminModalOpen}
-        onClose={() => setIsAdminModalOpen(false)}
-      />
 
     </div>
   );

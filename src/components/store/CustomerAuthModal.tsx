@@ -30,7 +30,14 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   onClose,
   initialTab = 'login',
 }) => {
-  const { customers, currentCustomer, loginCustomer, registerCustomer, logoutCustomer } = useApp();
+  const {
+    customers,
+    currentCustomer,
+    loginCustomer,
+    registerCustomer,
+    logoutCustomer,
+    setIsAdminModalOpen,
+  } = useApp();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>(initialTab);
 
   React.useEffect(() => {
@@ -152,6 +159,25 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Dedicated Admin Switch Banner */}
+        <div className="bg-amber-50 border-b border-amber-200 px-5 py-2.5 flex items-center justify-between gap-3 text-xs text-amber-950">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>¿Eres <strong>Administrador o Funcionario</strong>?</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              setIsAdminModalOpen(true);
+            }}
+            className="font-bold text-amber-900 hover:text-amber-800 bg-amber-200/80 hover:bg-amber-200 px-3 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer shrink-0 border border-amber-300"
+          >
+            <span>Ingresar al ERP</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
@@ -300,6 +326,24 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Direct Link to Admin ERP Access */}
+              <div className="pt-3 border-t border-slate-200 text-center">
+                <p className="text-xs text-slate-600">
+                  ¿Eres Administrador o personal de la bodega?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      setIsAdminModalOpen(true);
+                    }}
+                    className="text-indigo-600 hover:text-indigo-800 font-bold hover:underline cursor-pointer inline-flex items-center gap-1 ml-1"
+                  >
+                    <span>Ingresar al ERP Aquí</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </p>
               </div>
             </div>
           ) : (

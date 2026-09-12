@@ -126,6 +126,8 @@ interface AppContextType {
   setAuthInitialTab: (tab: 'login' | 'register') => void;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
+  isAdminModalOpen: boolean;
+  setIsAdminModalOpen: (open: boolean) => void;
   isNotificationSettingsOpen: boolean;
   setIsNotificationSettingsOpen: (open: boolean) => void;
   isSellerAlertsModalOpen: boolean;
@@ -260,6 +262,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAdminActive, setIsAdminActive] = useState<boolean>(false);
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isSellerAlertsModalOpen, setIsSellerAlertsModalOpen] = useState(false);
 
@@ -1064,6 +1067,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuthInitialTab,
         isAuthModalOpen,
         setIsAuthModalOpen,
+        isAdminModalOpen,
+        setIsAdminModalOpen,
         isNotificationSettingsOpen,
         setIsNotificationSettingsOpen,
         isSellerAlertsModalOpen,

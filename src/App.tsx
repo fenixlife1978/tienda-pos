@@ -8,6 +8,7 @@ import { CustomerOrdersModal } from './components/store/CustomerOrdersModal';
 import { ErpDashboard } from './components/erp/ErpDashboard';
 import { InvoiceModal } from './components/common/InvoiceModal';
 import { CustomerAuthModal } from './components/store/CustomerAuthModal';
+import { AdminLoginModal } from './components/common/AdminLoginModal';
 import { NotificationSettingsModal } from './components/store/NotificationSettingsModal';
 import { NotificationManagerModal } from './components/erp/NotificationManagerModal';
 import { PushNotificationToastContainer } from './components/common/PushNotificationToast';
@@ -22,6 +23,8 @@ const MainLayout: React.FC = () => {
     setSelectedInvoiceForModal,
     isAuthModalOpen,
     setIsAuthModalOpen,
+    isAdminModalOpen,
+    setIsAdminModalOpen,
     isNotificationSettingsOpen,
     setIsNotificationSettingsOpen,
     isSellerAlertsModalOpen,
@@ -66,6 +69,12 @@ const MainLayout: React.FC = () => {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         initialTab={authInitialTab}
+      />
+
+      {/* Admin / Employee ERP Login Modal */}
+      <AdminLoginModal
+        isOpen={isAdminModalOpen}
+        onClose={() => setIsAdminModalOpen(false)}
       />
 
       {/* Customer Push Notification Preferences Modal */}
