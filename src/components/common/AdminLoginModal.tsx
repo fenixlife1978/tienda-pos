@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ShieldCheck, Lock, UserCheck, X, AlertCircle } from 'lucide-react';
 import { User } from '../../types';
@@ -13,8 +13,19 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
   const [selectedUserId, setSelectedUserId] = useState<string>(() => {
     return currentUser.id || users.find(u => u.role === 'admin')?.id || users[0]?.id || '';
   });
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('admin');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      const defaultAdmin = users.find(u => u.isInitialGeneric || u.role === 'admin') || users[0];
+      if (defaultAdmin) {
+        setSelectedUserId(defaultAdmin.id);
+        setPassword(defaultAdmin.password || 'admin');
+        setError('');
+      }
+    }
+  }, [isOpen, users]);
 
   if (!isOpen) return null;
 
