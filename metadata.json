@@ -1,6 +1,6 @@
 {
   "name": "DISTRIBUIDORA LA GRAN BODEGA M&S",
   "description": "Sistema oficial de pedidos online y portal mayorista de Distribuidora La Gran Bodega M&S. Catálogo en pares, muro de ofertas, seguimiento de pedidos en trámite y despachados, facturación y panel administrativo.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -38,12 +38,49 @@ export interface Customer {
   notificationPreferences?: CustomerNotificationPreferences;
 }
 
+export interface ProductPresentation {
+  id: string;
+  name: string; // e.g. "Bulto x 24 un", "Caja x 12 un", "Fardo x 20 un"
+  factor: number; // Unidades base
+  priceUSD: number;
+  barcode?: string;
+}
+
+export interface ProductSupplierInfo {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  costUSD: number;
+  barcode: string; // Código de barras de este proveedor
+}
+
+export interface AlternativePrice {
+  discountPercent: number; // % descuento asignado
+  finalPriceUSD: number; // Precio final con descuento aplicado
+  customerSavingsUSD: number; // Ahorro del cliente al adquirirlo a este precio
+  active: boolean;
+}
+
+export interface AlternativePrices {
+  promocion: AlternativePrice;
+  oferta: AlternativePrice;
+  granMayor: AlternativePrice;
+}
+
+export interface CompositeComponent {
+  productId: string;
+  productName: string;
+  quantity: number;
+  costUSD: number;
+}
+
 export interface Product {
   id: string;
   code: string;
   name: string;
   category: string;
   costUSD: number;
+  profitMarginPercent?: number; // % Margen de ganancia
   priceUSD: number;
   stock: number;
   minStock: number;
@@ -52,6 +89,16 @@ export interface Product {
   isOffer?: boolean;
   discountPercentage?: number;
   description?: string;
+  // Campos avanzados solicitados
+  appliesIva?: boolean; // Selector si aplica o no IVA (true: aplica 16%, false: exento)
+  alternativePrices?: AlternativePrices; // Promoción, Oferta, Gran Mayor
+  presentations?: ProductPresentation[]; // Presentaciones (tipos) y precios
+  suppliersInfo?: ProductSupplierInfo[]; // Proveedores con costo y código de barras
+  highestSupplierCost?: number; // Costo más alto detectado entre proveedores
+  // Producto Compuesto
+  isComposite?: boolean; // Marcador si el producto es Compuesto
+  compositeComponents?: CompositeComponent[]; // Componentes si es compuesto
+  compositeVirtualStock?: number; // Stock virtual calculado según componentes
 }
 
 export interface CartItem {
@@ -62,7 +109,35 @@ export interface CartItem {
 export type OrderStatus = 'en_tramite' | 'despachado_facturado';
 export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'credito';
 export type PaymentStatus = 'pendiente' | 'pagado' | 'a_credito';
-export type PaymentMethod = 'pago_movil' | 'transferencia_bs' | 'zelle' | 'efectivo_usd' | 'credito';
+export type PaymentMethod =
+  | 'efectivo_bs'
+  | 'biopago'
+  | 'transferencia_bs'
+  | 'zelle'
+  | 'pago_movil'
+  | 'efectivo_usd'
+  | 'credito';
+
+export const formatPaymentMethod = (method: PaymentMethod | string): string => {
+  switch (method) {
+    case 'efectivo_bs':
+      return 'Efectivo Bs.';
+    case 'biopago':
+      return 'Biopago';
+    case 'transferencia_bs':
+      return 'Transferencia';
+    case 'zelle':
+      return 'Zelle';
+    case 'efectivo_usd':
+      return 'Efectivo USD';
+    case 'pago_movil':
+      return 'Pago Móvil';
+    case 'credito':
+      return 'Crédito Comercial';
+    default:
+      return (method || '').replace(/_/g, ' ');
+  }
+};
 
 export interface OrderItem {
   productId: string;

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { formatPaymentMethod } from '../../types';
 import {
   Store,
   Flame,
@@ -408,7 +409,7 @@ export const CustomerDashboard: React.FC = () => {
                           </span>
                           <span className="text-xs text-slate-300">•</span>
                           <span className="text-xs text-slate-600">
-                            Método: <strong className="capitalize">{order.paymentMethod.replace('_', ' ')}</strong>
+                            Método: <strong>{formatPaymentMethod(order.paymentMethod)}</strong>
                           </span>
                         </div>
 

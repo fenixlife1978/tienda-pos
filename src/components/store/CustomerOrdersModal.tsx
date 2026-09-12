@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Order, OrderStatus } from '../../types';
+import { Order, OrderStatus, formatPaymentMethod } from '../../types';
 import {
   X,
   History,
@@ -238,7 +238,7 @@ export const CustomerOrdersModal: React.FC = () => {
                       <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
                         <div className="text-xs text-slate-600 space-y-0.5">
                           <p>
-                            Método de Pago: <strong className="capitalize">{order.paymentMethod.replace('_', ' ')}</strong>
+                            Método de Pago: <strong>{formatPaymentMethod(order.paymentMethod)}</strong>
                             {order.paymentReference && ` (Ref: ${order.paymentReference})`}
                           </p>
                           {order.creditDueDate && (

@@ -15,6 +15,8 @@ import {
   CheckCircle,
   UserCheck,
   AlertCircle,
+  Banknote,
+  Fingerprint,
 } from 'lucide-react';
 
 export const PosView: React.FC = () => {
@@ -33,6 +35,7 @@ export const PosView: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo_usd');
   const [customCreditDays, setCustomCreditDays] = useState<number>(15);
   const [cashTenderedUSD, setCashTenderedUSD] = useState<string>('');
+  const [cashTenderedBs, setCashTenderedBs] = useState<string>('');
   const [paymentReference, setPaymentReference] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -95,6 +98,7 @@ export const PosView: React.FC = () => {
   const clearTicket = () => {
     setTicketItems([]);
     setCashTenderedUSD('');
+    setCashTenderedBs('');
     setPaymentReference('');
   };
 
@@ -104,10 +108,15 @@ export const PosView: React.FC = () => {
   const totalUSD = subtotalUSD + taxUSD;
   const totalBs = totalUSD * settings.bcvRate;
 
-  // Change calculation
-  const tendered = parseFloat(cashTenderedUSD) || 0;
-  const changeUSD = Math.max(0, tendered - totalUSD);
-  const changeBs = changeUSD * settings.bcvRate;
+  // Change calculation USD
+  const tenderedUSD = parseFloat(cashTenderedUSD) || 0;
+  const changeUSD = Math.max(0, tenderedUSD - totalUSD);
+  const changeBsFromUSD = changeUSD * settings.bcvRate;
+
+  // Change calculation Bs
+  const tenderedBs = parseFloat(cashTenderedBs) || 0;
+  const changeBs = Math.max(0, tenderedBs - totalBs);
+  const changeUSDFromBs = settings.bcvRate > 0 ? changeBs / settings.bcvRate : 0;
 
   // Credit eligibility
   const creditAvailableUSD = selectedCustomer
@@ -363,13 +372,84 @@ export const PosView: React.FC = () => {
                 Método de Cobro en Mostrador:
               </label>
 
-              <div className="grid grid-cols-4 gap-1.5 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
+                {/* Efectivo Bs. */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('efectivo_bs')}
+                  className={`p-2 rounded-lg border text-center transition cursor-pointer ${
+                    paymentMethod === 'efectivo_bs'
+                      ? 'bg-emerald-50 border-emerald-600 text-emerald-800 font-bold ring-1 ring-emerald-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <Banknote className="w-4 h-4 mx-auto mb-0.5 text-emerald-600" />
+                  <span className="text-[11px]">Efectivo Bs.</span>
+                </button>
+
+                {/* Biopago */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('biopago')}
+                  className={`p-2 rounded-lg border text-center transition cursor-pointer ${
+                    paymentMethod === 'biopago'
+                      ? 'bg-indigo-50 border-indigo-600 text-indigo-800 font-bold ring-1 ring-indigo-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <Fingerprint className="w-4 h-4 mx-auto mb-0.5 text-indigo-600" />
+                  <span className="text-[11px]">Biopago</span>
+                </button>
+
+                {/* Transferencia */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('transferencia_bs')}
+                  className={`p-2 rounded-lg border text-center transition cursor-pointer ${
+                    paymentMethod === 'transferencia_bs'
+                      ? 'bg-blue-50 border-blue-600 text-blue-800 font-bold ring-1 ring-blue-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4 mx-auto mb-0.5 text-blue-600" />
+                  <span className="text-[11px]">Transferencia</span>
+                </button>
+
+                {/* Zelle */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('zelle')}
+                  className={`p-2 rounded-lg border text-center transition cursor-pointer ${
+                    paymentMethod === 'zelle'
+                      ? 'bg-purple-50 border-purple-600 text-purple-800 font-bold ring-1 ring-purple-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <DollarSign className="w-4 h-4 mx-auto mb-0.5 text-purple-600" />
+                  <span className="text-[11px]">Zelle</span>
+                </button>
+
+                {/* Pago Móvil */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('pago_movil')}
+                  className={`p-2 rounded-lg border text-center transition cursor-pointer ${
+                    paymentMethod === 'pago_movil'
+                      ? 'bg-sky-50 border-sky-600 text-sky-800 font-bold ring-1 ring-sky-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4 mx-auto mb-0.5 text-sky-600" />
+                  <span className="text-[11px]">Pago Móvil</span>
+                </button>
+
+                {/* Efectivo USD */}
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('efectivo_usd')}
                   className={`p-2 rounded-lg border text-center transition cursor-pointer ${
                     paymentMethod === 'efectivo_usd'
-                      ? 'bg-indigo-50 border-indigo-600 text-indigo-700 font-bold ring-1 ring-indigo-500'
+                      ? 'bg-emerald-50 border-emerald-600 text-emerald-800 font-bold ring-1 ring-emerald-500'
                       : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
@@ -377,37 +457,12 @@ export const PosView: React.FC = () => {
                   <span className="text-[11px]">Efectivo $</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('pago_movil')}
-                  className={`p-2 rounded-lg border text-center transition cursor-pointer ${
-                    paymentMethod === 'pago_movil'
-                      ? 'bg-indigo-50 border-indigo-600 text-indigo-700 font-bold ring-1 ring-indigo-500'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <Smartphone className="w-4 h-4 mx-auto mb-0.5 text-blue-600" />
-                  <span className="text-[11px]">P. Móvil</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('transferencia_bs')}
-                  className={`p-2 rounded-lg border text-center transition cursor-pointer ${
-                    paymentMethod === 'transferencia_bs'
-                      ? 'bg-indigo-50 border-indigo-600 text-indigo-700 font-bold ring-1 ring-indigo-500'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <Building2 className="w-4 h-4 mx-auto mb-0.5 text-indigo-600" />
-                  <span className="text-[11px]">Punto/Trans</span>
-                </button>
-
+                {/* Crédito Comercial */}
                 <button
                   type="button"
                   disabled={!canUseCredit}
                   onClick={() => setPaymentMethod('credito')}
-                  className={`p-2 rounded-lg border text-center transition ${
+                  className={`p-2 rounded-lg border text-center transition sm:col-span-2 ${
                     !canUseCredit
                       ? 'opacity-40 bg-slate-100 cursor-not-allowed border-slate-200 text-slate-400'
                       : paymentMethod === 'credito'
@@ -417,12 +472,37 @@ export const PosView: React.FC = () => {
                   title={!canUseCredit ? 'Cliente sin línea de crédito activa o cupo excedido' : 'Venta a crédito'}
                 >
                   <CreditCard className="w-4 h-4 mx-auto mb-0.5 text-amber-600" />
-                  <span className="text-[11px]">A Crédito</span>
+                  <span className="text-[11px]">A Crédito ({canUseCredit ? `${selectedCustomer?.creditDays}d` : 'No disp.'})</span>
                 </button>
               </div>
             </div>
 
-            {/* If Cash, calculate change */}
+            {/* If Cash Bs., calculate change */}
+            {paymentMethod === 'efectivo_bs' && (
+              <div className="p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-200 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-emerald-900">Monto recibido en Bs:</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder={totalBs.toFixed(2)}
+                    value={cashTenderedBs}
+                    onChange={(e) => setCashTenderedBs(e.target.value)}
+                    className="w-32 px-2 py-1 border border-emerald-300 rounded font-mono text-right font-bold focus:ring-2 focus:ring-emerald-500 bg-white"
+                  />
+                </div>
+                {tenderedBs >= totalBs && (
+                  <div className="flex justify-between items-center text-xs font-bold text-emerald-900 pt-1 border-t border-emerald-200">
+                    <span>Cambio / Vuelto a entregar:</span>
+                    <span className="font-mono text-sm">
+                      {changeBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs ({changeUSDFromBs > 0 ? `$${changeUSDFromBs.toFixed(2)}` : '$0.00'})
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* If Cash USD, calculate change */}
             {paymentMethod === 'efectivo_usd' && (
               <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
                 <div className="flex items-center justify-between">
@@ -430,20 +510,88 @@ export const PosView: React.FC = () => {
                   <input
                     type="number"
                     step="1"
-                    placeholder="0.00"
+                    placeholder={totalUSD.toFixed(2)}
                     value={cashTenderedUSD}
                     onChange={(e) => setCashTenderedUSD(e.target.value)}
-                    className="w-24 px-2 py-1 border border-slate-300 rounded font-mono text-right font-bold focus:ring-2 focus:ring-indigo-500"
+                    className="w-24 px-2 py-1 border border-slate-300 rounded font-mono text-right font-bold focus:ring-2 focus:ring-indigo-500 bg-white"
                   />
                 </div>
-                {tendered >= totalUSD && (
+                {tenderedUSD >= totalUSD && (
                   <div className="flex justify-between items-center text-xs font-bold text-emerald-800 pt-1 border-t border-slate-200">
                     <span>Cambio / Vuelto a entregar:</span>
                     <span className="font-mono text-sm">
-                      ${changeUSD.toFixed(2)} ({changeBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs)
+                      ${changeUSD.toFixed(2)} ({changeBsFromUSD.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs)
                     </span>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Biopago reference */}
+            {paymentMethod === 'biopago' && (
+              <div className="p-2.5 bg-indigo-50/50 rounded-xl border border-indigo-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-indigo-900 font-semibold">
+                  <span>Terminal Biopago BDV</span>
+                  <span className="font-mono font-bold">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Cédula del titular o Código de Aprobación Biopago..."
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+              </div>
+            )}
+
+            {/* Transferencia reference */}
+            {paymentMethod === 'transferencia_bs' && (
+              <div className="p-2.5 bg-blue-50/50 rounded-xl border border-blue-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-blue-900 font-semibold">
+                  <span>Transferencia Bancaria / Punto de Venta</span>
+                  <span className="font-mono font-bold">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Referencia bancaria / Nro. de comprobante o Lote de punto..."
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono"
+                />
+              </div>
+            )}
+
+            {/* Zelle reference */}
+            {paymentMethod === 'zelle' && (
+              <div className="p-2.5 bg-purple-50/50 rounded-xl border border-purple-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-purple-900 font-semibold">
+                  <span>Pago Electrónico Zelle</span>
+                  <span className="font-mono font-bold">${totalUSD.toFixed(2)} USD</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Titular de la cuenta Zelle emisora o Referencia..."
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+            )}
+
+            {/* Pago Móvil reference */}
+            {paymentMethod === 'pago_movil' && (
+              <div className="p-2.5 bg-sky-50/50 rounded-xl border border-sky-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-sky-900 font-semibold">
+                  <span>Pago Móvil Interbancario</span>
+                  <span className="font-mono font-bold">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Referencia del Pago Móvil..."
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-sky-300 rounded-lg focus:ring-2 focus:ring-sky-500 font-mono"
+                />
               </div>
             )}
 
@@ -467,19 +615,6 @@ export const PosView: React.FC = () => {
                 <p className="text-[11px] text-amber-800">
                   Esta venta se registrará automáticamente en <strong>Cuentas por Cobrar (CxC)</strong> con su vencimiento correspondiente.
                 </p>
-              </div>
-            )}
-
-            {/* Reference input for cards / pago movil */}
-            {(paymentMethod === 'pago_movil' || paymentMethod === 'transferencia_bs') && (
-              <div>
-                <input
-                  type="text"
-                  placeholder="Referencia de pago / Lote de punto..."
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
-                />
               </div>
             )}
 

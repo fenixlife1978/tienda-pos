@@ -557,7 +557,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalBs,
       bcvRate: settings.bcvRate,
       paymentMethod: orderInput.paymentMethod,
-      paymentStatus: isCredit ? 'a_credito' : orderInput.paymentMethod === 'efectivo_usd' && orderInput.channel === 'pos' ? 'pagado' : 'pendiente',
+      paymentStatus: isCredit
+        ? 'a_credito'
+        : ['efectivo_usd', 'efectivo_bs', 'biopago'].includes(orderInput.paymentMethod) && orderInput.channel === 'pos'
+        ? 'pagado'
+        : 'pendiente',
       orderStatus: 'en_tramite', // Pedidos se envían en estado "En trámite"
       paymentReference: orderInput.paymentReference,
       channel: orderInput.channel,

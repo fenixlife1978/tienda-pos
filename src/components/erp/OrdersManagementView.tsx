@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Order, OrderStatus, PaymentStatus } from '../../types';
+import { Order, OrderStatus, PaymentStatus, formatPaymentMethod } from '../../types';
 import {
   ClipboardList,
   Search,
@@ -59,7 +59,7 @@ export const OrdersManagementView: React.FC = () => {
         o.customerRif,
         o.customerPhone,
         o.orderStatus.toUpperCase(),
-        o.paymentMethod,
+        formatPaymentMethod(o.paymentMethod),
         o.paymentStatus.toUpperCase(),
         o.totalUSD.toFixed(2),
         o.totalBs.toFixed(2),
@@ -231,8 +231,8 @@ export const OrdersManagementView: React.FC = () => {
 
                       {/* Pago */}
                       <td className="py-3 px-4">
-                        <p className="font-medium text-slate-700 capitalize">
-                          {order.paymentMethod.replace('_', ' ')}
+                        <p className="font-semibold text-slate-800">
+                          {formatPaymentMethod(order.paymentMethod)}
                         </p>
                         {order.paymentReference && (
                           <p className="text-[10px] font-mono text-slate-500">

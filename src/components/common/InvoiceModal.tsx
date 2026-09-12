@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { Invoice } from '../../types';
+import { Invoice, formatPaymentMethod } from '../../types';
 import { Printer, Download, X, QrCode, Building2, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
 import { exportToCSV, printElement } from '../../utils/exportUtils';
 
@@ -26,7 +26,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
       ['Dirección', invoice.customerAddress],
       ['Teléfono', invoice.customerPhone],
       ['Tasa BCV Aplicada', `${invoice.bcvRate.toFixed(2)} Bs/USD`],
-      ['Condición de Pago', invoice.isCredit ? `Crédito (${invoice.creditDays || 15} días)` : invoice.paymentMethod],
+      ['Condición de Pago', invoice.isCredit ? `Crédito (${invoice.creditDays || 15} días)` : formatPaymentMethod(invoice.paymentMethod)],
       ['Estado de Pago', invoice.paymentStatus.toUpperCase()],
       [],
       ['Producto', 'Cantidad', 'Precio Unitario (USD)', 'Subtotal (USD)', 'Subtotal (Bs)'],
@@ -148,8 +148,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
             </div>
             <div className="text-right">
               <p className="text-xs font-bold uppercase text-slate-500 mb-1 tracking-wider">Condiciones de Pago:</p>
-              <p className="font-semibold text-slate-800 capitalize">
-                {invoice.paymentMethod.replace('_', ' ')}
+              <p className="font-semibold text-slate-800">
+                {formatPaymentMethod(invoice.paymentMethod)}
               </p>
               {isCredit && (
                 <p className="text-xs text-amber-700 mt-1">

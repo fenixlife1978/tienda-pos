@@ -13,6 +13,8 @@ import {
   ShieldCheck,
   AlertCircle,
   FileText,
+  Banknote,
+  Fingerprint,
 } from 'lucide-react';
 
 interface CheckoutModalProps {
@@ -69,7 +71,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
     }
 
     if (paymentMethod === 'pago_movil' && !paymentReference.trim()) {
-      alert('Por favor ingrese el número de referencia del Pago Móvil realizado.');
+      alert('Por favor ingrese el número de referencia del Pago Móvil.');
+      return;
+    }
+
+    if (paymentMethod === 'transferencia_bs' && !paymentReference.trim()) {
+      alert('Por favor ingrese el número de comprobante o referencia de la transferencia.');
+      return;
+    }
+
+    if (paymentMethod === 'zelle' && !paymentReference.trim()) {
+      alert('Por favor ingrese el titular o confirmación del pago Zelle.');
+      return;
+    }
+
+    if (paymentMethod === 'biopago' && !paymentReference.trim()) {
+      alert('Por favor ingrese el número de cédula del titular o código de aprobación Biopago.');
       return;
     }
 
@@ -242,21 +259,38 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
               Método de Pago
             </h4>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {/* Efectivo Bs. */}
               <button
                 type="button"
-                onClick={() => setPaymentMethod('pago_movil')}
+                onClick={() => setPaymentMethod('efectivo_bs')}
                 className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer ${
-                  paymentMethod === 'pago_movil'
-                    ? 'border-blue-600 bg-blue-50/70 text-blue-900 font-semibold ring-1 ring-blue-500'
+                  paymentMethod === 'efectivo_bs'
+                    ? 'border-emerald-600 bg-emerald-50/70 text-emerald-900 font-semibold ring-1 ring-emerald-500'
                     : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                 }`}
               >
-                <Smartphone className="w-4 h-4 mb-1 text-blue-600" />
-                <p className="font-semibold">Pago Móvil</p>
+                <Banknote className="w-4 h-4 mb-1 text-emerald-600" />
+                <p className="font-semibold">Efectivo Bs.</p>
                 <p className="text-[10px] text-slate-500">Tasa BCV oficial</p>
               </button>
 
+              {/* Biopago */}
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('biopago')}
+                className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer ${
+                  paymentMethod === 'biopago'
+                    ? 'border-indigo-600 bg-indigo-50/70 text-indigo-900 font-semibold ring-1 ring-indigo-500'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                }`}
+              >
+                <Fingerprint className="w-4 h-4 mb-1 text-indigo-600" />
+                <p className="font-semibold">Biopago</p>
+                <p className="text-[10px] text-slate-500">BDV / Huella</p>
+              </button>
+
+              {/* Transferencia */}
               <button
                 type="button"
                 onClick={() => setPaymentMethod('transferencia_bs')}
@@ -266,44 +300,62 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                     : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                 }`}
               >
-                <Building2 className="w-4 h-4 mb-1 text-indigo-600" />
-                <p className="font-semibold">Transferencia Bs</p>
+                <Building2 className="w-4 h-4 mb-1 text-blue-600" />
+                <p className="font-semibold">Transferencia</p>
                 <p className="text-[10px] text-slate-500">Banesco / BDV</p>
               </button>
 
+              {/* Zelle */}
               <button
                 type="button"
                 onClick={() => setPaymentMethod('zelle')}
                 className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer ${
                   paymentMethod === 'zelle'
-                    ? 'border-blue-600 bg-blue-50/70 text-blue-900 font-semibold ring-1 ring-blue-500'
+                    ? 'border-purple-600 bg-purple-50/70 text-purple-900 font-semibold ring-1 ring-purple-500'
                     : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                 }`}
               >
                 <DollarSign className="w-4 h-4 mb-1 text-purple-600" />
-                <p className="font-semibold">Zelle USD</p>
-                <p className="text-[10px] text-slate-500">Dólares electrónicos</p>
+                <p className="font-semibold">Zelle</p>
+                <p className="text-[10px] text-slate-500">Dólares exactos</p>
               </button>
 
+              {/* Pago Móvil */}
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('pago_movil')}
+                className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer ${
+                  paymentMethod === 'pago_movil'
+                    ? 'border-sky-600 bg-sky-50/70 text-sky-900 font-semibold ring-1 ring-sky-500'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                }`}
+              >
+                <Smartphone className="w-4 h-4 mb-1 text-sky-600" />
+                <p className="font-semibold">Pago Móvil</p>
+                <p className="text-[10px] text-slate-500">Tasa BCV oficial</p>
+              </button>
+
+              {/* Efectivo USD */}
               <button
                 type="button"
                 onClick={() => setPaymentMethod('efectivo_usd')}
                 className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer ${
                   paymentMethod === 'efectivo_usd'
-                    ? 'border-blue-600 bg-blue-50/70 text-blue-900 font-semibold ring-1 ring-blue-500'
+                    ? 'border-emerald-600 bg-emerald-50/70 text-emerald-900 font-semibold ring-1 ring-emerald-500'
                     : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                 }`}
               >
                 <DollarSign className="w-4 h-4 mb-1 text-emerald-600" />
                 <p className="font-semibold">Efectivo USD</p>
-                <p className="text-[10px] text-slate-500">Contra entrega</p>
+                <p className="text-[10px] text-slate-500">Contra entrega ($)</p>
               </button>
 
+              {/* Crédito Comercial */}
               <button
                 type="button"
                 disabled={!canUseCredit}
                 onClick={() => setPaymentMethod('credito')}
-                className={`p-2.5 rounded-xl border text-left text-xs transition ${
+                className={`p-2.5 rounded-xl border text-left text-xs transition sm:col-span-2 ${
                   !canUseCredit
                     ? 'opacity-40 bg-slate-100 cursor-not-allowed border-slate-200'
                     : paymentMethod === 'credito'
@@ -314,20 +366,127 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                 <CreditCard className="w-4 h-4 mb-1 text-amber-600" />
                 <p className="font-semibold">Crédito Comercial</p>
                 <p className="text-[10px] text-slate-500">
-                  {currentCustomer?.creditDays || 15} días de plazo
+                  {currentCustomer?.creditDays || 15} días de plazo ({canUseCredit ? 'Disponible' : 'Cupo no disponible'})
                 </p>
               </button>
             </div>
 
-            {/* Payment method instructions */}
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+            {/* Payment method instructions & data */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+              {/* Efectivo Bs. */}
+              {paymentMethod === 'efectivo_bs' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold">
+                    <Banknote className="w-4 h-4 text-emerald-600" />
+                    <span>Pago en Efectivo Bolívares (Tasa Oficial BCV)</span>
+                  </div>
+                  <p className="text-slate-600">
+                    Total a cancelar en Bolívares: <strong className="text-emerald-700 font-mono text-sm">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</strong> (Tasa: {settings.bcvRate.toFixed(2)} Bs/USD).
+                  </p>
+                  <p className="text-slate-500 text-[11px]">
+                    Cancela en efectivo al recibir tu despacho o al retirar en tienda. Si requieres vuelto, por favor especifica en las notas con qué denominación de billetes pagarás.
+                  </p>
+                </div>
+              )}
+
+              {/* Biopago */}
+              {paymentMethod === 'biopago' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-indigo-800 font-bold">
+                    <Fingerprint className="w-4 h-4 text-indigo-600" />
+                    <span>Terminal Biopago BDV / Débito</span>
+                  </div>
+                  <p className="text-slate-600">
+                    Total a debitar: <strong className="text-indigo-700 font-mono text-sm">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</strong> (Tasa oficial BCV: {settings.bcvRate.toFixed(2)} Bs/USD).
+                  </p>
+                  <p className="text-slate-500 text-[11px]">
+                    El cobro se procesa a través de la plataforma Biopago con huella dactilar o tarjeta de débito registrada en BDV u otros bancos afiliados.
+                  </p>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      Cédula de Identidad del Titular o Nro. de Aprobación Biopago *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
+                      placeholder="Ej: V-12345678 o Código Operación"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Transferencia */}
+              {paymentMethod === 'transferencia_bs' && (
+                <div className="space-y-2">
+                  <p className="font-semibold text-slate-800">Datos para Transferencia Bancaria:</p>
+                  <div className="space-y-1 bg-white p-2 rounded-lg border border-slate-200">
+                    <p className="text-slate-600">
+                      <strong>Banesco:</strong> Cuenta Corriente 0134-0982-11-0001928374
+                    </p>
+                    <p className="text-slate-600">
+                      <strong>Banco de Venezuela:</strong> Cuenta Corriente 0102-0140-33-0000458921
+                    </p>
+                    <p className="text-slate-600">
+                      Titular: <strong>{settings.companyName}</strong> | RIF: <strong>{settings.companyRif}</strong>
+                    </p>
+                  </div>
+                  <p className="text-blue-700 font-bold font-mono">
+                    Total a transferir: {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                  </p>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      Número de Comprobante / Referencia Bancaria *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono"
+                      placeholder="Ej: BAN-84729103"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Zelle */}
+              {paymentMethod === 'zelle' && (
+                <div className="space-y-2">
+                  <p className="font-semibold text-slate-800">Datos para pago en Zelle:</p>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200 space-y-0.5">
+                    <p className="text-slate-600">Correo Electrónico: <strong className="text-slate-900">{settings.zelleEmail}</strong></p>
+                    <p className="text-slate-600">Beneficiario Registrado: <strong className="text-slate-900">{settings.zelleBeneficiary}</strong></p>
+                  </div>
+                  <p className="text-purple-700 font-bold font-mono">Monto exacto a transferir: ${totalUSD.toFixed(2)} USD</p>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      Nombre del Titular de la cuenta Zelle emisora o Referencia *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      placeholder="Ej: Juan Pérez / Zelle Ref"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Pago Móvil */}
               {paymentMethod === 'pago_movil' && (
                 <div className="space-y-2">
                   <p className="font-semibold text-slate-800">Datos para realizar el Pago Móvil:</p>
-                  <p className="text-slate-600">
-                    Banco: <strong>{settings.pagoMovilBank}</strong> | Teléfono: <strong>{settings.pagoMovilPhone}</strong> | RIF: <strong>{settings.pagoMovilRif}</strong>
-                  </p>
-                  <p className="text-blue-700 font-bold font-mono">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200 space-y-0.5">
+                    <p className="text-slate-600">
+                      Banco: <strong>{settings.pagoMovilBank}</strong> | Teléfono: <strong>{settings.pagoMovilPhone}</strong> | RIF: <strong>{settings.pagoMovilRif}</strong>
+                    </p>
+                  </div>
+                  <p className="text-sky-700 font-bold font-mono">
                     Monto a transferir: {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
                   </p>
                   <div>
@@ -339,68 +498,29 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                       required
                       value={paymentReference}
                       onChange={(e) => setPaymentReference(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono"
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 font-mono"
                       placeholder="Ej: 19827364"
                     />
                   </div>
                 </div>
               )}
 
-              {paymentMethod === 'transferencia_bs' && (
-                <div className="space-y-2">
-                  <p className="font-semibold text-slate-800">Datos de Cuenta Bancaria:</p>
-                  <p className="text-slate-600">
-                    Banesco Banco Universal | Cta Corriente: <strong>0134-0982-11-0001928374</strong>
-                  </p>
-                  <p className="text-slate-600">Titular: <strong>{settings.companyName}</strong> (RIF: {settings.companyRif})</p>
-                  <p className="text-blue-700 font-bold font-mono">
-                    Total a transferir: {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
-                  </p>
-                  <div>
-                    <label className="block font-medium text-slate-700 mb-1">
-                      Número de Comprobante / Referencia
-                    </label>
-                    <input
-                      type="text"
-                      value={paymentReference}
-                      onChange={(e) => setPaymentReference(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono"
-                      placeholder="Ej: BAN-84729103"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {paymentMethod === 'zelle' && (
-                <div className="space-y-2">
-                  <p className="font-semibold text-slate-800">Datos para pago Zelle:</p>
-                  <p className="text-slate-600">Correo: <strong>{settings.zelleEmail}</strong></p>
-                  <p className="text-slate-600">Beneficiario: <strong>{settings.zelleBeneficiary}</strong></p>
-                  <p className="text-purple-700 font-bold font-mono">Monto exacto: ${totalUSD.toFixed(2)} USD</p>
-                  <div>
-                    <label className="block font-medium text-slate-700 mb-1">
-                      Nombre del titular de la cuenta Zelle emisora
-                    </label>
-                    <input
-                      type="text"
-                      value={paymentReference}
-                      onChange={(e) => setPaymentReference(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder="Ej: Juan Pérez"
-                    />
-                  </div>
-                </div>
-              )}
-
+              {/* Efectivo USD */}
               {paymentMethod === 'efectivo_usd' && (
-                <div className="flex items-center gap-2 text-slate-700">
-                  <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <p>
-                    Cancela en dólares en efectivo al recibir tu despacho o al retirar en tienda. Por favor indicar billetes con los que cancelará en las notas si requiere vuelto.
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <p>
+                      Cancela en dólares en efectivo al recibir tu despacho o al retirar en tienda. Monto total a entregar: <strong className="font-mono text-emerald-700 font-bold">${totalUSD.toFixed(2)} USD</strong>.
+                    </p>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Por favor indicar en las notas del pedido la denominación de los billetes con los que cancelará si requiere cambio/vuelto.
                   </p>
                 </div>
               )}
 
+              {/* Crédito Comercial */}
               {paymentMethod === 'credito' && (
                 <div className="space-y-1 text-amber-900">
                   <div className="flex items-center gap-1.5 font-bold">
