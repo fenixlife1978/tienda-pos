@@ -1,0 +1,6 @@
+{
+  "name": "OmniPOS & ERP Comercial",
+  "description": "Sistema integral de Punto de Venta (POS) y tienda de pedidos online con gestión ERP, inventario en tiempo real, tasa BCV, cuentas por cobrar y pagar, roles jerárquicos y facturación.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
