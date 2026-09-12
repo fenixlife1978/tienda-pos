@@ -121,10 +121,8 @@ export const OrdersManagementView: React.FC = () => {
             <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
               {[
                 { id: 'todos', label: 'Todos' },
-                { id: 'pendiente', label: 'Pendientes' },
-                { id: 'en_preparacion', label: 'En Preparación' },
-                { id: 'en_camino', label: 'En Camino' },
-                { id: 'entregado', label: 'Entregados' },
+                { id: 'en_tramite', label: 'En trámite' },
+                { id: 'despachado_facturado', label: 'Despachado / Facturado' },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -256,29 +254,14 @@ export const OrdersManagementView: React.FC = () => {
 
                       {/* Estado Entrega */}
                       <td className="py-3 px-4">
-                        {order.orderStatus === 'pendiente' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold text-[10px]">
-                            <Clock className="w-3 h-3 text-amber-600 animate-pulse" /> Pendiente
+                        {order.orderStatus === 'en_tramite' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-bold text-[10px] border border-amber-200">
+                            <Clock className="w-3 h-3 text-amber-600 animate-pulse" /> En trámite
                           </span>
                         )}
-                        {order.orderStatus === 'en_preparacion' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold text-[10px]">
-                            <Package className="w-3 h-3 text-blue-600" /> En Preparación
-                          </span>
-                        )}
-                        {order.orderStatus === 'en_camino' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[10px]">
-                            <Truck className="w-3 h-3 text-purple-600" /> En Camino
-                          </span>
-                        )}
-                        {order.orderStatus === 'entregado' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Entregado
-                          </span>
-                        )}
-                        {order.orderStatus === 'cancelado' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[10px]">
-                            <XCircle className="w-3 h-3 text-rose-600" /> Cancelado
+                        {order.orderStatus === 'despachado_facturado' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Despachado / Facturado
                           </span>
                         )}
                       </td>
@@ -289,59 +272,26 @@ export const OrdersManagementView: React.FC = () => {
                           {/* Invoice button */}
                           <button
                             onClick={() => handleViewInvoice(order.id)}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 rounded bg-slate-100 hover:bg-indigo-50 transition cursor-pointer"
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 rounded-lg bg-slate-100 hover:bg-indigo-50 transition cursor-pointer"
                             title="Ver Factura Fiscal / Imprimir"
                           >
                             <FileText className="w-4 h-4" />
                           </button>
 
                           {/* Pipeline action buttons */}
-                          {order.orderStatus === 'pendiente' && (
+                          {order.orderStatus === 'en_tramite' && (
                             <button
                               onClick={() => {
-                                updateOrderStatus(order.id, 'en_preparacion');
+                                updateOrderStatus(order.id, 'despachado_facturado');
                                 if (order.paymentStatus === 'pendiente') {
                                   updatePaymentStatus(order.id, 'pagado');
                                 }
                               }}
-                              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-[10px] transition cursor-pointer"
-                              title="Aprobar pedido y pasar a preparación"
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                              title="Marcar como despachado y facturado"
                             >
-                              Aprobar
-                            </button>
-                          )}
-
-                          {order.orderStatus === 'en_preparacion' && (
-                            <button
-                              onClick={() => updateOrderStatus(order.id, 'en_camino')}
-                              className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded font-semibold text-[10px] transition cursor-pointer"
-                              title="Asignar a motorizado / Despachar"
-                            >
-                              Despachar
-                            </button>
-                          )}
-
-                          {order.orderStatus === 'en_camino' && (
-                            <button
-                              onClick={() => updateOrderStatus(order.id, 'entregado')}
-                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold text-[10px] transition cursor-pointer"
-                              title="Confirmar entrega al cliente"
-                            >
-                              Entregado
-                            </button>
-                          )}
-
-                          {order.orderStatus !== 'entregado' && order.orderStatus !== 'cancelado' && (
-                            <button
-                              onClick={() => {
-                                if (confirm(`¿Está seguro de anular el pedido ${order.orderNumber}?`)) {
-                                  updateOrderStatus(order.id, 'cancelado');
-                                }
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition cursor-pointer"
-                              title="Anular Pedido"
-                            >
-                              <XCircle className="w-4 h-4" />
+                              <Truck className="w-3 h-3" />
+                              <span>Despachar / Facturar</span>
                             </button>
                           )}
                         </div>

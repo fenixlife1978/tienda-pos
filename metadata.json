@@ -1,6 +1,6 @@
 {
-  "name": "OmniPOS & ERP Comercial",
-  "description": "Sistema integral de Punto de Venta (POS) y tienda de pedidos online con gestión ERP, inventario en tiempo real, tasa BCV, cuentas por cobrar y pagar, roles jerárquicos y facturación.",
+  "name": "DISTRIBUIDORA LA GRAN BODEGA M&S",
+  "description": "Sistema oficial de pedidos online y portal mayorista de Distribuidora La Gran Bodega M&S. Catálogo en pares, muro de ofertas, seguimiento de pedidos en trámite y despachados, facturación y panel administrativo.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

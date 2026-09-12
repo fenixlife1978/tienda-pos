@@ -44,6 +44,8 @@ export const Header: React.FC = () => {
     users,
     storeTab,
     setStoreTab,
+    isAdminActive,
+    setIsAdminActive,
     setIsAuthModalOpen,
     setIsNotificationSettingsOpen,
     setIsSellerAlertsModalOpen,
@@ -99,45 +101,38 @@ export const Header: React.FC = () => {
           
           {/* Logo and Brand */}
           <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 flex items-center justify-center text-white shadow-sm font-bold text-lg sm:text-xl">
-              <Building2 className="w-5 h-5" />
-            </div>
+            <img
+              src="/logo.png"
+              alt="DISTRIBUIDORA LA GRAN BODEGA M&S"
+              className="h-10 sm:h-11 w-auto object-contain rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs"
+            />
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-slate-900 text-base sm:text-lg tracking-tight">OmniPOS</span>
-                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
-                  {mode === 'store' ? 'Tienda' : 'ERP'}
+                <span className="font-extrabold text-slate-900 text-xs sm:text-sm md:text-base tracking-tight truncate max-w-[200px] sm:max-w-none">
+                  DISTRIBUIDORA LA GRAN BODEGA M&S
+                </span>
+                <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                  Panel ERP
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500 hidden md:block truncate max-w-[190px]">
-                {settings.companyName}
+              <p className="text-[10px] text-slate-500 hidden md:block truncate">
+                Administración General, Facturación Fiscal y Despacho
               </p>
             </div>
           </div>
 
-          {/* Mode Switcher Pills: Tienda Online vs ERP Vendedor */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
+          {/* Action button to exit ERP and return to main landing */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setMode('store')}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                mode === 'store'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              onClick={() => {
+                setIsAdminActive(false);
+                setMode('store');
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 hover:border-rose-300 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 text-xs font-bold transition shadow-2xs cursor-pointer"
+              title="Cerrar panel ERP y volver a la página principal"
             >
-              <Store className="w-3.5 h-3.5" />
-              <span>Tienda Online</span>
-            </button>
-            <button
-              onClick={() => setMode('erp')}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                mode === 'erp'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Dashboard ERP</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Cerrar ERP / Inicio</span>
             </button>
           </div>
 

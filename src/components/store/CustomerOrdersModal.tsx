@@ -45,51 +45,31 @@ export const CustomerOrdersModal: React.FC = () => {
 
   const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
-      case 'pendiente':
+      case 'en_tramite':
         return (
           <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-            <Clock className="w-3 h-3 animate-pulse text-amber-600" /> Pendiente de Aprobación
+            <Clock className="w-3 h-3 animate-pulse text-amber-600" /> En trámite
           </span>
         );
-      case 'en_preparacion':
-        return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-            <Package className="w-3 h-3 text-blue-600" /> En Preparación
-          </span>
-        );
-      case 'en_camino':
-        return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-            <Truck className="w-3 h-3 text-purple-600 animate-bounce" /> En Camino / Despachado
-          </span>
-        );
-      case 'entregado':
+      case 'despachado_facturado':
         return (
           <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Entregado
+            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Despachado / Facturado
           </span>
         );
-      case 'cancelado':
-        return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
-            <AlertTriangle className="w-3 h-3 text-rose-600" /> Cancelado
-          </span>
-        );
+      default:
+        return null;
     }
   };
 
   const getStepIndex = (status: OrderStatus) => {
     switch (status) {
-      case 'pendiente':
+      case 'en_tramite':
         return 0;
-      case 'en_preparacion':
+      case 'despachado_facturado':
         return 1;
-      case 'en_camino':
-        return 2;
-      case 'entregado':
-        return 3;
       default:
-        return -1;
+        return 0;
     }
   };
 
@@ -132,7 +112,7 @@ export const CustomerOrdersModal: React.FC = () => {
           {/* Filter Bar */}
           <div className="px-6 py-3 bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto text-xs">
             <span className="font-semibold text-slate-500 mr-2">Filtrar:</span>
-            {['todos', 'pendiente', 'en_preparacion', 'en_camino', 'entregado'].map((status) => (
+            {['todos', 'en_tramite', 'despachado_facturado'].map((status) => (
               <button
                 key={status}
                 onClick={() => setSelectedStatus(status)}
@@ -142,7 +122,7 @@ export const CustomerOrdersModal: React.FC = () => {
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {status.replace('_', ' ')}
+                {status === 'todos' ? 'Todos' : status === 'en_tramite' ? 'En trámite' : 'Despachado / Facturado'}
               </button>
             ))}
           </div>
@@ -190,77 +170,45 @@ export const CustomerOrdersModal: React.FC = () => {
                         Seguimiento en Tiempo Real del Despacho:
                       </p>
 
-                      <div className="grid grid-cols-4 gap-2 text-center relative">
-                        {/* Step 1: Pendiente */}
-                        <div className="flex flex-col items-center">
+                      <div className="flex items-center justify-between max-w-sm mx-auto relative py-2">
+                        <div className="absolute top-1/2 left-8 right-8 -translate-y-1/2 h-1 bg-slate-200 z-0">
                           <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                              currentStep >= 0
-                                ? 'bg-amber-500 text-white ring-4 ring-amber-100'
-                                : 'bg-slate-200 text-slate-500'
+                            className={`h-full transition-all duration-500 ${
+                              order.orderStatus === 'despachado_facturado' ? 'bg-emerald-500 w-full' : 'bg-amber-500 w-1/2'
                             }`}
-                          >
+                          ></div>
+                        </div>
+
+                        {/* Step 1: En trámite */}
+                        <div className="relative z-10 flex flex-col items-center">
+                          <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center text-xs font-bold ring-4 ring-amber-100">
                             <Clock className="w-4 h-4" />
                           </div>
                           <span className="text-[11px] font-semibold text-slate-800 mt-1.5 leading-tight">
-                            1. Pendiente
+                            1. En trámite
                           </span>
-                          <span className="text-[10px] text-slate-600">Revisión</span>
+                          <span className="text-[10px] text-slate-500">Revisión y Empaque</span>
                         </div>
 
-                        {/* Step 2: En Preparación */}
-                        <div className="flex flex-col items-center">
+                        {/* Step 2: Despachado / Facturado */}
+                        <div className="relative z-10 flex flex-col items-center">
                           <div
                             className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                              currentStep >= 1
-                                ? 'bg-blue-600 text-white ring-4 ring-blue-100'
-                                : 'bg-slate-200 text-slate-500'
-                            }`}
-                          >
-                            <Package className="w-4 h-4" />
-                          </div>
-                          <span className="text-[11px] font-semibold text-slate-800 mt-1.5 leading-tight">
-                            2. En Almacén
-                          </span>
-                          <span className="text-[10px] text-slate-600">Empacando</span>
-                        </div>
-
-                        {/* Step 3: En Camino */}
-                        <div className="flex flex-col items-center">
-                          <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                              currentStep >= 2
-                                ? 'bg-purple-600 text-white ring-4 ring-purple-100'
+                              order.orderStatus === 'despachado_facturado'
+                                ? 'bg-emerald-600 text-white ring-4 ring-emerald-100'
                                 : 'bg-slate-200 text-slate-500'
                             }`}
                           >
                             <Truck className="w-4 h-4" />
                           </div>
                           <span className="text-[11px] font-semibold text-slate-800 mt-1.5 leading-tight">
-                            3. En Ruta
+                            2. Despachado / Facturado
                           </span>
-                          <span className="text-[10px] text-slate-600">Con Motorizado</span>
-                        </div>
-
-                        {/* Step 4: Entregado */}
-                        <div className="flex flex-col items-center">
-                          <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                              currentStep >= 3
-                                ? 'bg-emerald-600 text-white ring-4 ring-emerald-100'
-                                : 'bg-slate-200 text-slate-500'
-                            }`}
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </div>
-                          <span className="text-[11px] font-semibold text-slate-800 mt-1.5 leading-tight">
-                            4. Entregado
-                          </span>
-                          <span className="text-[10px] text-slate-600">Finalizado</span>
+                          <span className="text-[10px] text-slate-500">Factura y Despacho</span>
                         </div>
                       </div>
 
-                      {order.estimatedDelivery && order.orderStatus !== 'entregado' && (
+                      {order.estimatedDelivery && order.orderStatus === 'en_tramite' && (
                         <div className="mt-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-xs flex items-center justify-between">
                           <span>Estimado de llegada: <strong>{order.estimatedDelivery}</strong></span>
                           {order.notes && <span className="text-slate-500 italic truncate max-w-xs">{order.notes}</span>}

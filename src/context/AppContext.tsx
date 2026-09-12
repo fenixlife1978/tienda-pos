@@ -4,6 +4,7 @@ import {
   CartItem,
   Customer,
   CustomerNotificationPreferences,
+  CustomerPortalTab,
   Invoice,
   Order,
   OrderStatus,
@@ -19,6 +20,7 @@ import {
 import { playNotificationSound } from '../utils/notificationSound';
 import {
   INITIAL_CUSTOMERS,
+  INITIAL_GENERIC_ADMIN,
   INITIAL_INVOICES,
   INITIAL_ORDERS,
   INITIAL_PAYABLES,
@@ -83,7 +85,8 @@ interface AppContextType {
   updateSupplier: (supplier: Supplier) => void;
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
   updateUser: (user: User) => void;
-  deleteUser: (userId: string) => void;
+  deleteUser: (userId: string) => { success: boolean; message: string };
+  resetSystemToFactory: () => void;
   refreshBcvRate: () => Promise<number>;
   updateSettings: (settings: Partial<SystemSettings>) => void;
   markNotificationAsRead: (id: string) => void;
@@ -115,6 +118,12 @@ interface AppContextType {
   // Navigation tabs & modals
   storeTab: 'catalog' | 'offers';
   setStoreTab: (tab: 'catalog' | 'offers') => void;
+  customerPortalTab: CustomerPortalTab;
+  setCustomerPortalTab: (tab: CustomerPortalTab) => void;
+  isAdminActive: boolean;
+  setIsAdminActive: (active: boolean) => void;
+  authInitialTab: 'login' | 'register';
+  setAuthInitialTab: (tab: 'login' | 'register') => void;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
   isNotificationSettingsOpen: boolean;
@@ -144,11 +153,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem('omni_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
+    if (saved) {
+      try {
+        const parsed: User[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Rule: Siempre debe existir al menos un administrador activo en el sistema.
+          // Si no hay ninguno, se restaura automáticamente el Administrador Genérico Inicial.
+          const hasAdmin = parsed.some((u) => u.role === 'admin' && u.active);
+          if (!hasAdmin) {
+            return [INITIAL_GENERIC_ADMIN, ...parsed];
+          }
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Error al cargar omni_users:', e);
+      }
+    }
+    return INITIAL_USERS;
   });
 
   const [currentUser, setCurrentUser] = useState<User>(() => {
-    return users[0] || INITIAL_USERS[0];
+    const savedUsers = localStorage.getItem('omni_users');
+    if (savedUsers) {
+      try {
+        const list: User[] = JSON.parse(savedUsers);
+        const admin = list.find((u) => u.role === 'admin' && u.active);
+        if (admin) return admin;
+      } catch (e) {}
+    }
+    return INITIAL_GENERIC_ADMIN;
   });
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
@@ -157,7 +190,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(() => {
-    return customers[0] || INITIAL_CUSTOMERS[0];
+    const activeId = localStorage.getItem('omni_active_customer_id');
+    if (activeId) {
+      const saved = localStorage.getItem('omni_customers');
+      const list: Customer[] = saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
+      const found = list.find((c) => c.id === activeId);
+      if (found) return found;
+    }
+    return null;
   });
 
   const [products, setProducts] = useState<Product[]>(() => {
@@ -216,9 +256,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isOrdersModalOpen, setIsOrdersModalOpen] = useState(false);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
   const [storeTab, setStoreTab] = useState<'catalog' | 'offers'>('catalog');
+  const [customerPortalTab, setCustomerPortalTab] = useState<CustomerPortalTab>('catalogo');
+  const [isAdminActive, setIsAdminActive] = useState<boolean>(false);
+  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isSellerAlertsModalOpen, setIsSellerAlertsModalOpen] = useState(false);
+
+  // Sync state to localStorage
+  useEffect(() => {
+    localStorage.setItem('omni_users', JSON.stringify(users));
+  }, [users]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_products', JSON.stringify(products));
+  }, [products]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_customers', JSON.stringify(customers));
+  }, [customers]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_orders', JSON.stringify(orders));
+  }, [orders]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_invoices', JSON.stringify(invoices));
+  }, [invoices]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_receivables', JSON.stringify(receivables));
+  }, [receivables]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_payables', JSON.stringify(payables));
+  }, [payables]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
+  }, [suppliers]);
 
   // Active push notification toasts floating on screen
   const [activePushToasts, setActivePushToasts] = useState<AppNotification[]>([]);
@@ -315,6 +395,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return false;
       }
       setCurrentCustomer(found);
+      localStorage.setItem('omni_active_customer_id', found.id);
+      setIsAdminActive(false);
       triggerPushNotification({
         title: `¡Bienvenido de nuevo, ${found.name}!`,
         message: 'Has iniciado sesión exitosamente. Tus notificaciones y crédito comercial están activos.',
@@ -340,6 +422,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setCustomers((prev) => [...prev, newCustomer]);
     setCurrentCustomer(newCustomer);
+    localStorage.setItem('omni_active_customer_id', newCustomer.id);
+    setIsAdminActive(false);
     triggerPushNotification({
       title: `¡Bienvenido a nuestro Portal!`,
       message: `Hola ${newCustomer.name}, tu cuenta ha sido creada exitosamente. Notificaciones activadas.`,
@@ -351,6 +435,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logoutCustomer = () => {
     setCurrentCustomer(null);
+    localStorage.removeItem('omni_active_customer_id');
     triggerPushNotification({
       title: 'Sesión Finalizada',
       message: 'Has salido de tu cuenta de cliente de forma segura.',
@@ -470,7 +555,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       bcvRate: settings.bcvRate,
       paymentMethod: orderInput.paymentMethod,
       paymentStatus: isCredit ? 'a_credito' : orderInput.paymentMethod === 'efectivo_usd' && orderInput.channel === 'pos' ? 'pagado' : 'pendiente',
-      orderStatus: 'pendiente', // Pedidos se envían en estado pendiente según requerimiento
+      orderStatus: 'en_tramite', // Pedidos se envían en estado "En trámite"
       paymentReference: orderInput.paymentReference,
       channel: orderInput.channel,
       createdAt: now.toISOString(),
@@ -603,19 +688,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Update order status with real-time customer push notification
   const updateOrderStatus = (orderId: string, status: OrderStatus) => {
     const statusTitles: Record<OrderStatus, string> = {
-      pendiente: '🕒 Pedido Registrado (Pendiente)',
-      en_preparacion: '📦 ¡Tu Pedido está en Preparación!',
-      en_camino: '🚚 ¡Tu Pedido va en Camino a tu Dirección!',
-      entregado: '✅ ¡Pedido Entregado con Éxito!',
-      cancelado: '❌ Pedido Cancelado',
+      en_tramite: '⏳ Pedido En Trámite',
+      despachado_facturado: '🚚 Pedido Despachado / Facturado',
     };
 
     const statusMessages: Record<OrderStatus, string> = {
-      pendiente: 'Tu pedido está registrado y en espera de confirmación y empaque.',
-      en_preparacion: 'El equipo de almacén está empacando y verificando tus productos.',
-      en_camino: 'El despachador va en ruta a tu dirección. Mantén tu teléfono atento.',
-      entregado: 'El pedido fue recibido a conformidad. ¡Muchas gracias por tu preferencia!',
-      cancelado: 'El pedido ha sido anulado o cancelado en el sistema.',
+      en_tramite: 'Tu pedido está siendo procesado por nuestro equipo de almacén.',
+      despachado_facturado: '¡Tu pedido fue despachado y la factura fiscal ha sido emitida!',
     };
 
     setOrders((prev) =>
@@ -627,7 +706,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             message: statusMessages[status],
             type: 'order_status',
             relatedOrderId: o.id,
-            badge: status === 'entregado' ? 'Completado' : 'En vivo',
+            badge: status === 'despachado_facturado' ? 'Despachado' : 'En trámite',
           });
           return updated;
         }
@@ -808,16 +887,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...user,
       id: `usr-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
+      active: user.active ?? true,
+      password: user.password || 'admin123',
+      isInitialGeneric: false,
     };
-    setUsers((prev) => [newUser, ...prev]);
+    setUsers((prev) => [...prev, newUser]);
+    triggerPushNotification({
+      title: 'Colaborador Registrado',
+      message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`,
+      type: 'inventory_alert',
+      badge: 'Usuarios ERP',
+    });
   };
 
   const updateUser = (user: User) => {
     setUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)));
+    if (currentUser.id === user.id) {
+      setCurrentUser(user);
+    }
   };
 
-  const deleteUser = (userId: string) => {
+  const deleteUser = (userId: string): { success: boolean; message: string } => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return { success: false, message: 'Usuario no encontrado' };
+
+    if (target.role === 'admin') {
+      const activeAdmins = users.filter((u) => u.role === 'admin' && u.active);
+      if (activeAdmins.length <= 1) {
+        alert(
+          'No se puede eliminar el único Administrador del sistema. Crea un nuevo Administrador primero.'
+        );
+        return {
+          success: false,
+          message: 'No se puede eliminar el único Administrador.',
+        };
+      }
+    }
+
+    if (currentUser.id === userId) {
+      const remainingAdmin = users.find(
+        (u) => u.id !== userId && u.role === 'admin' && u.active
+      );
+      if (remainingAdmin) {
+        setCurrentUser(remainingAdmin);
+      }
+    }
+
     setUsers((prev) => prev.filter((u) => u.id !== userId));
+
+    triggerPushNotification({
+      title: 'Usuario Eliminado',
+      message: `El usuario "${target.name}" ha sido eliminado del sistema.`,
+      type: 'inventory_alert',
+      badge: 'Control ERP',
+    });
+
+    return { success: true, message: 'Usuario eliminado exitosamente' };
+  };
+
+  const resetSystemToFactory = () => {
+    localStorage.removeItem('omni_users');
+    localStorage.removeItem('omni_settings');
+    localStorage.removeItem('omni_customers');
+    localStorage.removeItem('omni_products');
+    localStorage.removeItem('omni_cart');
+    localStorage.removeItem('omni_orders');
+    localStorage.removeItem('omni_invoices');
+    localStorage.removeItem('omni_receivables');
+    localStorage.removeItem('omni_payables');
+    localStorage.removeItem('omni_suppliers');
+    localStorage.removeItem('omni_notifications');
+    localStorage.removeItem('omni_active_customer_id');
+
+    setUsers(INITIAL_USERS);
+    setCurrentUser(INITIAL_GENERIC_ADMIN);
+    setSettings(INITIAL_SETTINGS);
+    setCustomers(INITIAL_CUSTOMERS);
+    setProducts(INITIAL_PRODUCTS);
+    setCart([]);
+    setOrders(INITIAL_ORDERS);
+    setInvoices(INITIAL_INVOICES);
+    setReceivables(INITIAL_RECEIVABLES);
+    setPayables(INITIAL_PAYABLES);
+    setSuppliers(INITIAL_SUPPLIERS);
+    setCurrentCustomer(null);
+
+    triggerPushNotification({
+      title: 'Sistema Reiniciado desde Cero',
+      message: 'Valores restablecidos a fábrica. El Administrador Inicial (Genérico) ha sido restaurado.',
+      type: 'bcv_update',
+      badge: 'Reset de Fábrica',
+    });
   };
 
   const updateSettings = (newSettings: Partial<SystemSettings>) => {
@@ -878,6 +1038,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addUser,
         updateUser,
         deleteUser,
+        resetSystemToFactory,
         refreshBcvRate: fetchAutomaticBcvRate,
         updateSettings,
         markNotificationAsRead,
@@ -895,6 +1056,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Navigation tabs & modals
         storeTab,
         setStoreTab,
+        customerPortalTab,
+        setCustomerPortalTab,
+        isAdminActive,
+        setIsAdminActive,
+        authInitialTab,
+        setAuthInitialTab,
         isAuthModalOpen,
         setIsAuthModalOpen,
         isNotificationSettingsOpen,

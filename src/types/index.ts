@@ -9,6 +9,8 @@ export interface User {
   avatar?: string;
   active: boolean;
   createdAt: string;
+  password?: string;
+  isInitialGeneric?: boolean;
 }
 export type AppUser = User;
 
@@ -57,7 +59,8 @@ export interface CartItem {
   quantity: number;
 }
 
-export type OrderStatus = 'pendiente' | 'en_preparacion' | 'en_camino' | 'entregado' | 'cancelado';
+export type OrderStatus = 'en_tramite' | 'despachado_facturado';
+export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'credito';
 export type PaymentStatus = 'pendiente' | 'pagado' | 'a_credito';
 export type PaymentMethod = 'pago_movil' | 'transferencia_bs' | 'zelle' | 'efectivo_usd' | 'credito';
 

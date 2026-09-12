@@ -15,6 +15,11 @@ import {
   CreditCard,
   Lock,
   UserCheck,
+  RotateCcw,
+  AlertTriangle,
+  KeyRound,
+  ShieldAlert,
+  Info,
 } from 'lucide-react';
 
 export const SettingsAndUsersView: React.FC = () => {
@@ -27,6 +32,7 @@ export const SettingsAndUsersView: React.FC = () => {
     addUser,
     updateUser,
     deleteUser,
+    resetSystemToFactory,
     refreshBcvRate,
   } = useApp();
 
@@ -53,6 +59,7 @@ export const SettingsAndUsersView: React.FC = () => {
     name: '',
     email: '',
     role: 'cajero' as UserRole,
+    password: 'admin123',
     active: true,
   });
 
@@ -78,12 +85,13 @@ export const SettingsAndUsersView: React.FC = () => {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
-  const handleOpenCreateUser = () => {
+  const handleOpenCreateUser = (defaultRole?: UserRole) => {
     setEditingUser(null);
     setUserFormData({
       name: '',
       email: '',
-      role: 'cajero',
+      role: defaultRole || 'cajero',
+      password: 'admin' + Math.floor(100 + Math.random() * 900),
       active: true,
     });
     setIsUserModalOpen(true);
@@ -95,6 +103,7 @@ export const SettingsAndUsersView: React.FC = () => {
       name: u.name,
       email: u.email,
       role: u.role,
+      password: u.password || 'admin123',
       active: u.active,
     });
     setIsUserModalOpen(true);
@@ -349,8 +358,8 @@ export const SettingsAndUsersView: React.FC = () => {
             </div>
 
             <button
-              onClick={handleOpenCreateUser}
-              className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+              onClick={() => handleOpenCreateUser()}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
             >
               <Plus className="w-3.5 h-3.5" />
               Nuevo
@@ -360,6 +369,87 @@ export const SettingsAndUsersView: React.FC = () => {
           <p className="text-[11px] text-slate-500">
             Los roles jerárquicos determinan qué módulos del ERP puede operar cada colaborador.
           </p>
+
+          {/* First Admin / Generic Admin Status Banner */}
+          {(() => {
+            const adminUsers = users.filter((u) => u.role === 'admin' && u.active);
+            const genericAdmin = users.find((u) => u.isInitialGeneric || u.id === 'usr-admin-initial');
+            const hasCustomAdmin = users.some(
+              (u) => u.role === 'admin' && u.active && !u.isInitialGeneric && u.id !== 'usr-admin-initial'
+            );
+
+            if (!genericAdmin) return null;
+
+            return (
+              <div
+                className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                  hasCustomAdmin
+                    ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                    : 'bg-amber-50/90 border-amber-200 text-amber-950'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  {hasCustomAdmin ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="font-bold">
+                        {hasCustomAdmin
+                          ? 'Listo para eliminar Administrador Genérico'
+                          : 'Primer Administrador del Sistema (Genérico)'}
+                      </p>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
+                        hasCustomAdmin
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                      }`}>
+                        {hasCustomAdmin ? 'Eliminación Habilitada' : 'Por Defecto Inicial'}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] mt-1 leading-relaxed opacity-90">
+                      {hasCustomAdmin
+                        ? 'Has registrado administradores personalizados. Ahora puedes eliminar de manera segura el Administrador Genérico Inicial.'
+                        : 'Siempre hay un primer administrador activo por defecto al reiniciar el sistema. Crea tu propio Administrador General para poder eliminar el usuario genérico.'}
+                    </p>
+
+                    <div className="mt-2.5 flex items-center gap-2">
+                      {!hasCustomAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCreateUser('admin')}
+                          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Crear Nuevo Administrador
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `¿Eliminar definitivamente el Administrador Genérico Inicial (${genericAdmin.name})? El control continuará con tus administradores personalizados.`
+                              )
+                            ) {
+                              deleteUser(genericAdmin.id);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Eliminar Administrador Genérico
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Active User Switcher */}
           <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 text-xs">
@@ -376,7 +466,7 @@ export const SettingsAndUsersView: React.FC = () => {
             >
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.name} — [{roleLabels[u.role].label}]
+                  {u.name} {u.isInitialGeneric ? '*(Genérico Inicial)*' : ''} — [{roleLabels[u.role].label}]
                 </option>
               ))}
             </select>
@@ -386,15 +476,23 @@ export const SettingsAndUsersView: React.FC = () => {
           <div className="divide-y divide-slate-100 text-xs">
             {users.map((u) => {
               const r = roleLabels[u.role];
+              const isGeneric = u.isInitialGeneric || u.id === 'usr-admin-initial';
+              const adminCount = users.filter((x) => x.role === 'admin' && x.active).length;
+              const canDeleteThisAdmin = u.role !== 'admin' || adminCount > 1;
 
               return (
                 <div key={u.id} className="py-3 flex items-center justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900">{u.name}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-slate-900 truncate">{u.name}</span>
                       <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${r.color}`}>
                         {r.label}
                       </span>
+                      {isGeneric && (
+                        <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                          Genérico Inicial
+                        </span>
+                      )}
                     </div>
                     <p className="text-[10px] text-slate-500 font-mono mt-0.5">{u.email}</p>
                     <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{r.desc}</p>
@@ -403,21 +501,57 @@ export const SettingsAndUsersView: React.FC = () => {
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => handleOpenEditUser(u)}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 cursor-pointer"
                       title="Editar usuario"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
-                    {users.length > 1 && (
-                      <button
-                        onClick={() => {
-                          if (confirm(`¿Eliminar al usuario ${u.name}?`)) deleteUser(u.id);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
-                        title="Eliminar usuario"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+
+                    {isGeneric ? (
+                      canDeleteThisAdmin ? (
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `¿Eliminar al Administrador Genérico Inicial (${u.name})? El control continuará con los administradores personalizados.`
+                              )
+                            ) {
+                              deleteUser(u.id);
+                            }
+                          }}
+                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                          title="Eliminar usuario genérico inicial"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Eliminar</span>
+                        </button>
+                      ) : (
+                        <span
+                          className="text-[10px] text-slate-400 bg-slate-100 px-2 py-1 rounded-md font-medium"
+                          title="No se puede eliminar mientras sea el único Administrador. Registra un nuevo Administrador primero."
+                        >
+                          Protegido
+                        </span>
+                      )
+                    ) : (
+                      canDeleteThisAdmin ? (
+                        <button
+                          onClick={() => {
+                            if (confirm(`¿Eliminar al usuario ${u.name}?`)) deleteUser(u.id);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 cursor-pointer"
+                          title="Eliminar usuario"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <span
+                          className="text-[10px] text-slate-400 bg-slate-100 px-2 py-1 rounded-md font-medium"
+                          title="Debe haber al menos un Administrador en el sistema."
+                        >
+                          Único Admin
+                        </span>
+                      )
                     )}
                   </div>
                 </div>
@@ -448,6 +582,36 @@ export const SettingsAndUsersView: React.FC = () => {
 
         </div>
 
+      </div>
+
+      {/* Factory Reset / Reiniciar Sistema desde Cero */}
+      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+            <RotateCcw className="w-4 h-4 text-slate-600" />
+            <span>Reiniciar Sistema desde Cero (Restablecimiento de Fábrica)</span>
+          </div>
+          <p className="text-xs text-slate-500 max-w-2xl">
+            Cada vez que el sistema se reinicie desde cero, se restablecerá el primer Administrador Genérico Inicial por defecto para que puedas ingresar y reconfigurar la plataforma a tu medida.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              confirm(
+                '¿Confirmas reiniciar el sistema desde cero? Se restablecerán todos los datos a sus valores originales y se restaurará el Administrador Genérico Inicial.'
+              )
+            ) {
+              resetSystemToFactory();
+            }
+          }}
+          className="px-4 py-2 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-300 hover:border-rose-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer flex items-center gap-2 shrink-0"
+        >
+          <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
+          <span>Reiniciar Sistema desde Cero</span>
+        </button>
       </div>
 
       {/* Modal: Create or Edit User */}
@@ -491,7 +655,7 @@ export const SettingsAndUsersView: React.FC = () => {
                 <select
                   value={userFormData.role}
                   onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value as UserRole })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold bg-white focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="admin">Administrador General</option>
                   <option value="gerente">Gerente Comercial</option>
@@ -499,6 +663,30 @@ export const SettingsAndUsersView: React.FC = () => {
                   <option value="despachador">Despachador / Logística</option>
                 </select>
               </div>
+
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Contraseña de Acceso ERP *</label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    required
+                    value={userFormData.password}
+                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                    placeholder="Contraseña del usuario (ej: clave123)"
+                    className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {userFormData.role === 'admin' && (
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-purple-900 text-[11px] flex items-start gap-2">
+                  <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                  <span className="leading-tight">
+                    Al registrar este nuevo <strong>Administrador General</strong>, se activará la opción para que puedas eliminar de forma segura el <strong>Administrador Genérico Inicial</strong>.
+                  </span>
+                </div>
+              )}
 
               <div className="pt-3 border-t border-slate-200 flex justify-end gap-2">
                 <button

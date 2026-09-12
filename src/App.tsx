@@ -1,7 +1,8 @@
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/common/Header';
-import { StoreCatalog } from './components/store/StoreCatalog';
+import { LandingPage } from './components/landing/LandingPage';
+import { CustomerDashboard } from './components/customer/CustomerDashboard';
 import { CartDrawer } from './components/store/CartDrawer';
 import { CustomerOrdersModal } from './components/store/CustomerOrdersModal';
 import { ErpDashboard } from './components/erp/ErpDashboard';
@@ -14,6 +15,9 @@ import { PushNotificationToastContainer } from './components/common/PushNotifica
 const MainLayout: React.FC = () => {
   const {
     mode,
+    currentCustomer,
+    isAdminActive,
+    authInitialTab,
     selectedInvoiceForModal,
     setSelectedInvoiceForModal,
     isAuthModalOpen,
@@ -25,25 +29,29 @@ const MainLayout: React.FC = () => {
   } = useApp();
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white relative">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans antialiased selection:bg-blue-600 selection:text-white relative">
       {/* Real-time Push Notification Toast Container (Floating Top-Right) */}
       <PushNotificationToastContainer />
 
-      {/* Top Main Navigation Header */}
-      <Header />
-
-      {/* Main Content Area */}
-      <div className="flex-1">
-        {mode === 'store' ? (
-          <main className="pb-16">
-            <StoreCatalog />
-            <CartDrawer />
-            <CustomerOrdersModal />
-          </main>
-        ) : (
-          <ErpDashboard />
-        )}
-      </div>
+      {/* Main Routing Architecture */}
+      {isAdminActive && mode === 'erp' ? (
+        <>
+          <Header />
+          <div className="flex-1">
+            <ErpDashboard />
+          </div>
+        </>
+      ) : currentCustomer ? (
+        <div className="flex-1">
+          <CustomerDashboard />
+          <CartDrawer />
+          <CustomerOrdersModal />
+        </div>
+      ) : (
+        <div className="flex-1">
+          <LandingPage />
+        </div>
+      )}
 
       {/* Global Invoice Preview / Print Modal */}
       {selectedInvoiceForModal && (
@@ -57,6 +65,7 @@ const MainLayout: React.FC = () => {
       <CustomerAuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
+        initialTab={authInitialTab}
       />
 
       {/* Customer Push Notification Preferences Modal */}

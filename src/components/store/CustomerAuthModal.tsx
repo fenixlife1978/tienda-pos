@@ -33,6 +33,14 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   const { customers, currentCustomer, loginCustomer, registerCustomer, logoutCustomer } = useApp();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>(initialTab);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+      setLoginError('');
+      setRegError('');
+    }
+  }, [isOpen, initialTab]);
+
   // Login state
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
