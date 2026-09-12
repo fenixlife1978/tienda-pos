@@ -145,9 +145,13 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 text-white p-5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-white/10 border border-white/15">
-              <Building2 className="w-5 h-5 text-blue-200" />
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center shrink-0">
+              <img
+                src="/logo.png"
+                alt="Distribuidora La Gran Bodega M&S"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
               <h3 className="font-bold text-lg tracking-tight">Portal de Clientes & Comercios</h3>
