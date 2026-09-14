@@ -45,7 +45,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   productToEdit,
   onSave,
 }) => {
-  const { suppliers, products, settings } = useApp();
+  const { suppliers, products, settings, categories, units, setIsCategoryUnitModalOpen } = useApp();
 
   // Active sub-tab in modal
   const [activeTab, setActiveTab] = useState<'general' | 'pricing' | 'suppliers' | 'presentations' | 'composite' | 'image'>('general');
@@ -53,12 +53,18 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   // Form Basic Fields
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Víveres');
-  const [unit, setUnit] = useState('Unidad');
+  const [category, setCategory] = useState(categories[0]?.name || 'Víveres');
+  const [unit, setUnit] = useState(units[0]?.name || 'Unidad');
   const [description, setDescription] = useState('');
   const [stock, setStock] = useState(50);
   const [minStock, setMinStock] = useState(15);
   const [appliesIva, setAppliesIva] = useState(false); // Selector de I.V.A.
+
+  // Weight-based (Queso, embutidos) & Fractional Bs. (Licor, granel) state
+  const [isWeighable, setIsWeighable] = useState(false);
+  const [pricePerKgUSD, setPricePerKgUSD] = useState<number>(0);
+  const [isFractionable, setIsFractionable] = useState(false);
+  const [fractionUnit, setFractionUnit] = useState('Litro');
 
   // Cost and Pricing State
   const [costUSD, setCostUSD] = useState<number>(1.0);
@@ -121,12 +127,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       if (productToEdit) {
         setCode(productToEdit.code);
         setName(productToEdit.name);
-        setCategory(productToEdit.category || 'Víveres');
-        setUnit(productToEdit.unit || 'Unidad');
+        setCategory(productToEdit.category || (categories[0]?.name || 'Víveres'));
+        setUnit(productToEdit.unit || (units[0]?.name || 'Unidad'));
         setDescription(productToEdit.description || '');
         setStock(productToEdit.stock);
         setMinStock(productToEdit.minStock);
         setAppliesIva(Boolean(productToEdit.appliesIva));
+
+        setIsWeighable(Boolean(productToEdit.isWeighable));
+        setPricePerKgUSD(productToEdit.pricePerKgUSD || productToEdit.priceUSD || 0);
+        setIsFractionable(Boolean(productToEdit.isFractionable));
+        setFractionUnit(productToEdit.fractionUnit || 'Litro');
 
         const cUSD = productToEdit.costUSD || 1.0;
         const pUSD = productToEdit.priceUSD || 1.3;
@@ -213,6 +224,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         setSuppliersInfo([]);
         setIsComposite(false);
         setCompositeComponents([]);
+        setIsWeighable(false);
+        setPricePerKgUSD(0);
+        setIsFractionable(false);
+        setFractionUnit(units.find(u => u.name.toLowerCase().includes('litro'))?.name || 'Litro');
         setImage('https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80');
       }
 
@@ -559,6 +574,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       isComposite,
       compositeComponents: isComposite ? compositeComponents : undefined,
       compositeVirtualStock: isComposite ? compositeVirtualStock : undefined,
+      isWeighable,
+      pricePerKgUSD: isWeighable ? Number((pricePerKgUSD || priceUSD).toFixed(2)) : undefined,
+      isFractionable,
+      fractionUnit: isFractionable ? fractionUnit : undefined,
     };
 
     if (productToEdit) {
@@ -746,32 +765,53 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Categoría</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700">Categoría *</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCategoryUnitModalOpen(true)}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                      title="Crear o eliminar categorías"
+                    >
+                      + Gestionar
+                    </button>
+                  </div>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white font-medium text-slate-800"
                   >
-                    <option value="Víveres">Víveres</option>
-                    <option value="Lácteos y Refrigerados">Lácteos y Refrigerados</option>
-                    <option value="Bebidas y Licores">Bebidas y Licores</option>
-                    <option value="Snacks y Confitería">Snacks y Confitería</option>
-                    <option value="Limpieza del Hogar">Limpieza del Hogar</option>
-                    <option value="Cuidado Personal">Cuidado Personal</option>
-                    <option value="Combos y Cestas">Combos y Cestas</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.name}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Unidad de Medida Base *</label>
-                  <input
-                    type="text"
-                    required
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700">Unidad de Medida Base *</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCategoryUnitModalOpen(true)}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
+                      title="Crear o eliminar unidades"
+                    >
+                      + Gestionar
+                    </button>
+                  </div>
+                  <select
                     value={unit}
                     onChange={(e) => setUnit(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Unidad, Kg, Litro, Paquete..."
-                  />
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white font-medium text-slate-800"
+                  >
+                    {units.map((u) => (
+                      <option key={u.id} value={u.name}>
+                        {u.name} ({u.abbreviation})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -783,6 +823,96 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     onChange={(e) => setMinStock(parseInt(e.target.value) || 0)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:ring-2 focus:ring-indigo-500"
                   />
+                </div>
+              </div>
+
+              {/* MODALIDADES ESPECIALES: AL PESO (QUESO) Y MONTO LIBRE (LICOR) */}
+              <div className="p-4 bg-gradient-to-r from-amber-50/70 to-indigo-50/70 rounded-2xl border border-indigo-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                    <Boxes className="w-4 h-4 text-indigo-600" />
+                    Modalidades de Venta Avanzada (Al Peso o Fraccionado Libre)
+                  </span>
+                  <span className="text-[10px] text-slate-500">Caja POS & Tienda Online</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Modalidad 1: Venta al peso (Queso / Balanza) */}
+                  <div className={`p-3 rounded-xl border transition ${isWeighable ? 'bg-white border-amber-400 shadow-xs' : 'bg-white/60 border-slate-200'}`}>
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isWeighable}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setIsWeighable(val);
+                          if (val && !pricePerKgUSD) setPricePerKgUSD(priceUSD);
+                        }}
+                        className="mt-0.5 rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <div className="flex-1">
+                        <span className="font-bold text-slate-900 text-xs block">
+                          ⚖️ Producto para Venta al Peso (Kg / Balanza)
+                        </span>
+                        <span className="text-[11px] text-slate-500 block leading-tight mt-0.5">
+                          Ej. Quesos, jamones, pollo. En caja solicitará el peso en Kg y calculará el monto exacto según la tasa BCV.
+                        </span>
+                      </div>
+                    </label>
+
+                    {isWeighable && (
+                      <div className="mt-2.5 pt-2 border-t border-amber-100 flex items-center justify-between gap-2">
+                        <label className="text-[11px] font-bold text-slate-700">Precio por Kg (USD):</label>
+                        <div className="relative w-32">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={pricePerKgUSD || priceUSD}
+                            onChange={(e) => setPricePerKgUSD(parseFloat(e.target.value) || 0)}
+                            className="w-full pl-6 pr-2 py-1 border border-amber-300 rounded-lg text-xs font-mono font-bold bg-amber-50/50"
+                          />
+                          <span className="absolute left-2 top-1 text-slate-400 text-xs">$</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Modalidad 2: Venta por monto libre en Bs (Licores / Granel) */}
+                  <div className={`p-3 rounded-xl border transition ${isFractionable ? 'bg-white border-blue-400 shadow-xs' : 'bg-white/60 border-slate-200'}`}>
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isFractionable}
+                        onChange={(e) => setIsFractionable(e.target.checked)}
+                        className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1">
+                        <span className="font-bold text-slate-900 text-xs block">
+                          🍾 Venta Fraccionada por Monto Libre en Bs.
+                        </span>
+                        <span className="text-[11px] text-slate-500 block leading-tight mt-0.5">
+                          Ej. Licores por copa/trago o monto disponible. El cliente indica cuántos Bs desea comprar y el sistema determina la cantidad a despachar.
+                        </span>
+                      </div>
+                    </label>
+
+                    {isFractionable && (
+                      <div className="mt-2.5 pt-2 border-t border-blue-100 flex items-center justify-between gap-2">
+                        <label className="text-[11px] font-bold text-slate-700">Unidad de despacho:</label>
+                        <select
+                          value={fractionUnit}
+                          onChange={(e) => setFractionUnit(e.target.value)}
+                          className="px-2 py-1 border border-blue-300 rounded-lg text-xs bg-blue-50/50 font-medium"
+                        >
+                          <option value="Litro">Litro / ml</option>
+                          <option value="Trago">Trago / Shot</option>
+                          <option value="Kg">Kg / Gramos</option>
+                          <option value="Porción">Porción / Ración</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

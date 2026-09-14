@@ -20,6 +20,8 @@ import {
   KeyRound,
   ShieldAlert,
   Info,
+  Layers,
+  TrendingUp,
 } from 'lucide-react';
 
 export const SettingsAndUsersView: React.FC = () => {
@@ -34,6 +36,10 @@ export const SettingsAndUsersView: React.FC = () => {
     deleteUser,
     resetSystemToFactory,
     refreshBcvRate,
+    setIsBcvPanelOpen,
+    setIsCategoryUnitModalOpen,
+    categories,
+    units,
   } = useApp();
 
   const [isRefreshingBcv, setIsRefreshingBcv] = useState(false);
@@ -208,7 +214,16 @@ export const SettingsAndUsersView: React.FC = () => {
                   <span>{isRefreshingBcv ? 'Consultando BCV...' : 'Sincronizar con API BCV Ahora'}</span>
                 </button>
 
-                <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                <button
+                  type="button"
+                  onClick={() => setIsBcvPanelOpen(true)}
+                  className="w-full py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                  <span>Abrir Panel de Control BCV Completo</span>
+                </button>
+
+                <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer pt-1">
                   <input
                     type="checkbox"
                     checked={autoUpdateBcv}
@@ -217,6 +232,69 @@ export const SettingsAndUsersView: React.FC = () => {
                   />
                   <span>Actualización automática de tasa BCV cada 60s</span>
                 </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Categorías y Unidades de Medida Section */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Layers className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Categorías de Productos y Unidades de Medida
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Control maestro de taxonomía del catálogo comercial e inventario.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCategoryUnitModalOpen(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Administrar</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Categorías preview */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800">Categorías ({categories.length})</span>
+                  <span className="text-[10px] text-slate-500">Disponibles en tienda & ERP</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                  {categories.map((c) => (
+                    <span
+                      key={c.id}
+                      className="px-2 py-0.5 bg-white border border-slate-200 rounded-md text-[11px] font-medium text-slate-700 shadow-2xs"
+                    >
+                      {c.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Unidades preview */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800">Unidades de Medida ({units.length})</span>
+                  <span className="text-[10px] text-slate-500">Balanza, volumen y empaque</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                  {units.map((u) => (
+                    <span
+                      key={u.id}
+                      className="px-2 py-0.5 bg-white border border-slate-200 rounded-md text-[11px] font-medium text-slate-700 shadow-2xs"
+                    >
+                      {u.name} <span className="text-slate-400 font-mono">({u.abbreviation})</span>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

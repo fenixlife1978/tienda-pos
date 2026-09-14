@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import {
   AppNotification,
+  BcvHistoryEntry,
   CartItem,
   Customer,
   CustomerNotificationPreferences,
@@ -12,6 +13,9 @@ import {
   PaymentStatus,
   PayableItem,
   Product,
+  ProductCategory,
+  ProductPresentation,
+  ProductUnit,
   ReceivableItem,
   Supplier,
   SystemSettings,
@@ -19,6 +23,7 @@ import {
 } from '../types';
 import { playNotificationSound } from '../utils/notificationSound';
 import {
+  INITIAL_CATEGORIES,
   INITIAL_CUSTOMERS,
   INITIAL_GENERIC_ADMIN,
   INITIAL_INVOICES,
@@ -28,6 +33,7 @@ import {
   INITIAL_RECEIVABLES,
   INITIAL_SETTINGS,
   INITIAL_SUPPLIERS,
+  INITIAL_UNITS,
   INITIAL_USERS,
 } from '../data/initialData';
 
@@ -39,6 +45,14 @@ interface AppContextType {
   currentCustomer: Customer | null;
   setCurrentCustomer: (customer: Customer | null) => void;
   products: Product[];
+  categories: ProductCategory[];
+  addCategory: (category: Omit<ProductCategory, 'id'>) => void;
+  deleteCategory: (categoryId: string) => { success: boolean; message: string };
+  updateCategory: (category: ProductCategory) => void;
+  units: ProductUnit[];
+  addUnit: (unit: Omit<ProductUnit, 'id'>) => void;
+  deleteUnit: (unitId: string) => { success: boolean; message: string };
+  updateUnit: (unit: ProductUnit) => void;
   cart: CartItem[];
   orders: Order[];
   invoices: Invoice[];
@@ -51,8 +65,21 @@ interface AppContextType {
   notifications: AppNotification[];
   // Actions
   addToCart: (product: Product, quantity?: number) => void;
-  updateCartQuantity: (productId: string, quantity: number) => void;
-  removeFromCart: (productId: string) => void;
+  addToCartWithPresentation: (
+    product: Product,
+    options: {
+      presentation?: ProductPresentation;
+      quantity?: number;
+      saleMode?: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+      weightKg?: number;
+      customAmountBs?: number;
+      customAmountUSD?: number;
+      unitPriceUSD?: number;
+      customNote?: string;
+    }
+  ) => void;
+  updateCartQuantity: (cartItemId: string, quantity: number) => void;
+  removeFromCart: (cartItemId: string) => void;
   clearCart: () => void;
   createOrder: (orderInput: {
     customerId: string;
@@ -60,7 +87,17 @@ interface AppContextType {
     customerRif: string;
     customerPhone: string;
     customerAddress: string;
-    items: { product: Product; quantity: number }[];
+    items: {
+      product: Product;
+      quantity: number;
+      selectedPresentation?: ProductPresentation;
+      saleMode?: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+      weightKg?: number;
+      customAmountBs?: number;
+      customAmountUSD?: number;
+      unitPriceUSD?: number;
+      customNote?: string;
+    }[];
     paymentMethod: PaymentMethod;
     paymentReference?: string;
     channel: 'online' | 'pos';
@@ -70,7 +107,7 @@ interface AppContextType {
   reorder: (orderId: string) => boolean;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   updatePaymentStatus: (orderId: string, paymentStatus: PaymentStatus) => void;
-  updateBcvRate: (newRate: number) => void;
+  updateBcvRate: (newRate: number, updatedBy?: string, type?: 'manual' | 'automatic') => void;
   fetchAutomaticBcvRate: () => Promise<number>;
   addProduct: (product: Omit<Product, 'id'>) => void;
   updateProduct: (product: Product) => void;
@@ -132,6 +169,38 @@ interface AppContextType {
   setIsNotificationSettingsOpen: (open: boolean) => void;
   isSellerAlertsModalOpen: boolean;
   setIsSellerAlertsModalOpen: (open: boolean) => void;
+  // BCV Control Panel & Category/Unit Modal
+  isBcvPanelOpen: boolean;
+  setIsBcvPanelOpen: (open: boolean) => void;
+  isCategoryUnitModalOpen: boolean;
+  setIsCategoryUnitModalOpen: (open: boolean) => void;
+  presentationModalProduct: Product | null;
+  setPresentationModalProduct: (p: Product | null) => void;
+  presentationCallback: ((result: {
+    product: Product;
+    presentation?: ProductPresentation;
+    quantity: number;
+    saleMode: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+    weightKg?: number;
+    customAmountBs?: number;
+    customAmountUSD?: number;
+    unitPriceUSD: number;
+    customNote?: string;
+  }) => void) | null;
+  openPresentationModal: (
+    product: Product,
+    callback?: (result: {
+      product: Product;
+      presentation?: ProductPresentation;
+      quantity: number;
+      saleMode: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+      weightKg?: number;
+      customAmountBs?: number;
+      customAmountUSD?: number;
+      unitPriceUSD: number;
+      customNote?: string;
+    }) => void
+  ) => void;
   // UI states
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
@@ -265,8 +334,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isSellerAlertsModalOpen, setIsSellerAlertsModalOpen] = useState(false);
+  const [isBcvPanelOpen, setIsBcvPanelOpen] = useState(false);
+  const [isCategoryUnitModalOpen, setIsCategoryUnitModalOpen] = useState(false);
+  const [presentationModalProduct, setPresentationModalProduct] = useState<Product | null>(null);
+  const [presentationCallback, setPresentationCallback] = useState<((result: any) => void) | null>(null);
+
+  const openPresentationModal = (
+    product: Product,
+    callback?: (result: any) => void
+  ) => {
+    setPresentationModalProduct(product);
+    setPresentationCallback(callback ? () => callback : null);
+  };
+
+  // Dynamic Categories and Units of Measurement
+  const [categories, setCategories] = useState<ProductCategory[]>(() => {
+    const saved = localStorage.getItem('omni_categories');
+    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+  });
+
+  const [units, setUnits] = useState<ProductUnit[]>(() => {
+    const saved = localStorage.getItem('omni_units');
+    return saved ? JSON.parse(saved) : INITIAL_UNITS;
+  });
 
   // Sync state to localStorage
+  useEffect(() => {
+    localStorage.setItem('omni_categories', JSON.stringify(categories));
+  }, [categories]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_units', JSON.stringify(units));
+  }, [units]);
+
   useEffect(() => {
     localStorage.setItem('omni_users', JSON.stringify(users));
   }, [users]);
@@ -453,6 +553,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCustomers((prev) => prev.map((c) => (c.id === currentCustomer.id ? updated : c)));
   };
 
+  // Dynamic Category & Unit Management
+  const addCategory = (catData: Omit<ProductCategory, 'id'>) => {
+    const newCat: ProductCategory = {
+      ...catData,
+      id: `cat-${Date.now()}`,
+    };
+    setCategories((prev) => [...prev, newCat]);
+    pushNotification('Categoría Creada', `Categoría "${newCat.name}" agregada exitosamente.`, 'promotion');
+  };
+
+  const deleteCategory = (categoryId: string): { success: boolean; message: string } => {
+    const target = categories.find((c) => c.id === categoryId);
+    if (!target) return { success: false, message: 'Categoría no encontrada.' };
+
+    const associatedCount = products.filter(
+      (p) => p.category.toLowerCase().trim() === target.name.toLowerCase().trim()
+    ).length;
+
+    if (associatedCount > 0) {
+      return {
+        success: false,
+        message: `No se puede eliminar la categoría "${target.name}" porque tiene ${associatedCount} producto(s) asignados en inventario. Reasigne o elimine esos productos primero.`,
+      };
+    }
+
+    setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+    pushNotification('Categoría Eliminada', `Categoría "${target.name}" eliminada del sistema.`, 'inventory_alert');
+    return { success: true, message: `Categoría "${target.name}" eliminada correctamente.` };
+  };
+
+  const updateCategory = (cat: ProductCategory) => {
+    const old = categories.find((c) => c.id === cat.id);
+    setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+    if (old && old.name !== cat.name) {
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.category.toLowerCase().trim() === old.name.toLowerCase().trim()
+            ? { ...p, category: cat.name }
+            : p
+        )
+      );
+    }
+  };
+
+  const addUnit = (unitData: Omit<ProductUnit, 'id'>) => {
+    const newUnit: ProductUnit = {
+      ...unitData,
+      id: `unit-${Date.now()}`,
+    };
+    setUnits((prev) => [...prev, newUnit]);
+    pushNotification('Unidad Creada', `Unidad de medida "${newUnit.name} (${newUnit.abbreviation})" registrada.`, 'promotion');
+  };
+
+  const deleteUnit = (unitId: string): { success: boolean; message: string } => {
+    const target = units.find((u) => u.id === unitId);
+    if (!target) return { success: false, message: 'Unidad no encontrada.' };
+
+    const associatedCount = products.filter(
+      (p) =>
+        p.unit.toLowerCase().trim() === target.name.toLowerCase().trim() ||
+        p.unit.toLowerCase().trim() === target.abbreviation.toLowerCase().trim()
+    ).length;
+
+    if (associatedCount > 0) {
+      return {
+        success: false,
+        message: `No se puede eliminar la unidad "${target.name}" porque tiene ${associatedCount} producto(s) asignados en inventario.`,
+      };
+    }
+
+    setUnits((prev) => prev.filter((u) => u.id !== unitId));
+    pushNotification('Unidad Eliminada', `Unidad "${target.name}" eliminada del sistema.`, 'inventory_alert');
+    return { success: true, message: `Unidad "${target.name}" eliminada correctamente.` };
+  };
+
+  const updateUnit = (unit: ProductUnit) => {
+    setUnits((prev) => prev.map((u) => (u.id === unit.id ? unit : u)));
+  };
+
   // Cart operations
   const addToCart = (product: Product, quantity = 1) => {
     if (product.stock <= 0) {
@@ -461,38 +640,146 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
+      const existingIndex = prev.findIndex(
+        (item) => item.product.id === product.id && (!item.saleMode || item.saleMode === 'standard')
+      );
+      if (existingIndex >= 0) {
+        const existing = prev[existingIndex];
         const nextQty = existing.quantity + quantity;
         if (nextQty > product.stock) {
           alert(`Stock insuficiente. Solo quedan ${product.stock} unidades de "${product.name}".`);
           return prev;
         }
-        return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: nextQty } : item
-        );
+        const updated = [...prev];
+        updated[existingIndex] = { ...existing, quantity: nextQty };
+        return updated;
       }
-      return [...prev, { product, quantity: Math.min(quantity, product.stock) }];
+      return [
+        ...prev,
+        {
+          id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          product,
+          quantity: Math.min(quantity, product.stock),
+          saleMode: 'standard',
+        },
+      ];
     });
   };
 
-  const updateCartQuantity = (productId: string, quantity: number) => {
-    if (quantity <= 0) {
-      removeFromCart(productId);
+  const addToCartWithPresentation = (
+    product: Product,
+    options: {
+      presentation?: ProductPresentation;
+      quantity?: number;
+      saleMode?: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+      weightKg?: number;
+      customAmountBs?: number;
+      customAmountUSD?: number;
+      unitPriceUSD?: number;
+      customNote?: string;
+    }
+  ) => {
+    const saleMode = options.saleMode || (options.presentation ? 'presentation' : 'standard');
+    const quantity = options.quantity !== undefined ? options.quantity : 1;
+
+    if (product.stock <= 0) {
+      alert(`El producto "${product.name}" no tiene existencias disponibles.`);
       return;
     }
-    const product = products.find((p) => p.id === productId);
-    if (product && quantity > product.stock) {
-      alert(`Stock máximo disponible: ${product.stock} unidades.`);
+
+    // Required stock validation
+    let requiredStockUnits = quantity;
+    if (saleMode === 'presentation' && options.presentation) {
+      requiredStockUnits = quantity * options.presentation.factor;
+    } else if (saleMode === 'weight' && options.weightKg) {
+      requiredStockUnits = options.weightKg;
+    } else if (saleMode === 'custom_amount') {
+      requiredStockUnits = quantity;
+    }
+
+    if (requiredStockUnits > product.stock) {
+      alert(`Stock insuficiente. Solo quedan ${product.stock} ${product.unit} de "${product.name}".`);
       return;
     }
-    setCart((prev) =>
-      prev.map((item) => (item.product.id === productId ? { ...item, quantity } : item))
+
+    let effectivePriceUSD = options.unitPriceUSD;
+    if (effectivePriceUSD === undefined) {
+      if (saleMode === 'presentation' && options.presentation) {
+        effectivePriceUSD = options.presentation.priceUSD;
+      } else if (saleMode === 'weight' && options.weightKg) {
+        const kgRate = product.pricePerKgUSD || product.priceUSD;
+        effectivePriceUSD = Number((kgRate * options.weightKg).toFixed(2));
+      } else if (saleMode === 'custom_amount' && options.customAmountUSD) {
+        effectivePriceUSD = options.customAmountUSD;
+      } else {
+        effectivePriceUSD =
+          product.isOffer && product.discountPercentage
+            ? product.priceUSD * (1 - product.discountPercentage / 100)
+            : product.priceUSD;
+      }
+    }
+
+    const cartItemId = `cart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newItem: CartItem = {
+      id: cartItemId,
+      product,
+      quantity: saleMode === 'weight' || saleMode === 'custom_amount' ? 1 : quantity,
+      selectedPresentation: options.presentation,
+      saleMode,
+      weightKg: options.weightKg,
+      customAmountBs: options.customAmountBs,
+      customAmountUSD: options.customAmountUSD,
+      unitPriceUSD: effectivePriceUSD,
+      customNote: options.customNote,
+    };
+
+    setCart((prev) => [...prev, newItem]);
+
+    const title =
+      saleMode === 'presentation'
+        ? `${product.name} (${options.presentation?.name})`
+        : saleMode === 'weight'
+        ? `${product.name} (${options.weightKg} Kg)`
+        : saleMode === 'custom_amount'
+        ? `${product.name} (${options.customAmountBs?.toFixed(2)} Bs)`
+        : product.name;
+
+    pushNotification(
+      'Agregado al Carrito',
+      `"${title}" agregado al carrito de compras.`,
+      'order_status'
     );
   };
 
-  const removeFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
+  const updateCartQuantity = (cartItemIdOrProdId: string, quantity: number) => {
+    if (quantity <= 0) {
+      removeFromCart(cartItemIdOrProdId);
+      return;
+    }
+
+    setCart((prev) => {
+      const item = prev.find((i) => i.id === cartItemIdOrProdId || i.product.id === cartItemIdOrProdId);
+      if (item && item.saleMode === 'presentation' && item.selectedPresentation) {
+        const requiredUnits = quantity * item.selectedPresentation.factor;
+        if (requiredUnits > item.product.stock) {
+          alert(`Stock insuficiente para ${quantity} empaques (${requiredUnits} unidades). Máximo disponible: ${item.product.stock} unidades.`);
+          return prev;
+        }
+      } else if (item && quantity > item.product.stock) {
+        alert(`Stock máximo disponible: ${item.product.stock} ${item.product.unit}.`);
+        return prev;
+      }
+
+      return prev.map((i) =>
+        i.id === cartItemIdOrProdId || i.product.id === cartItemIdOrProdId ? { ...i, quantity } : i
+      );
+    });
+  };
+
+  const removeFromCart = (cartItemIdOrProdId: string) => {
+    setCart((prev) =>
+      prev.filter((item) => item.id !== cartItemIdOrProdId && item.product.id !== cartItemIdOrProdId)
+    );
   };
 
   const clearCart = () => {
@@ -506,7 +793,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     customerRif: string;
     customerPhone: string;
     customerAddress: string;
-    items: { product: Product; quantity: number }[];
+    items: {
+      product: Product;
+      quantity: number;
+      selectedPresentation?: ProductPresentation;
+      saleMode?: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+      weightKg?: number;
+      customAmountBs?: number;
+      customAmountUSD?: number;
+      unitPriceUSD?: number;
+      customNote?: string;
+    }[];
     paymentMethod: PaymentMethod;
     paymentReference?: string;
     channel: 'online' | 'pos';
@@ -518,15 +815,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date();
 
     const orderItems = orderInput.items.map((item) => {
-      const effectivePrice = item.product.isOffer && item.product.discountPercentage
-        ? item.product.priceUSD * (1 - item.product.discountPercentage / 100)
-        : item.product.priceUSD;
+      let unitPriceUSD: number;
+      let subtotalUSD: number;
+
+      if (item.unitPriceUSD !== undefined) {
+        unitPriceUSD = item.unitPriceUSD;
+        subtotalUSD = unitPriceUSD * item.quantity;
+      } else if (item.saleMode === 'presentation' && item.selectedPresentation) {
+        unitPriceUSD = item.selectedPresentation.priceUSD;
+        subtotalUSD = unitPriceUSD * item.quantity;
+      } else if (item.saleMode === 'weight' && item.weightKg) {
+        const kgRate = item.product.pricePerKgUSD || item.product.priceUSD;
+        unitPriceUSD = Number((kgRate * item.weightKg).toFixed(2));
+        subtotalUSD = unitPriceUSD * item.quantity;
+      } else if (item.saleMode === 'custom_amount' && item.customAmountUSD) {
+        unitPriceUSD = item.customAmountUSD;
+        subtotalUSD = unitPriceUSD * item.quantity;
+      } else {
+        const effectivePrice =
+          item.product.isOffer && item.product.discountPercentage
+            ? item.product.priceUSD * (1 - item.product.discountPercentage / 100)
+            : item.product.priceUSD;
+        unitPriceUSD = effectivePrice;
+        subtotalUSD = effectivePrice * item.quantity;
+      }
+
       return {
         productId: item.product.id,
         productName: item.product.name,
         quantity: item.quantity,
-        unitPriceUSD: effectivePrice,
-        subtotalUSD: effectivePrice * item.quantity,
+        unitPriceUSD: Number(unitPriceUSD.toFixed(2)),
+        subtotalUSD: Number(subtotalUSD.toFixed(2)),
+        presentationName: item.selectedPresentation?.name,
+        saleMode: item.saleMode,
+        weightKg: item.weightKg,
+        customAmountBs: item.customAmountBs,
       };
     });
 
@@ -562,7 +885,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : ['efectivo_usd', 'efectivo_bs', 'biopago'].includes(orderInput.paymentMethod) && orderInput.channel === 'pos'
         ? 'pagado'
         : 'pendiente',
-      orderStatus: 'en_tramite', // Pedidos se envían en estado "En trámite"
+      orderStatus: 'en_tramite',
       paymentReference: orderInput.paymentReference,
       channel: orderInput.channel,
       createdAt: now.toISOString(),
@@ -595,12 +918,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       creditDays: isCredit ? creditDays : undefined,
     };
 
-    // Deduct stock in real-time
+    // Deduct stock in real-time accurately by presentation factor / weight / fractional
     setProducts((prev) =>
       prev.map((p) => {
-        const bought = orderInput.items.find((item) => item.product.id === p.id);
-        if (bought) {
-          const remaining = Math.max(0, p.stock - bought.quantity);
+        const boughtItems = orderInput.items.filter((item) => item.product.id === p.id);
+        if (boughtItems.length > 0) {
+          let totalStockDeduction = 0;
+          for (const bought of boughtItems) {
+            if (bought.selectedPresentation) {
+              totalStockDeduction += bought.quantity * bought.selectedPresentation.factor;
+            } else if (bought.saleMode === 'weight' && bought.weightKg) {
+              totalStockDeduction += bought.weightKg;
+            } else {
+              totalStockDeduction += bought.quantity;
+            }
+          }
+          const remaining = Math.max(0, Number((p.stock - totalStockDeduction).toFixed(3)));
           if (remaining <= p.minStock) {
             pushNotification(
               'Alerta de Inventario',
@@ -731,28 +1064,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  // BCV Rate management
-  const updateBcvRate = (newRate: number) => {
+  // BCV Rate management with history tracking
+  const updateBcvRate = (
+    newRate: number,
+    updatedBy = 'Administrador',
+    type: 'manual' | 'automatic' = 'manual'
+  ) => {
+    if (newRate <= 0) return;
+    const cleanRate = Number(newRate.toFixed(2));
+    const previousRate = settings.bcvRate;
+    const changePercent =
+      previousRate > 0 ? Number((((cleanRate - previousRate) / previousRate) * 100).toFixed(2)) : 0;
+
+    const historyEntry: BcvHistoryEntry = {
+      id: `bcv-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      rate: cleanRate,
+      date: new Date().toISOString(),
+      type,
+      updatedBy,
+      previousRate,
+      changePercent,
+    };
+
     setSettings((prev) => ({
       ...prev,
-      bcvRate: Number(newRate.toFixed(2)),
+      bcvRate: cleanRate,
       lastBcvUpdate: new Date().toISOString(),
+      bcvHistory: [historyEntry, ...(prev.bcvHistory || [])].slice(0, 50),
     }));
+
     pushNotification(
       'Tasa BCV Actualizada',
-      `La tasa oficial de cambio se fijó en ${newRate.toFixed(2)} Bs/USD. Precios en bolívares sincronizados.`,
+      `Tasa oficial: ${cleanRate.toFixed(2)} Bs/USD (${changePercent >= 0 ? '+' : ''}${changePercent}%). Catálogo y facturación sincronizados.`,
       'bcv_update'
     );
   };
 
   const fetchAutomaticBcvRate = async (): Promise<number> => {
     // Simulate real-time API call to BCV feed with slight realistic fluctuation
-    await new Promise((res) => setTimeout(res, 800));
-    const variation = (Math.random() * 0.4 - 0.15); // e.g. slight change
+    await new Promise((res) => setTimeout(res, 850));
+    const variation = Math.random() * 0.4 - 0.18;
     const newRate = Number((settings.bcvRate + variation).toFixed(2));
-    updateBcvRate(newRate);
+    updateBcvRate(newRate, 'API BCV Oficial (Automático)', 'automatic');
     return newRate;
   };
+
+  // Background timer for automatic BCV rate synchronization when enabled
+  useEffect(() => {
+    if (!settings.autoUpdateBcv) return;
+    const intervalSec = settings.bcvAutoUpdateIntervalSeconds || 60;
+    const timer = setInterval(() => {
+      fetchAutomaticBcvRate();
+    }, intervalSec * 1000);
+    return () => clearInterval(timer);
+  }, [settings.autoUpdateBcv, settings.bcvAutoUpdateIntervalSeconds, settings.bcvRate]);
 
   // Product CRUD
   const addProduct = (product: Omit<Product, 'id'>) => {
@@ -1011,6 +1376,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentCustomer,
         setCurrentCustomer,
         products,
+        categories,
+        addCategory,
+        deleteCategory,
+        updateCategory,
+        units,
+        addUnit,
+        deleteUnit,
+        updateUnit,
         cart,
         orders,
         invoices,
@@ -1022,6 +1395,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         settings,
         notifications,
         addToCart,
+        addToCartWithPresentation,
         updateCartQuantity,
         removeFromCart,
         clearCart,
@@ -1077,6 +1451,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsNotificationSettingsOpen,
         isSellerAlertsModalOpen,
         setIsSellerAlertsModalOpen,
+        // BCV Panel & Category/Unit Modal & Presentation modal
+        isBcvPanelOpen,
+        setIsBcvPanelOpen,
+        isCategoryUnitModalOpen,
+        setIsCategoryUnitModalOpen,
+        presentationModalProduct,
+        setPresentationModalProduct,
+        presentationCallback,
+        openPresentationModal,
         // UI states
         isCartOpen,
         setIsCartOpen,

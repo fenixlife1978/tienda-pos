@@ -10,6 +10,8 @@ import {
   Settings,
   Bell,
   Send,
+  TrendingUp,
+  Layers,
 } from 'lucide-react';
 
 export type ErpTab = 'pos' | 'pedidos' | 'inventario' | 'cxc' | 'cxp' | 'reportes' | 'configuracion';
@@ -29,7 +31,7 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
   lowStockCount,
   overdueReceivablesCount,
 }) => {
-  const { setIsSellerAlertsModalOpen } = useApp();
+  const { setIsSellerAlertsModalOpen, setIsBcvPanelOpen, setIsCategoryUnitModalOpen, settings } = useApp();
 
   const totalCriticalAlerts = pendingOrdersCount + lowStockCount + overdueReceivablesCount;
 
@@ -114,20 +116,45 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
             })}
           </nav>
 
-          {/* Quick Alert & Push Broadcaster CTA */}
-          <button
-            type="button"
-            onClick={() => setIsSellerAlertsModalOpen(true)}
-            className="hidden lg:flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
-          >
-            <Bell className="w-3.5 h-3.5" />
-            <span>Centro de Alertas & Push</span>
-            {totalCriticalAlerts > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
-                {totalCriticalAlerts}
-              </span>
-            )}
-          </button>
+          {/* Right Action Buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Tasa BCV Quick Manager */}
+            <button
+              type="button"
+              onClick={() => setIsBcvPanelOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
+              title="Panel de Control Tasa BCV (Manual y Automático)"
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span className="font-mono text-[11px] sm:text-xs">BCV: {settings.bcvRate.toFixed(2)} Bs</span>
+            </button>
+
+            {/* Categorías y Unidades */}
+            <button
+              type="button"
+              onClick={() => setIsCategoryUnitModalOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition cursor-pointer"
+              title="Gestionar Categorías y Unidades de Medida"
+            >
+              <Layers className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Categorías & Unidades</span>
+            </button>
+
+            {/* Quick Alert & Push Broadcaster CTA */}
+            <button
+              type="button"
+              onClick={() => setIsSellerAlertsModalOpen(true)}
+              className="hidden lg:flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              <span>Centro de Alertas & Push</span>
+              {totalCriticalAlerts > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                  {totalCriticalAlerts}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

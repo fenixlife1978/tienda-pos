@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Package,
+  Layers,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -50,6 +51,8 @@ export const Header: React.FC = () => {
     setIsNotificationSettingsOpen,
     setIsSellerAlertsModalOpen,
     logoutCustomer,
+    setIsBcvPanelOpen,
+    setIsCategoryUnitModalOpen,
   } = useApp();
 
   const [isUpdatingBcv, setIsUpdatingBcv] = useState(false);
@@ -139,16 +142,17 @@ export const Header: React.FC = () => {
           {/* Right Section: Tasa BCV, Mode actions, Cart, Notifications & Profile */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
             
-            {/* Tasa BCV Ticker */}
+            {/* Tasa BCV Ticker & Control Panel Trigger */}
             <div className="relative hidden xs:block">
               <button
-                onClick={() => setShowBcvModal(true)}
-                className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer"
-                title="Tasa oficial BCV. Clic para editar o sincronizar"
+                type="button"
+                onClick={() => setIsBcvPanelOpen(true)}
+                className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer shadow-2xs"
+                title="Panel de Control Tasa BCV (Manual, Automático e Historial)"
               >
                 <TrendingUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 <span className="font-bold font-mono text-[11px] sm:text-xs">
-                  BCV: {settings.bcvRate.toFixed(2)}
+                  BCV: {settings.bcvRate.toFixed(2)} Bs
                 </span>
                 <span
                   onClick={(e) => {
@@ -156,12 +160,27 @@ export const Header: React.FC = () => {
                     handleAutoBcv();
                   }}
                   className={`p-0.5 rounded hover:bg-emerald-200 ml-0.5 ${isUpdatingBcv ? 'animate-spin' : ''}`}
-                  title="Actualización automática de tasa BCV"
+                  title="Sincronizar tasa BCV de inmediato"
                 >
                   <RefreshCw className="w-3 h-3 text-emerald-700" />
                 </span>
               </button>
             </div>
+
+            {/* Categorías y Unidades Quick Access (Admin / ERP) */}
+            {isAdminActive && (
+              <div className="relative hidden md:block">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryUnitModalOpen(true)}
+                  className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer"
+                  title="Gestionar Categorías y Unidades de Medida"
+                >
+                  <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="hidden lg:inline text-[11px]">Cat. & Unidades</span>
+                </button>
+              </div>
+            )}
 
             {/* Mode-specific actions */}
             {mode === 'store' ? (

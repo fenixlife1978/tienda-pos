@@ -38,12 +38,26 @@ export interface Customer {
   notificationPreferences?: CustomerNotificationPreferences;
 }
 
+export interface ProductCategory {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface ProductUnit {
+  id: string;
+  name: string; // e.g. "Unidad", "Kilogramo (Kg)", "Litro (L)", "Bulto", "Caja", "Gramos (g)"
+  abbreviation: string; // e.g. "Unid", "Kg", "L", "Blt", "Caj", "g"
+  allowDecimals?: boolean;
+}
+
 export interface ProductPresentation {
   id: string;
   name: string; // e.g. "Bulto x 24 un", "Caja x 12 un", "Fardo x 20 un"
   factor: number; // Unidades base
   priceUSD: number;
   barcode?: string;
+  saleType?: 'packaging' | 'weight' | 'fractional_amount';
 }
 
 export interface ProductSupplierInfo {
@@ -99,11 +113,24 @@ export interface Product {
   isComposite?: boolean; // Marcador si el producto es Compuesto
   compositeComponents?: CompositeComponent[]; // Componentes si es compuesto
   compositeVirtualStock?: number; // Stock virtual calculado según componentes
+  // Modalidades de Venta Especiales
+  isWeighable?: boolean; // Venta por peso en balanza / Kg (ej. Queso, charcutería, carne)
+  pricePerKgUSD?: number; // Precio por Kg si es pesable
+  isFractionable?: boolean; // Venta fraccionada por monto libre en Bs. (ej. Licor a granel, combustible)
+  fractionUnit?: string; // Unidad de despacho fraccionado (ej. "Litro", "ml", "Kg")
 }
 
 export interface CartItem {
+  id?: string; // ID único para soportar diferentes presentaciones o cortes de un mismo producto
   product: Product;
   quantity: number;
+  selectedPresentation?: ProductPresentation;
+  saleMode?: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+  weightKg?: number; // Para venta de queso / charcutería por peso
+  customAmountBs?: number; // Para venta de licor / a granel por monto en Bs.
+  customAmountUSD?: number;
+  unitPriceUSD?: number;
+  customNote?: string;
 }
 
 export type OrderStatus = 'en_tramite' | 'despachado_facturado';
@@ -145,6 +172,11 @@ export interface OrderItem {
   quantity: number;
   unitPriceUSD: number;
   subtotalUSD: number;
+  presentationName?: string;
+  saleMode?: string;
+  weightKg?: number;
+  customAmountBs?: number;
+  customNote?: string;
 }
 
 export interface Order {
@@ -236,6 +268,16 @@ export interface PayableItem {
   status: 'al_dia' | 'por_vencer' | 'vencido' | 'pagado';
 }
 
+export interface BcvHistoryEntry {
+  id: string;
+  rate: number;
+  date: string;
+  type: 'manual' | 'automatic';
+  updatedBy: string;
+  previousRate?: number;
+  changePercent?: number;
+}
+
 export interface SystemSettings {
   companyName: string;
   companyRif: string;
@@ -245,6 +287,8 @@ export interface SystemSettings {
   bcvRate: number;
   autoUpdateBcv: boolean;
   lastBcvUpdate: string;
+  bcvAutoUpdateIntervalSeconds?: number;
+  bcvHistory?: BcvHistoryEntry[];
   defaultCreditDays: number;
   defaultCreditLimitUSD: number;
   ivaPercentage: number;

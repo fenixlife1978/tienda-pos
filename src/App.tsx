@@ -12,6 +12,9 @@ import { AdminLoginModal } from './components/common/AdminLoginModal';
 import { NotificationSettingsModal } from './components/store/NotificationSettingsModal';
 import { NotificationManagerModal } from './components/erp/NotificationManagerModal';
 import { PushNotificationToastContainer } from './components/common/PushNotificationToast';
+import { BcvControlPanelModal } from './components/common/BcvControlPanelModal';
+import { CategoryUnitManagementModal } from './components/common/CategoryUnitManagementModal';
+import { PresentationSaleModal } from './components/common/PresentationSaleModal';
 
 const MainLayout: React.FC = () => {
   const {
@@ -88,6 +91,15 @@ const MainLayout: React.FC = () => {
         isOpen={isSellerAlertsModalOpen}
         onClose={() => setIsSellerAlertsModalOpen(false)}
       />
+
+      {/* BCV Control Panel (Manual & Auto BCV Rate Management) */}
+      <BcvControlPanelModal />
+
+      {/* Categories & Units of Measure CRUD Management Modal */}
+      <CategoryUnitManagementModal />
+
+      {/* Presentation, Weight-based (Queso, etc.) and Fractional Bs. (Licor) Sales Modal */}
+      <PresentationSaleModal />
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Product, PaymentMethod } from '../../types';
+import { Product, PaymentMethod, ProductPresentation } from '../../types';
 import {
   Search,
   ShoppingCart,
@@ -17,7 +17,23 @@ import {
   AlertCircle,
   Banknote,
   Fingerprint,
+  Scale,
+  Wine,
+  Layers,
 } from 'lucide-react';
+
+interface PosTicketItem {
+  id: string;
+  product: Product;
+  quantity: number;
+  selectedPresentation?: ProductPresentation;
+  saleMode?: 'standard' | 'presentation' | 'weight' | 'custom_amount';
+  weightKg?: number;
+  customAmountBs?: number;
+  customAmountUSD?: number;
+  unitPriceUSD?: number;
+  customNote?: string;
+}
 
 export const PosView: React.FC = () => {
   const {
@@ -26,11 +42,12 @@ export const PosView: React.FC = () => {
     settings,
     createOrder,
     setSelectedInvoiceForModal,
+    openPresentationModal,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
-  const [ticketItems, setTicketItems] = useState<{ product: Product; quantity: number }[]>([]);
+  const [ticketItems, setTicketItems] = useState<PosTicketItem[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[0]?.id || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo_usd');
   const [customCreditDays, setCustomCreditDays] = useState<number>(15);
@@ -59,39 +76,104 @@ export const PosView: React.FC = () => {
     });
   }, [products, searchQuery, selectedCategory]);
 
-  const addToTicket = (product: Product) => {
+  const getItemUnitPriceUSD = (item: PosTicketItem): number => {
+    if (item.unitPriceUSD !== undefined) {
+      return item.unitPriceUSD;
+    }
+    if (item.saleMode === 'presentation' && item.selectedPresentation) {
+      return item.selectedPresentation.priceUSD;
+    }
+    if (item.saleMode === 'weight' && item.weightKg) {
+      const rate = item.product.pricePerKgUSD || item.product.priceUSD;
+      return Number((rate * item.weightKg).toFixed(2));
+    }
+    if (item.saleMode === 'custom_amount' && item.customAmountUSD) {
+      return item.customAmountUSD;
+    }
+    return item.product.priceUSD;
+  };
+
+  const getItemSubtotalUSD = (item: PosTicketItem): number => {
+    if (item.saleMode === 'weight' || item.saleMode === 'custom_amount') {
+      return getItemUnitPriceUSD(item);
+    }
+    return getItemUnitPriceUSD(item) * item.quantity;
+  };
+
+  const handleProductSelect = (product: Product) => {
     if (product.stock <= 0) {
       alert('Producto agotado.');
       return;
     }
 
-    setTicketItems((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        if (existing.quantity >= product.stock) {
-          alert(`Stock insuficiente (${product.stock} disponibles).`);
-          return prev;
-        }
-        return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+    const hasSpecial = Boolean(
+      (product.presentations && product.presentations.length > 0) ||
+      product.isWeighable ||
+      product.isFractionable
+    );
+
+    if (hasSpecial) {
+      openPresentationModal(product, (result) => {
+        setTicketItems((prev) => [
+          ...prev,
+          {
+            id: `pos-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            product: result.product,
+            quantity: result.quantity,
+            selectedPresentation: result.presentation,
+            saleMode: result.saleMode,
+            weightKg: result.weightKg,
+            customAmountBs: result.customAmountBs,
+            customAmountUSD: result.customAmountUSD,
+            unitPriceUSD: result.unitPriceUSD,
+            customNote: result.customNote,
+          },
+        ]);
+      });
+    } else {
+      setTicketItems((prev) => {
+        const existing = prev.find(
+          (i) => i.product.id === product.id && (!i.saleMode || i.saleMode === 'standard')
         );
-      }
-      return [...prev, { product, quantity: 1 }];
-    });
+        if (existing) {
+          if (existing.quantity >= product.stock) {
+            alert(`Stock insuficiente (${product.stock} disponibles).`);
+            return prev;
+          }
+          return prev.map((item) =>
+            item.id === existing.id ? { ...item, quantity: item.quantity + 1 } : item
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: `pos-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            product,
+            quantity: 1,
+            saleMode: 'standard',
+            unitPriceUSD: product.priceUSD,
+          },
+        ];
+      });
+    }
   };
 
-  const updateTicketQuantity = (productId: string, quantity: number) => {
+  const updateTicketQuantity = (itemId: string, quantity: number) => {
     if (quantity <= 0) {
-      setTicketItems((prev) => prev.filter((item) => item.product.id !== productId));
-      return;
-    }
-    const product = products.find((p) => p.id === productId);
-    if (product && quantity > product.stock) {
-      alert(`Stock máximo disponible: ${product.stock}`);
+      setTicketItems((prev) => prev.filter((item) => item.id !== itemId));
       return;
     }
     setTicketItems((prev) =>
-      prev.map((item) => (item.product.id === productId ? { ...item, quantity } : item))
+      prev.map((item) => {
+        if (item.id === itemId) {
+          if (quantity > item.product.stock) {
+            alert(`Stock máximo disponible: ${item.product.stock}`);
+            return item;
+          }
+          return { ...item, quantity };
+        }
+        return item;
+      })
     );
   };
 
@@ -103,7 +185,7 @@ export const PosView: React.FC = () => {
   };
 
   // Ticket totals
-  const subtotalUSD = ticketItems.reduce((sum, item) => sum + item.product.priceUSD * item.quantity, 0);
+  const subtotalUSD = ticketItems.reduce((sum, item) => sum + getItemSubtotalUSD(item), 0);
   const taxUSD = subtotalUSD * (settings.ivaPercentage / 100);
   const totalUSD = subtotalUSD + taxUSD;
   const totalBs = totalUSD * settings.bcvRate;
@@ -146,7 +228,17 @@ export const PosView: React.FC = () => {
         customerRif: selectedCustomer.rif,
         customerPhone: selectedCustomer.phone,
         customerAddress: selectedCustomer.address,
-        items: ticketItems,
+        items: ticketItems.map((item) => ({
+          product: item.product,
+          quantity: item.quantity,
+          selectedPresentation: item.selectedPresentation,
+          saleMode: item.saleMode,
+          weightKg: item.weightKg,
+          customAmountBs: item.customAmountBs,
+          customAmountUSD: item.customAmountUSD,
+          unitPriceUSD: item.unitPriceUSD,
+          customNote: item.customNote,
+        })),
         paymentMethod,
         paymentReference: paymentReference || undefined,
         channel: 'pos',
@@ -207,11 +299,16 @@ export const PosView: React.FC = () => {
             {filteredProducts.map((p) => {
               const priceBs = p.priceUSD * settings.bcvRate;
               const isOut = p.stock <= 0;
+              const hasSpecial = Boolean(
+                (p.presentations && p.presentations.length > 0) ||
+                p.isWeighable ||
+                p.isFractionable
+              );
 
               return (
                 <button
                   key={p.id}
-                  onClick={() => !isOut && addToTicket(p)}
+                  onClick={() => !isOut && handleProductSelect(p)}
                   disabled={isOut}
                   className={`p-3 rounded-xl border text-left flex flex-col justify-between transition group relative ${
                     isOut
@@ -236,6 +333,27 @@ export const PosView: React.FC = () => {
                     <h4 className="text-xs font-semibold text-slate-800 line-clamp-2 mt-1 leading-snug">
                       {p.name}
                     </h4>
+
+                    {/* Special sale badges */}
+                    {hasSpecial && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {p.isWeighable && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            <Scale className="w-2.5 h-2.5 text-emerald-600" /> Balanza: ${(p.pricePerKgUSD || p.priceUSD).toFixed(2)}/Kg
+                          </span>
+                        )}
+                        {p.isFractionable && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                            <Wine className="w-2.5 h-2.5 text-purple-600" /> Monto Libre Bs
+                          </span>
+                        )}
+                        {p.presentations && p.presentations.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                            <Layers className="w-2.5 h-2.5 text-blue-600" /> {p.presentations.length} Pres.
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-2 pt-2 border-t border-slate-100 flex items-baseline justify-between">
@@ -264,7 +382,7 @@ export const PosView: React.FC = () => {
               </div>
               <button
                 onClick={clearTicket}
-                className="text-xs text-rose-600 hover:text-rose-800 font-medium"
+                className="text-xs text-rose-600 hover:text-rose-800 font-medium cursor-pointer"
               >
                 Limpiar
               </button>
@@ -304,40 +422,87 @@ export const PosView: React.FC = () => {
                   Haga clic en los productos para agregarlos al ticket.
                 </div>
               ) : (
-                ticketItems.map((item) => (
-                  <div key={item.product.id} className="py-2 flex items-center justify-between gap-2 text-xs">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-800 truncate">{item.product.name}</p>
-                      <p className="text-[10px] text-slate-500 font-mono">
-                        ${item.product.priceUSD.toFixed(2)} x {item.quantity} = ${(item.product.priceUSD * item.quantity).toFixed(2)}
-                      </p>
-                    </div>
+                ticketItems.map((item) => {
+                  const itemSubtotalUSD = getItemSubtotalUSD(item);
+                  const itemSubtotalBs = itemSubtotalUSD * settings.bcvRate;
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => updateTicketQuantity(item.product.id, item.quantity - 1)}
-                        className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
-                      <span className="w-6 text-center font-mono font-bold text-slate-800">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => updateTicketQuantity(item.product.id, item.quantity + 1)}
-                        className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => updateTicketQuantity(item.product.id, 0)}
-                        className="p-1 text-slate-400 hover:text-rose-600 ml-1"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                  return (
+                    <div key={item.id} className="py-2.5 flex items-start justify-between gap-2 text-xs">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-semibold text-slate-800 truncate">{item.product.name}</p>
+                          {item.saleMode === 'weight' && (
+                            <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                              <Scale className="w-2.5 h-2.5" /> Peso
+                            </span>
+                          )}
+                          {item.saleMode === 'custom_amount' && (
+                            <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded bg-purple-100 text-purple-800">
+                              <Wine className="w-2.5 h-2.5" /> Fraccionado
+                            </span>
+                          )}
+                          {item.saleMode === 'presentation' && (
+                            <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-800">
+                              <Layers className="w-2.5 h-2.5" /> Pres.
+                            </span>
+                          )}
+                        </div>
+
+                        {item.saleMode === 'presentation' && item.selectedPresentation && (
+                          <p className="text-[11px] text-blue-700 font-medium mt-0.5">
+                            {item.selectedPresentation.name} ({item.selectedPresentation.factor} un.) @ ${item.selectedPresentation.priceUSD.toFixed(2)}
+                          </p>
+                        )}
+
+                        {item.saleMode === 'weight' && (
+                          <p className="text-[11px] text-emerald-700 font-medium mt-0.5">
+                            Balanza: {item.weightKg} Kg ({Math.round((item.weightKg || 0) * 1000)}g) @ ${(item.product.pricePerKgUSD || item.product.priceUSD).toFixed(2)}/Kg
+                          </p>
+                        )}
+
+                        {item.saleMode === 'custom_amount' && (
+                          <p className="text-[11px] text-purple-700 font-medium mt-0.5">
+                            Monto libre: {item.customAmountBs?.toFixed(2)} Bs. (${item.customAmountUSD?.toFixed(2)} USD) &rarr; Cantidad: {item.quantity} {item.product.fractionUnit || item.product.unit || 'L'}
+                          </p>
+                        )}
+
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] font-mono text-slate-500">
+                          <span>Subtotal: <strong className="text-slate-700">${itemSubtotalUSD.toFixed(2)} USD</strong></span>
+                          <span>({itemSubtotalBs.toFixed(2)} Bs)</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                        {item.saleMode !== 'weight' && item.saleMode !== 'custom_amount' && (
+                          <>
+                            <button
+                              onClick={() => updateTicketQuantity(item.id, item.quantity - 1)}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="w-6 text-center font-mono font-bold text-slate-800">
+                              {item.quantity}
+                            </span>
+                            <button
+                              onClick={() => updateTicketQuantity(item.id, item.quantity + 1)}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => updateTicketQuantity(item.id, 0)}
+                          className="p-1 text-slate-400 hover:text-rose-600 ml-1 cursor-pointer"
+                          title="Quitar ítem"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
