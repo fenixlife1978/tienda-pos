@@ -20,6 +20,7 @@ import { formatUSD, formatBs } from '../../utils/formatUtils';
 import {
   getOrderWhatsAppUrl,
   buildOrderWhatsAppMessage,
+  extractCleanWhatsAppNumber,
   STORE_PHONE_DISPLAY,
   STORE_EMAIL,
   STORE_ADDRESS,
@@ -143,13 +144,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-slate-600">
               <div className="flex items-center gap-2">
                 <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] text-slate-400 font-medium">Teléfono Directo / WhatsApp:</p>
                   <a
-                    href={`https://wa.me/584245751804`}
+                    href={`https://wa.me/${extractCleanWhatsAppNumber(contactPhone)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-bold text-slate-800 hover:text-emerald-700 transition"
+                    className="font-bold text-slate-800 hover:text-emerald-700 transition block truncate"
+                    title={`Abrir WhatsApp: ${contactPhone}`}
                   >
                     {contactPhone}
                   </a>
@@ -158,11 +160,12 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
               <div className="flex items-center gap-2">
                 <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] text-slate-400 font-medium">Correo Electrónico:</p>
                   <a
                     href={`mailto:${contactEmail}`}
-                    className="font-bold text-slate-800 hover:text-blue-700 transition truncate block max-w-[170px]"
+                    className="font-bold text-slate-800 hover:text-blue-700 transition truncate block"
+                    title={contactEmail}
                   >
                     {contactEmail}
                   </a>
@@ -171,9 +174,9 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
               <div className="flex items-center gap-2">
                 <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] text-slate-400 font-medium">Ubicación / Sede:</p>
-                  <p className="font-bold text-slate-800 text-[11px] leading-tight">
+                  <p className="font-bold text-slate-800 text-[11px] leading-tight" title={contactAddress}>
                     {contactAddress}
                   </p>
                 </div>

@@ -81,6 +81,43 @@ export interface AlternativePrices {
   granMayor: AlternativePrice;
 }
 
+// 4 Métodos de formación de precio
+export type PricingMethod = 'markup' | 'margin_on_sale' | 'gap_system' | 'manual';
+
+// Matriz de listas de precios alternativos
+export interface PriceListTier {
+  name: string; // "Público / Detal", "Mayorista", "Distribuidor", "Especial"
+  marginPercent: number; // % de ganancia
+  priceUSD: number; // Precio calculado en USD
+  priceBs: number; // Precio calculado en Bs
+  active: boolean;
+}
+
+export interface PriceListMatrix {
+  publico: PriceListTier;
+  mayorista: PriceListTier;
+  distribuidor: PriceListTier;
+  especial: PriceListTier;
+}
+
+// Modalidades de venta permitidas
+export interface AllowedSaleModes {
+  originalPresentation: boolean; // Presentación original
+  unit: boolean; // Unidad
+  fractional: boolean; // Fraccionada
+  shots: boolean; // Tragos / Shots
+  contentControl: boolean; // Control por contenido / Balanza
+}
+
+// Configuración de Presentaciones y Unidades de Venta
+export interface SalesPresentationsConfig {
+  mainPresentation: string; // Unidad, Caja, Paquete, Botella, Litro, Kg, Metro, etc.
+  contentQuantity: number;
+  baseUnit: string;
+  conversionFactor: number;
+  allowedModes: AllowedSaleModes;
+}
+
 export interface CompositeComponent {
   productId: string;
   productName: string;
@@ -93,26 +130,47 @@ export interface Product {
   code: string;
   name: string;
   category: string;
-  costUSD: number;
+  costUSD: number; // Costo de compra en USD
+  additionalExpensesPercent?: number; // Gastos adicionales en %
+  realCostUSD?: number; // Costo Real = Costo de compra × (1 + Gastos%)
+  lastCostUSD?: number; // Último costo registrado (auditoría / reposición)
+  pricingMethod?: PricingMethod; // Método de formación de precio
   profitMarginPercent?: number; // % Margen de ganancia
-  priceUSD: number;
-  stock: number;
-  minStock: number;
-  unit: string;
+  gapPercent?: number; // % de brecha (para sistema de brecha)
+  ivaRate?: number; // Alícuota de IVA: 16 (General), 8 (Reducida), 0 (Exento)
+  priceUSD: number; // Precio final de venta en USD
+  priceListMatrix?: PriceListMatrix; // Matriz de listas (Público, Mayorista, Distribuidor, Especial)
+  
+  // Pestaña Inventario
+  stock: number; // Stock físico o virtual
+  initialStock?: number; // Stock inicial
+  minStock: number; // Stock mínimo
+  maxStock?: number; // Stock máximo
+  reorderPoint?: number; // Punto de reorden
+  warehouse?: 'Principal' | 'Secundario' | 'Depósito' | string; // Almacén
+  location?: string; // Ubicación física (pasillo/estante)
+
+  // Pestaña Presentaciones y Unidades de Venta
+  unit: string; // Unidad de medida
+  salesPresentationsConfig?: SalesPresentationsConfig; // Configuración completa de presentaciones y modalidades
+
   image: string;
   isOffer?: boolean;
   discountPercentage?: number;
   description?: string;
-  // Campos avanzados solicitados
-  appliesIva?: boolean; // Selector si aplica o no IVA (true: aplica 16%, false: exento)
-  alternativePrices?: AlternativePrices; // Promoción, Oferta, Gran Mayor
-  presentations?: ProductPresentation[]; // Presentaciones (tipos) y precios
-  suppliersInfo?: ProductSupplierInfo[]; // Proveedores con costo y código de barras
+  
+  // Campos avanzados
+  appliesIva?: boolean; // true si aplica IVA (16% u 8%), false si exento (0%)
+  alternativePrices?: AlternativePrices; // Promoción, Oferta, Gran Mayor (compatibilidad)
+  presentations?: ProductPresentation[]; // Presentaciones registradas (bultos, cajas, etc.)
+  suppliersInfo?: ProductSupplierInfo[]; // Proveedores vinculados con costo y código de barras
   highestSupplierCost?: number; // Costo más alto detectado entre proveedores
+  
   // Producto Compuesto
   isComposite?: boolean; // Marcador si el producto es Compuesto
   compositeComponents?: CompositeComponent[]; // Componentes si es compuesto
   compositeVirtualStock?: number; // Stock virtual calculado según componentes
+  
   // Modalidades de Venta Especiales
   isWeighable?: boolean; // Venta por peso en balanza / Kg (ej. Queso, charcutería, carne)
   pricePerKgUSD?: number; // Precio por Kg si es pesable

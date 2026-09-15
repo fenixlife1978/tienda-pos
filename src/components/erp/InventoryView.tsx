@@ -261,9 +261,9 @@ export const InventoryView: React.FC = () => {
                                 Kit/Combo
                               </span>
                             )}
-                            {p.appliesIva ? (
+                            {(p.ivaRate ?? (p.appliesIva ? 16 : 0)) > 0 ? (
                               <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 text-[9px] font-bold">
-                                IVA 16%
+                                IVA {p.ivaRate ?? (p.appliesIva ? 16 : 0)}%
                               </span>
                             ) : (
                               <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
@@ -273,6 +273,9 @@ export const InventoryView: React.FC = () => {
                           </div>
                           <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
                             <span className="font-mono text-slate-500 font-medium">{p.code}</span>
+                            {p.location && (
+                              <span className="text-slate-400 font-medium">📍 {p.location}</span>
+                            )}
                             {p.suppliersInfo && p.suppliersInfo.length > 0 && (
                               <span className="inline-flex items-center gap-0.5 text-blue-600 font-semibold">
                                 <Truck className="w-2.5 h-2.5" />

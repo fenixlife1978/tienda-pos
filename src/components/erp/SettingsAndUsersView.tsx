@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole, AppUser } from '../../types';
 import {
@@ -25,6 +25,8 @@ import {
   Database,
   Server,
   Cloud,
+  Save,
+  Phone,
 } from 'lucide-react';
 
 export const SettingsAndUsersView: React.FC = () => {
@@ -62,7 +64,32 @@ export const SettingsAndUsersView: React.FC = () => {
     ivaPercentage: settings.ivaPercentage,
     defaultCreditDays: settings.defaultCreditDays,
     defaultCreditLimitUSD: settings.defaultCreditLimitUSD,
+    pagoMovilBank: settings.pagoMovilBank || '',
+    pagoMovilPhone: settings.pagoMovilPhone || '',
+    pagoMovilRif: settings.pagoMovilRif || '',
+    zelleEmail: settings.zelleEmail || '',
+    zelleBeneficiary: settings.zelleBeneficiary || '',
   });
+
+  useEffect(() => {
+    setCompanyData({
+      companyName: settings.companyName,
+      companyRif: settings.companyRif,
+      companyAddress: settings.companyAddress,
+      companyPhone: settings.companyPhone,
+      companyEmail: settings.companyEmail,
+      ivaPercentage: settings.ivaPercentage,
+      defaultCreditDays: settings.defaultCreditDays,
+      defaultCreditLimitUSD: settings.defaultCreditLimitUSD,
+      pagoMovilBank: settings.pagoMovilBank || '',
+      pagoMovilPhone: settings.pagoMovilPhone || '',
+      pagoMovilRif: settings.pagoMovilRif || '',
+      zelleEmail: settings.zelleEmail || '',
+      zelleBeneficiary: settings.zelleBeneficiary || '',
+    });
+    setBcvRateInput(settings.bcvRate.toString());
+    setAutoUpdateBcv(settings.autoUpdateBcv);
+  }, [settings]);
 
   // User modal
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -377,125 +404,237 @@ export const SettingsAndUsersView: React.FC = () => {
             </div>
           </div>
 
-          {/* Company Fiscal Profile */}
+          {/* Company Fiscal & Contact Profile */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-indigo-600" />
-                <h3 className="font-bold text-slate-900 text-sm">
-                  Datos Fiscales del Comercio & Políticas de Crédito
-                </h3>
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Datos de la Empresa Distribuidora & Atención al Cliente
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Información comercial, teléfonos de WhatsApp de ventas, correos y ubicación que aparecen en pedidos y comprobantes.
+                  </p>
+                </div>
               </div>
             </div>
 
             <form onSubmit={handleSaveSettings} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              {/* Card 1: Identificación y Razón Social */}
+              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+                <p className="font-bold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-indigo-600" /> Identificación Fiscal y Comercial
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">Razón Social del Comercio / Distribuidora *</label>
+                    <input
+                      type="text"
+                      required
+                      value={companyData.companyName}
+                      onChange={(e) => setCompanyData({ ...companyData, companyName: e.target.value })}
+                      placeholder="Ej. DISTRIBUIDORA LA GRAN BODEGA M&S"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">RIF Fiscal *</label>
+                    <input
+                      type="text"
+                      required
+                      value={companyData.companyRif}
+                      onChange={(e) => setCompanyData({ ...companyData, companyRif: e.target.value })}
+                      placeholder="Ej. J-41258963-0"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono font-bold focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2: Canales de Contacto y WhatsApp (Aparecen en Pantalla de Pedido) */}
+              <div className="bg-emerald-50/50 p-3.5 rounded-xl border border-emerald-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-emerald-900 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-emerald-600" /> Canales de Atención & WhatsApp de Ventas
+                  </p>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md">
+                    Visible en Pantalla de Pedido
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      Teléfono Directo / WhatsApp de Ventas *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={companyData.companyPhone}
+                      onChange={(e) => setCompanyData({ ...companyData, companyPhone: e.target.value })}
+                      placeholder="Ej. +58 424-575.18.04 o +58 212-985.44.12"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-medium text-slate-900"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      El cliente enviará el resumen de su pedido por WhatsApp a este número.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      Correo Electrónico de Ventas / Contacto *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={companyData.companyEmail}
+                      onChange={(e) => setCompanyData({ ...companyData, companyEmail: e.target.value })}
+                      placeholder="Ej. lagranbodegams@gmail.com"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Razón Social del Comercio *</label>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Ubicación / Sede Comercial y de Despacho *
+                  </label>
                   <input
                     type="text"
                     required
-                    value={companyData.companyName}
-                    onChange={(e) => setCompanyData({ ...companyData, companyName: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">RIF Fiscal *</label>
-                  <input
-                    type="text"
-                    required
-                    value={companyData.companyRif}
-                    onChange={(e) => setCompanyData({ ...companyData, companyRif: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono focus:ring-2 focus:ring-indigo-500"
+                    value={companyData.companyAddress}
+                    onChange={(e) => setCompanyData({ ...companyData, companyAddress: e.target.value })}
+                    placeholder="Ej. Av. 3 entre calles 21 y 22, Sector Monte Oscuro, San Felipe, Edo. Yaracuy"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-slate-900"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block font-medium text-slate-700 mb-1">Dirección Fiscal y Comercial *</label>
-                <input
-                  type="text"
-                  required
-                  value={companyData.companyAddress}
-                  onChange={(e) => setCompanyData({ ...companyData, companyAddress: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
+              {/* Card 3: Parámetros Fiscales & Políticas de Crédito */}
+              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+                <p className="font-bold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-indigo-600" /> Parámetros Fiscales & Crédito
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">Alícuota IVA General (%)</label>
+                    <input
+                      type="number"
+                      value={companyData.ivaPercentage}
+                      onChange={(e) => setCompanyData({ ...companyData, ivaPercentage: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono font-bold focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      Días de Crédito (Por Defecto)
+                    </label>
+                    <select
+                      value={companyData.defaultCreditDays}
+                      onChange={(e) => setCompanyData({ ...companyData, defaultCreditDays: Number(e.target.value) })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold bg-white"
+                    >
+                      <option value={7}>7 Días</option>
+                      <option value={15}>15 Días</option>
+                      <option value={21}>21 Días</option>
+                      <option value={30}>30 Días</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      Límite de Crédito Base (USD)
+                    </label>
+                    <input
+                      type="number"
+                      value={companyData.defaultCreditLimitUSD}
+                      onChange={(e) => setCompanyData({ ...companyData, defaultCreditLimitUSD: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono font-bold"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Teléfono Contacto</label>
-                  <input
-                    type="text"
-                    value={companyData.companyPhone}
-                    onChange={(e) => setCompanyData({ ...companyData, companyPhone: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  />
+              {/* Card 4: Cuentas de Cobranza (Pago Móvil & Zelle) */}
+              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
+                <p className="font-bold text-slate-700 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-blue-600" /> Datos de Recepción de Pagos (Pago Móvil / Zelle)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-0.5 text-[11px]">Banco Pago Móvil</label>
+                    <input
+                      type="text"
+                      value={companyData.pagoMovilBank}
+                      onChange={(e) => setCompanyData({ ...companyData, pagoMovilBank: e.target.value })}
+                      placeholder="0102 - Banco de Venezuela"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-0.5 text-[11px]">Teléfono Pago Móvil</label>
+                    <input
+                      type="text"
+                      value={companyData.pagoMovilPhone}
+                      onChange={(e) => setCompanyData({ ...companyData, pagoMovilPhone: e.target.value })}
+                      placeholder="0424-5751804"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-0.5 text-[11px]">RIF / CI Pago Móvil</label>
+                    <input
+                      type="text"
+                      value={companyData.pagoMovilRif}
+                      onChange={(e) => setCompanyData({ ...companyData, pagoMovilRif: e.target.value })}
+                      placeholder="J-41258963-0"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Email Comercial</label>
-                  <input
-                    type="email"
-                    value={companyData.companyEmail}
-                    onChange={(e) => setCompanyData({ ...companyData, companyEmail: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">Alícuota IVA (%)</label>
-                  <input
-                    type="number"
-                    value={companyData.ivaPercentage}
-                    onChange={(e) => setCompanyData({ ...companyData, ivaPercentage: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono font-bold focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
 
-              <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">
-                    Días de Crédito Generales (Por Defecto)
-                  </label>
-                  <select
-                    value={companyData.defaultCreditDays}
-                    onChange={(e) => setCompanyData({ ...companyData, defaultCreditDays: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold bg-white"
-                  >
-                    <option value={7}>7 Días</option>
-                    <option value={15}>15 Días</option>
-                    <option value={21}>21 Días</option>
-                    <option value={30}>30 Días</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">
-                    Límite de Crédito Base (USD)
-                  </label>
-                  <input
-                    type="number"
-                    value={companyData.defaultCreditLimitUSD}
-                    onChange={(e) => setCompanyData({ ...companyData, defaultCreditLimitUSD: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono font-bold"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-slate-200/60">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-0.5 text-[11px]">Correo Zelle</label>
+                    <input
+                      type="email"
+                      value={companyData.zelleEmail}
+                      onChange={(e) => setCompanyData({ ...companyData, zelleEmail: e.target.value })}
+                      placeholder="pagos@empresa.com"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-0.5 text-[11px]">Titular Zelle</label>
+                    <input
+                      type="text"
+                      value={companyData.zelleBeneficiary}
+                      onChange={(e) => setCompanyData({ ...companyData, zelleBeneficiary: e.target.value })}
+                      placeholder="Distribuidora La Gran Bodega LLC"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center justify-between pt-2">
                 {savedSuccess ? (
-                  <span className="text-emerald-600 font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-4 h-4" /> Configuración guardada correctamente
+                  <span className="text-emerald-600 font-bold flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Datos de la distribuidora guardados y actualizados
                   </span>
                 ) : (
-                  <span />
+                  <span className="text-[11px] text-slate-400">
+                    Los cambios se reflejan inmediatamente en la tienda, pedidos y facturación.
+                  </span>
                 )}
 
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-xs transition cursor-pointer"
+                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
                 >
-                  Guardar Parámetros
+                  <Save className="w-4 h-4" />
+                  Guardar Información
                 </button>
               </div>
             </form>

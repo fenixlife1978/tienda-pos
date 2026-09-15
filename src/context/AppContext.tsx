@@ -245,23 +245,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure mandatory official contact information is kept updated
-        if (
-          !parsed.companyPhone ||
-          parsed.companyPhone.includes('212-765') ||
-          parsed.companyPhone.includes('414-987')
-        ) {
-          parsed.companyPhone = '+58 424-5751804';
-        }
-        if (!parsed.companyEmail || parsed.companyEmail.includes('contacto@lagranbodega')) {
-          parsed.companyEmail = 'lagranbodegams@gmail.com';
-        }
-        if (!parsed.companyAddress || parsed.companyAddress.includes('Caracas')) {
-          parsed.companyAddress = 'Av. 3 entre calles 21 y 22, Sector Monte Oscuro, San Felipe, Edo. Yaracuy';
-        }
-        if (parsed.pagoMovilPhone && parsed.pagoMovilPhone.includes('414-9876543')) {
-          parsed.pagoMovilPhone = '0424-5751804';
-        }
         parsed.bcvSourceUrl = 'https://bcv.today/api/rate.json';
         if (!parsed.bcvHistory || !Array.isArray(parsed.bcvHistory) || parsed.bcvHistory.length === 0) {
           const savedHist = localStorage.getItem('omni_bcv_history');
@@ -271,7 +254,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           parsed.bcvRate = INITIAL_SETTINGS.bcvRate;
           parsed.bcvEffectiveDate = INITIAL_SETTINGS.bcvEffectiveDate;
         }
-        return parsed;
+        return {
+          ...INITIAL_SETTINGS,
+          ...parsed,
+          companyName: parsed.companyName || INITIAL_SETTINGS.companyName,
+          companyRif: parsed.companyRif || INITIAL_SETTINGS.companyRif,
+          companyPhone: parsed.companyPhone || INITIAL_SETTINGS.companyPhone,
+          companyEmail: parsed.companyEmail || INITIAL_SETTINGS.companyEmail,
+          companyAddress: parsed.companyAddress || INITIAL_SETTINGS.companyAddress,
+        };
       } catch (e) {
         console.error('Error reading omni_settings:', e);
       }
