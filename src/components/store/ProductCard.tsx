@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { ShoppingCart, Plus, Minus, Check, Flame, Scale, Wine, Layers } from 'lucide-react';
+import { formatUSD, formatBs } from '../../utils/formatUtils';
 
 interface ProductCardProps {
   product: Product;
@@ -22,7 +23,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     ? product.priceUSD * (1 - product.discountPercentage / 100)
     : product.priceUSD;
 
-  const effectivePriceBs = Math.round(effectivePriceUSD * settings.bcvRate);
+  const effectivePriceBs = effectivePriceUSD * settings.bcvRate;
   const isLowStock = product.stock > 0 && product.stock <= product.minStock;
   const isOutOfStock = product.stock <= 0;
 
@@ -126,19 +127,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         <div className="flex items-baseline justify-between">
           <div className="flex items-baseline gap-1.5">
             <span className="text-base sm:text-lg font-bold text-blue-700 font-mono">
-              ${effectivePriceUSD.toFixed(2)}
+              {formatUSD(effectivePriceUSD)}
             </span>
             {product.isWeighable && (
               <span className="text-[10px] text-amber-700 font-semibold">/kg</span>
             )}
             {product.isOffer && (
               <span className="text-[10px] line-through text-slate-400 font-mono">
-                ${product.priceUSD.toFixed(2)}
+                {formatUSD(product.priceUSD)}
               </span>
             )}
           </div>
           <span className="text-xs sm:text-sm font-medium text-slate-500 font-mono">
-            {effectivePriceBs} Bs
+            {formatBs(effectivePriceBs)}
           </span>
         </div>
 

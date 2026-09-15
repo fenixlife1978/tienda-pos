@@ -1,0 +1,58 @@
+name: Compilar Artefactos Windows (.exe Demo e Instalador)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Etiqueta o versión de compilación (ej. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+jobs:
+  build-windows-executables:
+    name: Generar Demo .exe e Instalador .exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar Código Fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Entorno Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar Dependencias del Proyecto
+        run: npm ci || npm install
+
+      - name: Instalar electron y electron-builder para empaquetado
+        run: npm install --save-dev electron@33.2.1 electron-builder@25.1.8
+
+      - name: Compilar Frontend Web (Vite React)
+        run: npm run build
+
+      - name: Generar Ejecutables Windows (Demo Portable e Instalador NSIS)
+        run: npx electron-builder --win --x64 --config electron-builder.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Subir Artefacto - Demo Portable (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Distribuidora-Demo-Portable-exe
+          path: release-builds/Distribuidora-Demo-Portable.exe
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Subir Artefacto - Instalador Setup (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Distribuidora-Setup-Installer-exe
+          path: release-builds/Distribuidora-Setup-Installer.exe
+          if-no-files-found: error
+          retention-days: 90

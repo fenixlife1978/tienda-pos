@@ -14,8 +14,10 @@ import {
   ChevronRight,
   Download,
   Printer,
+  MessageCircle,
 } from 'lucide-react';
 import { InvoiceModal } from '../common/InvoiceModal';
+import { getOrderWhatsAppUrl } from '../../utils/whatsappUtils';
 
 export const CustomerOrdersModal: React.FC = () => {
   const {
@@ -27,6 +29,7 @@ export const CustomerOrdersModal: React.FC = () => {
     reorder,
     selectedInvoiceForModal,
     setSelectedInvoiceForModal,
+    settings,
   } = useApp();
 
   const [selectedStatus, setSelectedStatus] = useState<string>('todos');
@@ -259,15 +262,28 @@ export const CustomerOrdersModal: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Action Bar (Reorder in 1-Click + View/Download Invoice) */}
-                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
-                      <button
-                        onClick={() => handleOpenInvoice(order.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Ver / Descargar Factura</span>
-                      </button>
+                    {/* Action Bar (Reorder in 1-Click + View/Download Invoice + Share via WhatsApp) */}
+                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleOpenInvoice(order.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Ver Factura</span>
+                        </button>
+
+                        <a
+                          href={getOrderWhatsAppUrl(order, settings)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+                          title="Enviar detalles del pedido por WhatsApp al equipo de ventas (+58 424-5751804)"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>Compartir por WhatsApp</span>
+                        </a>
+                      </div>
 
                       <button
                         onClick={() => reorder(order.id)}

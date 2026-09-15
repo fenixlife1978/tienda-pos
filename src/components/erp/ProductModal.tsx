@@ -31,6 +31,13 @@ import {
   SwitchCamera,
   Image as ImageIcon,
 } from 'lucide-react';
+import {
+  formatUSD,
+  formatBs,
+  formatPlainNumber,
+  isValidDecimalInput,
+  parseFreeTextInput,
+} from '../../utils/formatUtils';
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -56,20 +63,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [category, setCategory] = useState(categories[0]?.name || 'Víveres');
   const [unit, setUnit] = useState(units[0]?.name || 'Unidad');
   const [description, setDescription] = useState('');
-  const [stock, setStock] = useState(50);
-  const [minStock, setMinStock] = useState(15);
+  const [stockStr, setStockStr] = useState('50');
+  const [minStockStr, setMinStockStr] = useState('15');
   const [appliesIva, setAppliesIva] = useState(false); // Selector de I.V.A.
 
   // Weight-based (Queso, embutidos) & Fractional Bs. (Licor, granel) state
   const [isWeighable, setIsWeighable] = useState(false);
-  const [pricePerKgUSD, setPricePerKgUSD] = useState<number>(0);
+  const [pricePerKgUSDStr, setPricePerKgUSDStr] = useState<string>('');
   const [isFractionable, setIsFractionable] = useState(false);
   const [fractionUnit, setFractionUnit] = useState('Litro');
 
-  // Cost and Pricing State
-  const [costUSD, setCostUSD] = useState<number>(1.0);
-  const [profitMarginPercent, setProfitMarginPercent] = useState<number>(30);
-  const [priceUSD, setPriceUSD] = useState<number>(1.3);
+  // Cost and Pricing State as Free Text (Allows backspacing completely and entering micro-decimals like 0.000034)
+  const [costUSDStr, setCostUSDStr] = useState<string>('1.0');
+  const [profitMarginPercentStr, setProfitMarginPercentStr] = useState<string>('30');
+  const [priceUSDStr, setPriceUSDStr] = useState<string>('1.3');
 
   // Alternative Prices State (Promoción, Oferta, Gran Mayor)
   const [alternativePrices, setAlternativePrices] = useState<AlternativePrices>({
@@ -93,24 +100,29 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     },
   });
 
+  // Alternative discount input strings for free text editing
+  const [promoDiscountStr, setPromoDiscountStr] = useState<string>('5');
+  const [ofertaDiscountStr, setOfertaDiscountStr] = useState<string>('10');
+  const [granMayorDiscountStr, setGranMayorDiscountStr] = useState<string>('15');
+
   // Presentations State (Tipos y precios)
   const [presentations, setPresentations] = useState<ProductPresentation[]>([]);
   const [newPresName, setNewPresName] = useState('Bulto x 24 un');
-  const [newPresFactor, setNewPresFactor] = useState<number>(24);
-  const [newPresPriceUSD, setNewPresPriceUSD] = useState<number>(0);
+  const [newPresFactorStr, setNewPresFactorStr] = useState<string>('24');
+  const [newPresPriceUSDStr, setNewPresPriceUSDStr] = useState<string>('');
   const [newPresBarcode, setNewPresBarcode] = useState('');
 
   // Suppliers State with Highest Cost Rule
   const [suppliersInfo, setSuppliersInfo] = useState<ProductSupplierInfo[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
-  const [supplierCostUSD, setSupplierCostUSD] = useState<number>(1.0);
+  const [supplierCostUSDStr, setSupplierCostUSDStr] = useState<string>('1.0');
   const [supplierBarcode, setSupplierBarcode] = useState<string>('');
 
   // Composite Product State (Kit / Combo)
   const [isComposite, setIsComposite] = useState<boolean>(false);
   const [compositeComponents, setCompositeComponents] = useState<CompositeComponent[]>([]);
   const [selectedComponentProductId, setSelectedComponentProductId] = useState<string>('');
-  const [componentQuantity, setComponentQuantity] = useState<number>(1);
+  const [componentQuantityStr, setComponentQuantityStr] = useState<string>('1');
 
   // Image Upload and Live Camera State
   const [image, setImage] = useState<string>('https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80');
@@ -130,33 +142,43 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         setCategory(productToEdit.category || (categories[0]?.name || 'Víveres'));
         setUnit(productToEdit.unit || (units[0]?.name || 'Unidad'));
         setDescription(productToEdit.description || '');
-        setStock(productToEdit.stock);
-        setMinStock(productToEdit.minStock);
+        setStockStr(String(productToEdit.stock ?? 0));
+        setMinStockStr(String(productToEdit.minStock ?? 0));
         setAppliesIva(Boolean(productToEdit.appliesIva));
 
         setIsWeighable(Boolean(productToEdit.isWeighable));
-        setPricePerKgUSD(productToEdit.pricePerKgUSD || productToEdit.priceUSD || 0);
+        setPricePerKgUSDStr(
+          productToEdit.pricePerKgUSD !== undefined ? formatPlainNumber(productToEdit.pricePerKgUSD, 6) : ''
+        );
         setIsFractionable(Boolean(productToEdit.isFractionable));
         setFractionUnit(productToEdit.fractionUnit || 'Litro');
 
-        const cUSD = productToEdit.costUSD || 1.0;
-        const pUSD = productToEdit.priceUSD || 1.3;
-        setCostUSD(cUSD);
-        setPriceUSD(pUSD);
+        const cUSD = productToEdit.costUSD ?? 1.0;
+        const pUSD = productToEdit.priceUSD ?? 1.3;
+        setCostUSDStr(formatPlainNumber(cUSD, 6));
+        setPriceUSDStr(formatPlainNumber(pUSD, 6));
 
         const calcMargin = cUSD > 0 ? ((pUSD - cUSD) / cUSD) * 100 : 30;
-        setProfitMarginPercent(productToEdit.profitMarginPercent ?? Number(calcMargin.toFixed(2)));
+        const marginVal = productToEdit.profitMarginPercent ?? calcMargin;
+        setProfitMarginPercentStr(formatPlainNumber(marginVal, 2));
 
         // Alternative prices
         if (productToEdit.alternativePrices) {
           setAlternativePrices(productToEdit.alternativePrices);
+          setPromoDiscountStr(String(productToEdit.alternativePrices.promocion?.discountPercent ?? 5));
+          setOfertaDiscountStr(String(productToEdit.alternativePrices.oferta?.discountPercent ?? 10));
+          setGranMayorDiscountStr(String(productToEdit.alternativePrices.granMayor?.discountPercent ?? 15));
         } else {
-          // Default init
+          const promoDisc = productToEdit.discountPercentage || 5;
+          setPromoDiscountStr(String(promoDisc));
+          setOfertaDiscountStr('10');
+          setGranMayorDiscountStr('15');
+
           setAlternativePrices({
             promocion: {
-              discountPercent: productToEdit.discountPercentage || 5,
-              finalPriceUSD: pUSD * 0.95,
-              customerSavingsUSD: pUSD * 0.05,
+              discountPercent: promoDisc,
+              finalPriceUSD: pUSD * (1 - promoDisc / 100),
+              customerSavingsUSD: pUSD * (promoDisc / 100),
               active: Boolean(productToEdit.isOffer),
             },
             oferta: {
@@ -185,37 +207,41 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         // New product defaults
         setCode(`SKU-${Math.floor(100000 + Math.random() * 900000)}`);
         setName('');
-        setCategory('Víveres');
-        setUnit('Unidad');
+        setCategory(categories[0]?.name || 'Víveres');
+        setUnit(units[0]?.name || 'Unidad');
         setDescription('');
-        setStock(50);
-        setMinStock(15);
+        setStockStr('50');
+        setMinStockStr('15');
         setAppliesIva(false);
 
         const initCost = 1.0;
         const initMargin = 30;
-        const initPrice = Number((initCost * (1 + initMargin / 100)).toFixed(2));
-        setCostUSD(initCost);
-        setProfitMarginPercent(initMargin);
-        setPriceUSD(initPrice);
+        const initPrice = initCost * (1 + initMargin / 100);
+        setCostUSDStr(formatPlainNumber(initCost, 6));
+        setProfitMarginPercentStr(formatPlainNumber(initMargin, 2));
+        setPriceUSDStr(formatPlainNumber(initPrice, 6));
+
+        setPromoDiscountStr('5');
+        setOfertaDiscountStr('10');
+        setGranMayorDiscountStr('15');
 
         setAlternativePrices({
           promocion: {
             discountPercent: 5,
-            finalPriceUSD: Number((initPrice * 0.95).toFixed(2)),
-            customerSavingsUSD: Number((initPrice * 0.05).toFixed(2)),
+            finalPriceUSD: initPrice * 0.95,
+            customerSavingsUSD: initPrice * 0.05,
             active: false,
           },
           oferta: {
             discountPercent: 10,
-            finalPriceUSD: Number((initPrice * 0.9).toFixed(2)),
-            customerSavingsUSD: Number((initPrice * 0.1).toFixed(2)),
+            finalPriceUSD: initPrice * 0.9,
+            customerSavingsUSD: initPrice * 0.1,
             active: false,
           },
           granMayor: {
             discountPercent: 15,
-            finalPriceUSD: Number((initPrice * 0.85).toFixed(2)),
-            customerSavingsUSD: Number((initPrice * 0.15).toFixed(2)),
+            finalPriceUSD: initPrice * 0.85,
+            customerSavingsUSD: initPrice * 0.15,
             active: false,
           },
         });
@@ -225,7 +251,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         setIsComposite(false);
         setCompositeComponents([]);
         setIsWeighable(false);
-        setPricePerKgUSD(0);
+        setPricePerKgUSDStr('');
         setIsFractionable(false);
         setFractionUnit(units.find(u => u.name.toLowerCase().includes('litro'))?.name || 'Litro');
         setImage('https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80');
@@ -244,25 +270,27 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   // Recalculate Alternative Prices whenever base priceUSD or discountPercent changes
   useEffect(() => {
+    const currentBasePrice = parseFreeTextInput(priceUSDStr, 0);
     setAlternativePrices((prev) => {
-      const recalc = (item: typeof prev.promocion) => {
-        const discount = Math.max(0, Math.min(100, item.discountPercent || 0));
-        const finalPriceUSD = Number((priceUSD * (1 - discount / 100)).toFixed(2));
-        const customerSavingsUSD = Number((priceUSD - finalPriceUSD).toFixed(2));
+      const recalc = (discount: number, active: boolean) => {
+        const validDiscount = Math.max(0, Math.min(100, discount));
+        const finalPriceUSD = currentBasePrice * (1 - validDiscount / 100);
+        const customerSavingsUSD = currentBasePrice - finalPriceUSD;
         return {
-          ...item,
+          discountPercent: validDiscount,
           finalPriceUSD,
           customerSavingsUSD,
+          active,
         };
       };
 
       return {
-        promocion: recalc(prev.promocion),
-        oferta: recalc(prev.oferta),
-        granMayor: recalc(prev.granMayor),
+        promocion: recalc(parseFreeTextInput(promoDiscountStr, 5), prev.promocion.active),
+        oferta: recalc(parseFreeTextInput(ofertaDiscountStr, 10), prev.oferta.active),
+        granMayor: recalc(parseFreeTextInput(granMayorDiscountStr, 15), prev.granMayor.active),
       };
     });
-  }, [priceUSD]);
+  }, [priceUSDStr, promoDiscountStr, ofertaDiscountStr, granMayorDiscountStr]);
 
   // HIGHEST COST RULE AMONG SUPPLIERS:
   // "el sistema siempre tomará para el precio de costo el monto más alto de costo de entre los proveedores"
@@ -279,49 +307,45 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   // Whenever suppliersInfo changes, if there is a highest cost, automatically update costUSD and recalculate price
   useEffect(() => {
     if (highestSupplierCost !== null && highestSupplierCost > 0) {
-      setCostUSD(highestSupplierCost);
-      const newPrice = Number((highestSupplierCost * (1 + profitMarginPercent / 100)).toFixed(2));
-      setPriceUSD(newPrice);
+      setCostUSDStr(formatPlainNumber(highestSupplierCost, 6));
+      const margin = parseFreeTextInput(profitMarginPercentStr, 0);
+      const newPrice = highestSupplierCost * (1 + margin / 100);
+      setPriceUSDStr(formatPlainNumber(newPrice, 6));
     }
   }, [highestSupplierCost]);
 
-  // Cost and Margin bidirectional handlers
-  const handleCostChange = (newCost: number) => {
-    setCostUSD(newCost);
-    const newPrice = Number((newCost * (1 + profitMarginPercent / 100)).toFixed(2));
-    setPriceUSD(newPrice);
-  };
-
-  const handleMarginChange = (newMargin: number) => {
-    setProfitMarginPercent(newMargin);
-    const newPrice = Number((costUSD * (1 + newMargin / 100)).toFixed(2));
-    setPriceUSD(newPrice);
-  };
-
-  const handlePriceChange = (newPrice: number) => {
-    setPriceUSD(newPrice);
-    if (costUSD > 0) {
-      const calculatedMargin = ((newPrice - costUSD) / costUSD) * 100;
-      setProfitMarginPercent(Number(calculatedMargin.toFixed(2)));
+  // Cost and Margin bidirectional handlers supporting free-text (e.g., 0.000034)
+  const handleCostChange = (rawText: string) => {
+    if (!isValidDecimalInput(rawText)) return;
+    setCostUSDStr(rawText);
+    const costNum = parseFreeTextInput(rawText, 0);
+    if (costNum > 0) {
+      const marginNum = parseFreeTextInput(profitMarginPercentStr, 0);
+      const newPrice = costNum * (1 + marginNum / 100);
+      setPriceUSDStr(formatPlainNumber(newPrice, 6));
     }
   };
 
-  // Alternative price discount change
-  const handleAlternativeDiscountChange = (tier: keyof AlternativePrices, discountPercent: number) => {
-    const validDiscount = Math.max(0, Math.min(100, discountPercent));
-    const finalPrice = Number((priceUSD * (1 - validDiscount / 100)).toFixed(2));
-    const savings = Number((priceUSD - finalPrice).toFixed(2));
+  const handleMarginChange = (rawText: string) => {
+    if (!isValidDecimalInput(rawText)) return;
+    setProfitMarginPercentStr(rawText);
+    const marginNum = parseFreeTextInput(rawText, 0);
+    const costNum = parseFreeTextInput(costUSDStr, 0);
+    if (costNum > 0) {
+      const newPrice = costNum * (1 + marginNum / 100);
+      setPriceUSDStr(formatPlainNumber(newPrice, 6));
+    }
+  };
 
-    setAlternativePrices((prev) => ({
-      ...prev,
-      [tier]: {
-        ...prev[tier],
-        discountPercent: validDiscount,
-        finalPriceUSD: finalPrice,
-        customerSavingsUSD: savings,
-        active: validDiscount > 0,
-      },
-    }));
+  const handlePriceChange = (rawText: string) => {
+    if (!isValidDecimalInput(rawText)) return;
+    setPriceUSDStr(rawText);
+    const priceNum = parseFreeTextInput(rawText, 0);
+    const costNum = parseFreeTextInput(costUSDStr, 0);
+    if (costNum > 0 && priceNum > 0) {
+      const calculatedMargin = ((priceNum - costNum) / costNum) * 100;
+      setProfitMarginPercentStr(formatPlainNumber(calculatedMargin, 2));
+    }
   };
 
   const toggleAlternativeActive = (tier: keyof AlternativePrices) => {
@@ -337,8 +361,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   // Presentations Handlers
   const handleAddPresentation = () => {
     if (!newPresName.trim()) return;
-    const factor = Math.max(1, newPresFactor);
-    const suggestedPrice = newPresPriceUSD > 0 ? newPresPriceUSD : Number((priceUSD * factor * 0.95).toFixed(2));
+    const factor = Math.max(1, parseInt(newPresFactorStr) || 1);
+    const basePrice = parseFreeTextInput(priceUSDStr, 0);
+    const customPrice = parseFreeTextInput(newPresPriceUSDStr, 0);
+    const suggestedPrice = customPrice > 0 ? customPrice : basePrice * factor * 0.95;
 
     const newPres: ProductPresentation = {
       id: `pres-${Date.now()}`,
@@ -350,8 +376,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
     setPresentations((prev) => [...prev, newPres]);
     setNewPresName('');
-    setNewPresFactor(12);
-    setNewPresPriceUSD(0);
+    setNewPresFactorStr('12');
+    setNewPresPriceUSDStr('');
     setNewPresBarcode('');
   };
 
@@ -359,15 +385,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     setPresentations((prev) => prev.filter((p) => p.id !== id));
   };
 
-  // Suppliers Handlers (Highest Cost Rule)
+  // Suppliers Handlers (Highest Cost Rule with high precision)
   const handleAddSupplier = () => {
     if (!selectedSupplierId) return;
     const supp = suppliers.find((s) => s.id === selectedSupplierId);
     if (!supp) return;
 
-    // Check if supplier already in list
     if (suppliersInfo.some((s) => s.supplierId === selectedSupplierId)) {
       alert(`El proveedor ${supp.name} ya está asociado a este producto. Modifícalo o elimínalo primero.`);
+      return;
+    }
+
+    const suppCost = parseFreeTextInput(supplierCostUSDStr, 0);
+    if (suppCost <= 0) {
+      alert('Por favor ingrese un costo válido mayor a 0 para el proveedor.');
       return;
     }
 
@@ -375,13 +406,14 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       id: `prod-sup-${Date.now()}`,
       supplierId: supp.id,
       supplierName: supp.name,
-      costUSD: Number(supplierCostUSD.toFixed(2)),
+      costUSD: suppCost,
       barcode: supplierBarcode.trim() || code,
     };
 
     const updatedSuppliers = [...suppliersInfo, newSupplierItem];
     setSuppliersInfo(updatedSuppliers);
     setSupplierBarcode('');
+    setSupplierCostUSDStr('1.0');
   };
 
   const handleDeleteSupplier = (id: string) => {
@@ -403,16 +435,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       return;
     }
 
+    const qty = Math.max(1, parseInt(componentQuantityStr) || 1);
     const newComp: CompositeComponent = {
       productId: compProd.id,
       productName: compProd.name,
-      quantity: Math.max(1, componentQuantity),
+      quantity: qty,
       costUSD: compProd.costUSD,
     };
 
     setCompositeComponents((prev) => [...prev, newComp]);
     setSelectedComponentProductId('');
-    setComponentQuantity(1);
+    setComponentQuantityStr('1');
   };
 
   const handleDeleteCompositeComponent = (productId: string) => {
@@ -435,7 +468,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   }, [isComposite, compositeComponents, products]);
 
   const handleApplyCompositeCost = () => {
-    handleCostChange(Number(compositeTotalCostUSD.toFixed(2)));
+    handleCostChange(formatPlainNumber(compositeTotalCostUSD, 6));
   };
 
   // Image Upload File Handler (from PC / Device)
@@ -524,7 +557,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     }
   };
 
-  // Save product submit
+  // Save product submit (Preserves up to 6 decimal precision)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -534,19 +567,28 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       return;
     }
 
-    if (costUSD <= 0) {
-      alert('El precio de costo debe ser mayor a 0.');
+    const finalCostUSD = parseFreeTextInput(costUSDStr, 0);
+    const finalPriceUSD = parseFreeTextInput(priceUSDStr, 0);
+    const finalProfitMargin = parseFreeTextInput(profitMarginPercentStr, 0);
+    const finalStock = parseInt(stockStr) || 0;
+    const finalMinStock = parseInt(minStockStr) || 0;
+
+    if (finalCostUSD <= 0) {
+      alert('El precio de costo debe ser mayor a 0 (ej: 0.000034).');
       setActiveTab('pricing');
       return;
     }
 
-    if (priceUSD <= 0) {
-      alert('El precio de venta debe ser mayor a 0.');
+    if (finalPriceUSD <= 0) {
+      alert('El precio de venta debe ser mayor a 0 (ej: 0.000045).');
       setActiveTab('pricing');
       return;
     }
 
-    const calculatedStock = isComposite && compositeComponents.length > 0 ? compositeVirtualStock : stock;
+    const calculatedStock = isComposite && compositeComponents.length > 0 ? compositeVirtualStock : finalStock;
+    const finalPricePerKg = isWeighable
+      ? (parseFreeTextInput(pricePerKgUSDStr, 0) || finalPriceUSD)
+      : undefined;
 
     const productPayload: Omit<Product, 'id'> = {
       code: code.trim() || `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -554,11 +596,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       category: category.trim() || 'Víveres',
       unit: unit.trim() || 'Unidad',
       description: description.trim(),
-      costUSD: Number(costUSD.toFixed(2)),
-      profitMarginPercent: Number(profitMarginPercent.toFixed(2)),
-      priceUSD: Number(priceUSD.toFixed(2)),
+      costUSD: finalCostUSD,
+      profitMarginPercent: finalProfitMargin,
+      priceUSD: finalPriceUSD,
       stock: calculatedStock,
-      minStock,
+      minStock: finalMinStock,
       image,
       appliesIva,
       isOffer: alternativePrices.promocion.active || alternativePrices.oferta.active,
@@ -575,7 +617,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       compositeComponents: isComposite ? compositeComponents : undefined,
       compositeVirtualStock: isComposite ? compositeVirtualStock : undefined,
       isWeighable,
-      pricePerKgUSD: isWeighable ? Number((pricePerKgUSD || priceUSD).toFixed(2)) : undefined,
+      pricePerKgUSD: finalPricePerKg,
       isFractionable,
       fractionUnit: isFractionable ? fractionUnit : undefined,
     };
@@ -594,184 +636,156 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   if (!isOpen) return null;
 
+  const currentPriceUSDNum = parseFreeTextInput(priceUSDStr, 0);
+  const currentCostUSDNum = parseFreeTextInput(costUSDStr, 0);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-900 text-white shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-lg shadow-inner">
-              <Package className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-100">
+              <Package className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-black text-lg tracking-tight text-white">
-                  {productToEdit ? 'Editar Ficha de Producto' : 'Nuevo Producto en Inventario'}
-                </h3>
-                {isComposite && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500 text-white uppercase tracking-wider">
-                    Compuesto / Kit
-                  </span>
-                )}
-                {appliesIva ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-slate-950">
-                    Aplica IVA (16%)
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500 text-slate-950">
-                    Exento de IVA
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-400">
-                Gestión integral de costos, márgenes, precios alternativos, proveedores y presentaciones
+              <h3 className="font-bold text-slate-900 text-lg">
+                {productToEdit ? `Editar Producto: ${productToEdit.name}` : 'Crear Nuevo Producto (Alta Precisión)'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                Soporte de texto libre y montos con hasta 6 decimales (ej. $0.000034 USD)
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center gap-1 px-4 py-2 bg-slate-100/90 border-b border-slate-200 overflow-x-auto text-xs shrink-0">
+        <div className="flex items-center gap-1 px-6 pt-3 border-b border-slate-200 bg-white overflow-x-auto no-scrollbar shrink-0 text-xs">
           <button
             type="button"
             onClick={() => setActiveTab('general')}
-            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer ${
+            className={`pb-3 px-3 font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'general'
-                ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Package className="w-3.5 h-3.5" />
-            <span>1. Datos & IVA</span>
+            <Info className="w-4 h-4" />
+            Datos Básicos & Venta Especial
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('pricing')}
-            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer ${
+            className={`pb-3 px-3 font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'pricing'
-                ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-            <span>2. Costos & Precios Alt.</span>
-            <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-mono">
-              ${priceUSD.toFixed(2)}
-            </span>
+            <DollarSign className="w-4 h-4" />
+            Costos & Precios (Hasta 6 Decimales)
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('suppliers')}
-            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer ${
+            className={`pb-3 px-3 font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'suppliers'
-                ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Truck className="w-3.5 h-3.5 text-blue-600" />
-            <span>3. Proveedores ({suppliersInfo.length})</span>
-            {highestSupplierCost !== null && (
-              <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded-full text-[10px] font-mono">
-                Regla Costo Max
-              </span>
-            )}
+            <Truck className="w-4 h-4" />
+            Proveedores & Regla Max ({suppliersInfo.length})
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('presentations')}
-            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer ${
+            className={`pb-3 px-3 font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'presentations'
-                ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Layers className="w-3.5 h-3.5 text-amber-600" />
-            <span>4. Presentaciones ({presentations.length})</span>
+            <Layers className="w-4 h-4" />
+            Presentaciones / Bultos ({presentations.length})
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('composite')}
-            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer ${
+            className={`pb-3 px-3 font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'composite'
-                ? 'bg-white text-purple-700 shadow-xs border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Boxes className="w-3.5 h-3.5 text-purple-600" />
-            <span>5. Compuesto / Kit {isComposite && '✓'}</span>
+            <Boxes className="w-4 h-4" />
+            Combo / Kit Compuesto {isComposite && `(${compositeComponents.length})`}
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('image')}
-            className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer ${
+            className={`pb-3 px-3 font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'image'
-                ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Camera className="w-3.5 h-3.5 text-pink-600" />
-            <span>6. Fotografía & Cámara</span>
+            <Camera className="w-4 h-4" />
+            Fotografía & Cámara
           </button>
         </div>
 
-        {/* Modal Body Form */}
+        {/* Form Body with Scroll */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-6 text-xs">
-          {/* ==================== TAB 1: DATOS GENERALES & IVA ==================== */}
+          {/* ==================== TAB 1: DATOS BÁSICOS & MODALIDADES ==================== */}
           {activeTab === 'general' && (
             <div className="space-y-4 animate-in fade-in duration-150">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Código / SKU Principal *
-                  </label>
+                  <label className="block font-bold text-slate-700 mb-1">Código / SKU / Barra *</label>
                   <input
                     type="text"
                     required
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:ring-2 focus:ring-indigo-500 font-bold text-slate-900"
-                    placeholder="Ej: SKU-10492"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:ring-2 focus:ring-indigo-500"
+                    placeholder="SKU-100234"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Identificador único en catálogo y facturación</p>
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Nombre Completo del Producto *
-                  </label>
+                  <label className="block font-bold text-slate-700 mb-1">Nombre Comercial del Producto *</label>
                   <input
                     type="text"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 font-semibold text-slate-900"
-                    placeholder="Ej: Harina de Maíz Blanco PAN 1kg"
+                    placeholder="Ej: Harina de Maíz Precocida 1Kg, Queso Blanco Llanero, etc."
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Nombre visible para clientes en tienda y tickets de caja</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-700">Categoría *</label>
+                    <label className="font-bold text-slate-700">Categoría *</label>
                     <button
                       type="button"
                       onClick={() => setIsCategoryUnitModalOpen(true)}
-                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
-                      title="Crear o eliminar categorías"
+                      className="text-[10px] text-indigo-600 font-bold hover:underline cursor-pointer"
                     >
                       + Gestionar
                     </button>
@@ -781,9 +795,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white font-medium text-slate-800"
                   >
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.name}>
-                        {cat.name}
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.name}
                       </option>
                     ))}
                   </select>
@@ -791,12 +805,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-700">Unidad de Medida Base *</label>
+                    <label className="font-bold text-slate-700">Unidad de Medida Base *</label>
                     <button
                       type="button"
                       onClick={() => setIsCategoryUnitModalOpen(true)}
-                      className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer"
-                      title="Crear o eliminar unidades"
+                      className="text-[10px] text-indigo-600 font-bold hover:underline cursor-pointer"
                     >
                       + Gestionar
                     </button>
@@ -817,10 +830,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Stock Mínimo (Alerta)</label>
                   <input
-                    type="number"
-                    min="0"
-                    value={minStock}
-                    onChange={(e) => setMinStock(parseInt(e.target.value) || 0)}
+                    type="text"
+                    inputMode="numeric"
+                    value={minStockStr}
+                    onChange={(e) => {
+                      if (e.target.value === '' || /^\d+$/.test(e.target.value)) {
+                        setMinStockStr(e.target.value);
+                      }
+                    }}
+                    placeholder="15"
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -846,7 +864,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         onChange={(e) => {
                           const val = e.target.checked;
                           setIsWeighable(val);
-                          if (val && !pricePerKgUSD) setPricePerKgUSD(priceUSD);
+                          if (val && !pricePerKgUSDStr) setPricePerKgUSDStr(priceUSDStr);
                         }}
                         className="mt-0.5 rounded text-amber-600 focus:ring-amber-500"
                       />
@@ -863,13 +881,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     {isWeighable && (
                       <div className="mt-2.5 pt-2 border-t border-amber-100 flex items-center justify-between gap-2">
                         <label className="text-[11px] font-bold text-slate-700">Precio por Kg (USD):</label>
-                        <div className="relative w-32">
+                        <div className="relative w-36">
                           <input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            value={pricePerKgUSD || priceUSD}
-                            onChange={(e) => setPricePerKgUSD(parseFloat(e.target.value) || 0)}
+                            type="text"
+                            inputMode="decimal"
+                            value={pricePerKgUSDStr || priceUSDStr}
+                            onChange={(e) => {
+                              if (isValidDecimalInput(e.target.value)) {
+                                setPricePerKgUSDStr(e.target.value);
+                              }
+                            }}
+                            placeholder="0.00"
                             className="w-full pl-6 pr-2 py-1 border border-amber-300 rounded-lg text-xs font-mono font-bold bg-amber-50/50"
                           />
                           <span className="absolute left-2 top-1 text-slate-400 text-xs">$</span>
@@ -922,11 +944,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     Stock Físico en Almacén {!isComposite && '*'}
                   </label>
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
                     disabled={isComposite}
-                    value={isComposite ? compositeVirtualStock : stock}
-                    onChange={(e) => setStock(parseInt(e.target.value) || 0)}
+                    value={isComposite ? String(compositeVirtualStock) : stockStr}
+                    onChange={(e) => {
+                      if (e.target.value === '' || /^\d+$/.test(e.target.value)) {
+                        setStockStr(e.target.value);
+                      }
+                    }}
+                    placeholder="50"
                     className={`w-full px-3 py-2 border rounded-xl font-mono font-bold focus:ring-2 focus:ring-indigo-500 ${
                       isComposite
                         ? 'bg-purple-50 text-purple-900 border-purple-300 cursor-not-allowed'
@@ -1000,7 +1027,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     <p className="font-bold">Regla del Costo Más Alto Activa</p>
                     <p className="text-blue-800">
                       El precio de costo base está fijado automáticamente en{' '}
-                      <strong className="font-mono font-bold">${highestSupplierCost.toFixed(2)} USD</strong> según el costo
+                      <strong className="font-mono font-bold">{formatUSD(highestSupplierCost)}</strong> según el costo
                       más alto reportado por el proveedor <strong>{highestCostSupplier.supplierName}</strong>.
                     </p>
                   </div>
@@ -1009,10 +1036,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
               {/* Fila principal: Costo, Margen %, Precio Venta USD, Equivalente Bs */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-emerald-600" />
-                  Estructura Base de Precios y Margen de Ganancia
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-emerald-600" />
+                    Estructura Base de Precios y Margen de Ganancia
+                  </h4>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-900 font-bold px-2 py-0.5 rounded-full">
+                    Soporta Micro-Montos (Hasta 6 decimales)
+                  </span>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   {/* Precio de Costo USD */}
@@ -1023,16 +1055,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     <div className="relative">
                       <span className="absolute left-2.5 top-2 text-slate-400 font-bold">$</span>
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
+                        type="text"
+                        inputMode="decimal"
                         required
-                        value={costUSD}
-                        onChange={(e) => handleCostChange(parseFloat(e.target.value) || 0)}
+                        value={costUSDStr}
+                        onChange={(e) => handleCostChange(e.target.value)}
+                        placeholder="0.000034"
                         className="w-full pl-6 pr-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1">Costo de adquisición o reposición</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Costo unitario de adquisición o reposición</p>
                   </div>
 
                   {/* Margen de Ganancia % */}
@@ -1043,17 +1075,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     </label>
                     <div className="relative">
                       <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        value={profitMarginPercent}
-                        onChange={(e) => handleMarginChange(parseFloat(e.target.value) || 0)}
+                        type="text"
+                        inputMode="decimal"
+                        value={profitMarginPercentStr}
+                        onChange={(e) => handleMarginChange(e.target.value)}
+                        placeholder="30"
                         className="w-full px-3 py-1.5 border border-indigo-300 rounded-lg font-mono font-bold text-indigo-900 text-sm focus:ring-2 focus:ring-indigo-500"
                       />
                       <span className="absolute right-3 top-2 text-indigo-600 font-bold text-xs">%</span>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Ganancia neta: ${(priceUSD - costUSD).toFixed(2)} USD
+                      Ganancia: {formatUSD(Math.max(0, currentPriceUSDNum - currentCostUSDNum))}
                     </p>
                   </div>
 
@@ -1065,12 +1097,12 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     <div className="relative">
                       <span className="absolute left-2.5 top-2 text-emerald-700 font-bold">$</span>
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
+                        type="text"
+                        inputMode="decimal"
                         required
-                        value={priceUSD}
-                        onChange={(e) => handlePriceChange(parseFloat(e.target.value) || 0)}
+                        value={priceUSDStr}
+                        onChange={(e) => handlePriceChange(e.target.value)}
+                        placeholder="0.000045"
                         className="w-full pl-6 pr-3 py-1.5 border border-emerald-400 rounded-lg font-mono font-black text-emerald-900 text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
                       />
                     </div>
@@ -1081,10 +1113,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
                     <div>
                       <span className="block font-bold text-slate-700 text-xs">PVP Oficial en Bolívares</span>
-                      <span className="text-[10px] text-slate-400">Tasa BCV: {settings.bcvRate.toFixed(2)} Bs/$</span>
+                      <span className="text-[10px] text-slate-400">Tasa BCV: {formatPlainNumber(settings.bcvRate, 2)} Bs/$</span>
                     </div>
                     <div className="font-mono font-black text-slate-900 text-base">
-                      {(priceUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                      {formatBs(currentPriceUSDNum * settings.bcvRate)}
                     </div>
                   </div>
                 </div>
@@ -1099,7 +1131,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       Precios Alternativos (Promoción, Oferta, Gran Mayor)
                     </h4>
                     <p className="text-xs text-slate-500">
-                      Solo ingresa el % de descuento deseado y el sistema calculará en tiempo real el precio final y el ahorro del cliente.
+                      Ingresa el % de descuento deseado y el sistema calculará en tiempo real el precio final con alta precisión.
                     </p>
                   </div>
                 </div>
@@ -1136,13 +1168,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         </label>
                         <div className="relative">
                           <input
-                            type="number"
-                            min="1"
-                            max="90"
-                            value={alternativePrices.promocion.discountPercent}
-                            onChange={(e) =>
-                              handleAlternativeDiscountChange('promocion', parseFloat(e.target.value) || 0)
-                            }
+                            type="text"
+                            inputMode="decimal"
+                            value={promoDiscountStr}
+                            onChange={(e) => {
+                              if (isValidDecimalInput(e.target.value)) {
+                                setPromoDiscountStr(e.target.value);
+                              }
+                            }}
+                            placeholder="5"
                             className="w-full px-2.5 py-1 text-xs border border-slate-300 rounded-lg font-mono font-bold"
                           />
                           <span className="absolute right-2.5 top-1.5 text-slate-400 font-bold text-xs">%</span>
@@ -1153,20 +1187,19 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500 text-[11px]">Precio Final USD:</span>
                           <span className="font-mono font-black text-blue-700 text-sm">
-                            ${alternativePrices.promocion.finalPriceUSD.toFixed(2)}
+                            {formatUSD(alternativePrices.promocion.finalPriceUSD)}
                           </span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] text-slate-500">
                           <span>Equivalente Bs:</span>
                           <span className="font-mono font-bold">
-                            {(alternativePrices.promocion.finalPriceUSD * settings.bcvRate).toFixed(2)} Bs
+                            {formatBs(alternativePrices.promocion.finalPriceUSD * settings.bcvRate)}
                           </span>
                         </div>
                         <div className="pt-1 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-emerald-700">
                           <span>Ahorro del Cliente:</span>
                           <span className="font-mono">
-                            ${alternativePrices.promocion.customerSavingsUSD.toFixed(2)} USD (
-                            {(alternativePrices.promocion.customerSavingsUSD * settings.bcvRate).toFixed(2)} Bs)
+                            {formatUSD(alternativePrices.promocion.customerSavingsUSD)}
                           </span>
                         </div>
                       </div>
@@ -1204,13 +1237,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         </label>
                         <div className="relative">
                           <input
-                            type="number"
-                            min="1"
-                            max="90"
-                            value={alternativePrices.oferta.discountPercent}
-                            onChange={(e) =>
-                              handleAlternativeDiscountChange('oferta', parseFloat(e.target.value) || 0)
-                            }
+                            type="text"
+                            inputMode="decimal"
+                            value={ofertaDiscountStr}
+                            onChange={(e) => {
+                              if (isValidDecimalInput(e.target.value)) {
+                                setOfertaDiscountStr(e.target.value);
+                              }
+                            }}
+                            placeholder="10"
                             className="w-full px-2.5 py-1 text-xs border border-slate-300 rounded-lg font-mono font-bold"
                           />
                           <span className="absolute right-2.5 top-1.5 text-slate-400 font-bold text-xs">%</span>
@@ -1221,20 +1256,19 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500 text-[11px]">Precio Final USD:</span>
                           <span className="font-mono font-black text-rose-700 text-sm">
-                            ${alternativePrices.oferta.finalPriceUSD.toFixed(2)}
+                            {formatUSD(alternativePrices.oferta.finalPriceUSD)}
                           </span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] text-slate-500">
                           <span>Equivalente Bs:</span>
                           <span className="font-mono font-bold">
-                            {(alternativePrices.oferta.finalPriceUSD * settings.bcvRate).toFixed(2)} Bs
+                            {formatBs(alternativePrices.oferta.finalPriceUSD * settings.bcvRate)}
                           </span>
                         </div>
                         <div className="pt-1 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-emerald-700">
                           <span>Ahorro del Cliente:</span>
                           <span className="font-mono">
-                            ${alternativePrices.oferta.customerSavingsUSD.toFixed(2)} USD (
-                            {(alternativePrices.oferta.customerSavingsUSD * settings.bcvRate).toFixed(2)} Bs)
+                            {formatUSD(alternativePrices.oferta.customerSavingsUSD)}
                           </span>
                         </div>
                       </div>
@@ -1272,13 +1306,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         </label>
                         <div className="relative">
                           <input
-                            type="number"
-                            min="1"
-                            max="90"
-                            value={alternativePrices.granMayor.discountPercent}
-                            onChange={(e) =>
-                              handleAlternativeDiscountChange('granMayor', parseFloat(e.target.value) || 0)
-                            }
+                            type="text"
+                            inputMode="decimal"
+                            value={granMayorDiscountStr}
+                            onChange={(e) => {
+                              if (isValidDecimalInput(e.target.value)) {
+                                setGranMayorDiscountStr(e.target.value);
+                              }
+                            }}
+                            placeholder="15"
                             className="w-full px-2.5 py-1 text-xs border border-slate-300 rounded-lg font-mono font-bold"
                           />
                           <span className="absolute right-2.5 top-1.5 text-slate-400 font-bold text-xs">%</span>
@@ -1289,20 +1325,19 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         <div className="flex justify-between items-center">
                           <span className="text-slate-500 text-[11px]">Precio Final USD:</span>
                           <span className="font-mono font-black text-amber-800 text-sm">
-                            ${alternativePrices.granMayor.finalPriceUSD.toFixed(2)}
+                            {formatUSD(alternativePrices.granMayor.finalPriceUSD)}
                           </span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] text-slate-500">
                           <span>Equivalente Bs:</span>
                           <span className="font-mono font-bold">
-                            {(alternativePrices.granMayor.finalPriceUSD * settings.bcvRate).toFixed(2)} Bs
+                            {formatBs(alternativePrices.granMayor.finalPriceUSD * settings.bcvRate)}
                           </span>
                         </div>
                         <div className="pt-1 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-emerald-700">
                           <span>Ahorro del Cliente:</span>
                           <span className="font-mono">
-                            ${alternativePrices.granMayor.customerSavingsUSD.toFixed(2)} USD (
-                            {(alternativePrices.granMayor.customerSavingsUSD * settings.bcvRate).toFixed(2)} Bs)
+                            {formatUSD(alternativePrices.granMayor.customerSavingsUSD)}
                           </span>
                         </div>
                       </div>
@@ -1362,11 +1397,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       Precio Costo Proveedor (USD) *
                     </label>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      value={supplierCostUSD}
-                      onChange={(e) => setSupplierCostUSD(parseFloat(e.target.value) || 0)}
+                      type="text"
+                      inputMode="decimal"
+                      value={supplierCostUSDStr}
+                      onChange={(e) => {
+                        if (isValidDecimalInput(e.target.value)) {
+                          setSupplierCostUSDStr(e.target.value);
+                        }
+                      }}
+                      placeholder="0.000034"
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono text-xs font-bold"
                     />
                   </div>
@@ -1434,7 +1473,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                                 </span>
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                                ${s.costUSD.toFixed(2)} USD
+                                {formatUSD(s.costUSD)} USD
                               </td>
                               <td className="py-2.5 px-3 text-center">
                                 {isHighest ? (
@@ -1509,14 +1548,18 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       Unidades que Contiene (Factor) *
                     </label>
                     <input
-                      type="number"
-                      min="1"
-                      value={newPresFactor}
+                      type="text"
+                      inputMode="numeric"
+                      value={newPresFactorStr}
                       onChange={(e) => {
-                        const fac = parseInt(e.target.value) || 1;
-                        setNewPresFactor(fac);
-                        setNewPresPriceUSD(Number((priceUSD * fac * 0.95).toFixed(2)));
+                        if (e.target.value === '' || /^\d+$/.test(e.target.value)) {
+                          setNewPresFactorStr(e.target.value);
+                          const fac = parseInt(e.target.value) || 1;
+                          const base = parseFreeTextInput(priceUSDStr, 0);
+                          setNewPresPriceUSDStr(formatPlainNumber(base * fac * 0.95, 6));
+                        }
                       }}
+                      placeholder="24"
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono text-xs font-bold"
                     />
                   </div>
@@ -1526,11 +1569,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       Precio Presentación (USD) *
                     </label>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      value={newPresPriceUSD || (priceUSD * newPresFactor * 0.95).toFixed(2)}
-                      onChange={(e) => setNewPresPriceUSD(parseFloat(e.target.value) || 0)}
+                      type="text"
+                      inputMode="decimal"
+                      value={newPresPriceUSDStr}
+                      onChange={(e) => {
+                        if (isValidDecimalInput(e.target.value)) {
+                          setNewPresPriceUSDStr(e.target.value);
+                        }
+                      }}
+                      placeholder={formatPlainNumber(parseFreeTextInput(priceUSDStr, 0) * (parseInt(newPresFactorStr) || 1) * 0.95, 6)}
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono text-xs font-bold text-emerald-700"
                     />
                   </div>
@@ -1583,9 +1630,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           <div className="flex items-center gap-2 text-[11px] text-slate-500">
                             <span>{p.factor} unidades</span>
                             <span>•</span>
-                            <span className="font-mono font-bold text-emerald-700">${p.priceUSD.toFixed(2)} USD</span>
+                            <span className="font-mono font-bold text-emerald-700">{formatUSD(p.priceUSD)} USD</span>
                             <span>•</span>
-                            <span>{(p.priceUSD * settings.bcvRate).toFixed(2)} Bs</span>
+                            <span>{formatBs(p.priceUSD * settings.bcvRate)}</span>
                           </div>
                           {p.barcode && (
                             <p className="text-[10px] font-mono text-slate-400">Ref / Barra: {p.barcode}</p>
@@ -1663,7 +1710,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           <option value="">-- Seleccionar producto --</option>
                           {availableProductsForComposite.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name} (Stock: {p.stock} {p.unit} | Costo: ${p.costUSD.toFixed(2)})
+                              {p.name} (Stock: {p.stock} {p.unit} | Costo: {formatUSD(p.costUSD)})
                             </option>
                           ))}
                         </select>
@@ -1674,10 +1721,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           Cantidad Requerida por Combo *
                         </label>
                         <input
-                          type="number"
-                          min="1"
-                          value={componentQuantity}
-                          onChange={(e) => setComponentQuantity(parseInt(e.target.value) || 1)}
+                          type="text"
+                          inputMode="numeric"
+                          value={componentQuantityStr}
+                          onChange={(e) => {
+                            if (e.target.value === '' || /^\d+$/.test(e.target.value)) {
+                              setComponentQuantityStr(e.target.value);
+                            }
+                          }}
+                          placeholder="1"
                           className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono text-xs font-bold"
                         />
                       </div>
@@ -1709,7 +1761,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           className="text-[11px] font-bold text-purple-700 hover:text-purple-900 underline flex items-center gap-1 cursor-pointer"
                         >
                           <RefreshCw className="w-3 h-3" />
-                          Aplicar costo acumulado (${compositeTotalCostUSD.toFixed(2)} USD)
+                          Aplicar costo acumulado ({formatUSD(compositeTotalCostUSD)} USD)
                         </button>
                       )}
                     </div>
@@ -1750,10 +1802,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                                     x{c.quantity}
                                   </td>
                                   <td className="py-2.5 px-3 text-right font-mono text-slate-700">
-                                    ${c.costUSD.toFixed(2)}
+                                    {formatUSD(c.costUSD)}
                                   </td>
                                   <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                                    ${subtotal.toFixed(2)}
+                                    {formatUSD(subtotal)}
                                   </td>
                                   <td className="py-2.5 px-3 text-right">
                                     <button
@@ -1774,7 +1826,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                                 Costo Total de Componentes:
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono text-purple-800 text-sm">
-                                ${compositeTotalCostUSD.toFixed(2)} USD
+                                {formatUSD(compositeTotalCostUSD)} USD
                               </td>
                               <td></td>
                             </tr>
@@ -1962,12 +2014,12 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             <div className="flex items-center gap-2 text-xs">
               <span className="text-slate-500">Resumen:</span>
               <span className="font-bold text-slate-800">
-                Costo: <strong className="font-mono text-slate-900">${costUSD.toFixed(2)}</strong>
+                Costo: <strong className="font-mono text-slate-900">{formatUSD(currentCostUSDNum)}</strong>
               </span>
               <span className="text-slate-300">•</span>
-              <span className="font-bold text-indigo-700">Margen: {profitMarginPercent}%</span>
+              <span className="font-bold text-indigo-700">Margen: {profitMarginPercentStr}%</span>
               <span className="text-slate-300">•</span>
-              <span className="font-black text-emerald-800 font-mono text-sm">PVP: ${priceUSD.toFixed(2)} USD</span>
+              <span className="font-black text-emerald-800 font-mono text-sm">PVP: {formatUSD(currentPriceUSDNum)} USD</span>
             </div>
 
             <div className="flex items-center gap-2">

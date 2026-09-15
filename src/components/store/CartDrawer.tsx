@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ShoppingCart, X, Trash2, Plus, Minus, ArrowRight, ShieldCheck } from 'lucide-react';
 import { CheckoutModal } from './CheckoutModal';
+import { formatUSD, formatBs } from '../../utils/formatUtils';
 
 export const CartDrawer: React.FC = () => {
   const {
@@ -32,7 +33,6 @@ export const CartDrawer: React.FC = () => {
 
   const handleCheckoutSuccess = () => {
     setIsCartOpen(false);
-    setIsOrdersModalOpen(true);
   };
 
   return (
@@ -104,14 +104,14 @@ export const CartDrawer: React.FC = () => {
                           {item.product.name}
                         </h4>
                         <p className="text-[11px] text-slate-500 font-mono">
-                          ${effectivePriceUSD.toFixed(2)} USD c/u
+                          {formatUSD(effectivePriceUSD)} USD c/u
                         </p>
                         <div className="flex items-center gap-1.5 mt-1">
                           <span className="text-xs font-bold text-blue-700 font-mono">
-                            ${lineTotalUSD.toFixed(2)}
+                            {formatUSD(lineTotalUSD)}
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono">
-                            ({lineTotalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs)
+                            ({formatBs(lineTotalBs)})
                           </span>
                         </div>
                       </div>
@@ -157,20 +157,20 @@ export const CartDrawer: React.FC = () => {
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between text-slate-600">
                     <span>Subtotal:</span>
-                    <span className="font-mono font-medium">${subtotalUSD.toFixed(2)} USD</span>
+                    <span className="font-mono font-medium">{formatUSD(subtotalUSD)} USD</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>IVA ({settings.ivaPercentage}%):</span>
-                    <span className="font-mono font-medium">${taxUSD.toFixed(2)} USD</span>
+                    <span className="font-mono font-medium">{formatUSD(taxUSD)} USD</span>
                   </div>
                   <div className="flex justify-between text-slate-900 font-bold text-sm pt-1 border-t border-slate-200">
                     <span>Total Estimado (USD):</span>
-                    <span className="font-mono text-blue-700">${totalUSD.toFixed(2)}</span>
+                    <span className="font-mono text-blue-700">{formatUSD(totalUSD)}</span>
                   </div>
                   <div className="flex justify-between text-emerald-800 font-bold text-sm bg-emerald-50 px-2 py-1 rounded">
                     <span>Total Estimado (Bs):</span>
                     <span className="font-mono">
-                      {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                      {formatBs(totalBs)}
                     </span>
                   </div>
                 </div>

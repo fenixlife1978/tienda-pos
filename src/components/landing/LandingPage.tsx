@@ -185,7 +185,7 @@ export const LandingPage: React.FC = () => {
                     DISTRIBUIDORA LA GRAN BODEGA M&S
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    RIF: {settings.companyRif} • Sede Caracas
+                    RIF: {settings.companyRif} • San Felipe, Edo. Yaracuy
                   </p>
                 </div>
 

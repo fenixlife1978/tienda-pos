@@ -16,6 +16,7 @@ import {
   Banknote,
   Fingerprint,
 } from 'lucide-react';
+import { formatUSD, formatBs } from '../../utils/formatUtils';
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -24,7 +25,7 @@ interface CheckoutModalProps {
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { cart, currentCustomer, settings, createOrder, setSelectedInvoiceForModal } = useApp();
+  const { cart, currentCustomer, settings, createOrder, setSelectedInvoiceForModal, setLastSuccessfulOrder } = useApp();
 
   const [name, setName] = useState(currentCustomer?.name || '');
   const [rif, setRif] = useState(currentCustomer?.rif || '');
@@ -107,9 +108,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
         customCreditDays: currentCustomer?.creditDays || settings.defaultCreditDays,
       });
 
+      setLastSuccessfulOrder(order);
       onClose();
       onSuccess(order.id);
-      setSelectedInvoiceForModal(invoice);
     } catch (err) {
       console.error(err);
       alert('Hubo un error al procesar el pedido.');
@@ -144,9 +145,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
             <div>
               <p className="text-xs text-blue-700 font-medium">Total a Pagar ({cart.length} productos):</p>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-extrabold text-blue-900 font-mono">${totalUSD.toFixed(2)} USD</span>
+                <span className="text-2xl font-extrabold text-blue-900 font-mono">{formatUSD(totalUSD)} USD</span>
                 <span className="text-xs font-semibold text-blue-800 font-mono">
-                  ≈ {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                  ≈ {formatBs(totalBs)}
                 </span>
               </div>
             </div>
@@ -381,7 +382,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                     <span>Pago en Efectivo Bolívares (Tasa Oficial BCV)</span>
                   </div>
                   <p className="text-slate-600">
-                    Total a cancelar en Bolívares: <strong className="text-emerald-700 font-mono text-sm">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</strong> (Tasa: {settings.bcvRate.toFixed(2)} Bs/USD).
+                    Total a cancelar en Bolívares: <strong className="text-emerald-700 font-mono text-sm">{formatBs(totalBs)}</strong> (Tasa: {settings.bcvRate.toFixed(2)} Bs/USD).
                   </p>
                   <p className="text-slate-500 text-[11px]">
                     Cancela en efectivo al recibir tu despacho o al retirar en tienda. Si requieres vuelto, por favor especifica en las notas con qué denominación de billetes pagarás.
@@ -397,7 +398,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                     <span>Terminal Biopago BDV / Débito</span>
                   </div>
                   <p className="text-slate-600">
-                    Total a debitar: <strong className="text-indigo-700 font-mono text-sm">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</strong> (Tasa oficial BCV: {settings.bcvRate.toFixed(2)} Bs/USD).
+                    Total a debitar: <strong className="text-indigo-700 font-mono text-sm">{formatBs(totalBs)}</strong> (Tasa oficial BCV: {settings.bcvRate.toFixed(2)} Bs/USD).
                   </p>
                   <p className="text-slate-500 text-[11px]">
                     El cobro se procesa a través de la plataforma Biopago con huella dactilar o tarjeta de débito registrada en BDV u otros bancos afiliados.
@@ -434,7 +435,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                     </p>
                   </div>
                   <p className="text-blue-700 font-bold font-mono">
-                    Total a transferir: {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                    Total a transferir: {formatBs(totalBs)}
                   </p>
                   <div>
                     <label className="block font-medium text-slate-700 mb-1">
@@ -460,7 +461,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                     <p className="text-slate-600">Correo Electrónico: <strong className="text-slate-900">{settings.zelleEmail}</strong></p>
                     <p className="text-slate-600">Beneficiario Registrado: <strong className="text-slate-900">{settings.zelleBeneficiary}</strong></p>
                   </div>
-                  <p className="text-purple-700 font-bold font-mono">Monto exacto a transferir: ${totalUSD.toFixed(2)} USD</p>
+                  <p className="text-purple-700 font-bold font-mono">Monto exacto a transferir: {formatUSD(totalUSD)} USD</p>
                   <div>
                     <label className="block font-medium text-slate-700 mb-1">
                       Nombre del Titular de la cuenta Zelle emisora o Referencia *
@@ -487,7 +488,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                     </p>
                   </div>
                   <p className="text-sky-700 font-bold font-mono">
-                    Monto a transferir: {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                    Monto a transferir: {formatBs(totalBs)}
                   </p>
                   <div>
                     <label className="block font-medium text-slate-700 mb-1">
@@ -511,7 +512,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
                   <div className="flex items-center gap-2 text-slate-700">
                     <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
                     <p>
-                      Cancela en dólares en efectivo al recibir tu despacho o al retirar en tienda. Monto total a entregar: <strong className="font-mono text-emerald-700 font-bold">${totalUSD.toFixed(2)} USD</strong>.
+                      Cancela en dólares en efectivo al recibir tu despacho o al retirar en tienda. Monto total a entregar: <strong className="font-mono text-emerald-700 font-bold">{formatUSD(totalUSD)} USD</strong>.
                     </p>
                   </div>
                   <p className="text-[11px] text-slate-500">

@@ -15,6 +15,7 @@ import {
   Phone,
 } from 'lucide-react';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 export const AccountsReceivableView: React.FC = () => {
   const {
@@ -90,7 +91,7 @@ export const AccountsReceivableView: React.FC = () => {
     const rows = [
       ['REPORTE DE CUENTAS POR COBRAR (CxC) Y GESTIÓN DE CRÉDITOS'],
       ['Fecha Generación', new Date().toLocaleString('es-VE')],
-      ['Tasa BCV', `${settings.bcvRate.toFixed(2)} Bs/USD`],
+      ['Tasa BCV', `${formatPlainNumber(settings.bcvRate, 2)} Bs/USD`],
       [],
       ['N° Factura', 'Cliente', 'Teléfono', 'Fecha Emisión', 'Fecha Vencimiento', 'Días Crédito', 'Monto Total USD', 'Abonado USD', 'Saldo Pendiente USD', 'Saldo Pendiente Bs', 'Estado'],
       ...receivables.map((r) => [
@@ -100,10 +101,10 @@ export const AccountsReceivableView: React.FC = () => {
         r.issuedDate,
         r.dueDate,
         r.creditDays,
-        r.totalAmountUSD.toFixed(2),
-        r.amountPaidUSD.toFixed(2),
-        r.balanceUSD.toFixed(2),
-        (r.balanceUSD * settings.bcvRate).toFixed(2),
+        formatPlainNumber(r.totalAmountUSD, 6),
+        formatPlainNumber(r.amountPaidUSD, 6),
+        formatPlainNumber(r.balanceUSD, 6),
+        formatPlainNumber(r.balanceUSD * settings.bcvRate, 6),
         r.status.toUpperCase(),
       ]),
     ];
@@ -141,10 +142,10 @@ export const AccountsReceivableView: React.FC = () => {
             Total Cartera por Cobrar
           </span>
           <p className="text-2xl font-extrabold text-blue-700 mt-1 font-mono">
-            ${totalReceivableUSD.toFixed(2)} USD
+            {formatUSD(totalReceivableUSD)} USD
           </p>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            ≈ {(totalReceivableUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+            ≈ {formatBs(totalReceivableUSD * settings.bcvRate)}
           </p>
         </div>
 
@@ -153,7 +154,7 @@ export const AccountsReceivableView: React.FC = () => {
             Saldo Vencido (Mora)
           </span>
           <p className="text-2xl font-extrabold text-rose-600 mt-1 font-mono">
-            ${overdueUSD.toFixed(2)} USD
+            {formatUSD(overdueUSD)} USD
           </p>
           <p className="text-[10px] text-rose-700 mt-0.5">
             Requiere gestión de cobranza inmediata
@@ -165,7 +166,7 @@ export const AccountsReceivableView: React.FC = () => {
             Cobros Recaudados (Abonos)
           </span>
           <p className="text-2xl font-extrabold text-emerald-700 mt-1 font-mono">
-            ${totalPaidUSD.toFixed(2)} USD
+            {formatUSD(totalPaidUSD)} USD
           </p>
           <p className="text-[10px] text-emerald-600 mt-0.5">
             Ingresos liquidados a caja
@@ -211,8 +212,8 @@ export const AccountsReceivableView: React.FC = () => {
 
                 {cust.hasCredit && (
                   <div className="mt-2 text-[11px] text-slate-600 space-y-0.5">
-                    <p>Límite: <strong className="font-mono">${cust.creditLimitUSD.toFixed(2)}</strong></p>
-                    <p>Deuda actual: <strong className="font-mono text-amber-700">${cust.currentDebtUSD.toFixed(2)}</strong></p>
+                    <p>Límite: <strong className="font-mono">{formatUSD(cust.creditLimitUSD)}</strong></p>
+                    <p>Deuda actual: <strong className="font-mono text-amber-700">{formatUSD(cust.currentDebtUSD)}</strong></p>
                   </div>
                 )}
               </div>
@@ -297,11 +298,11 @@ export const AccountsReceivableView: React.FC = () => {
                       <td className="py-3 px-4 text-slate-600 font-mono">{rec.issuedDate}</td>
                       <td className="py-3 px-4 text-slate-800 font-mono font-semibold">{rec.dueDate}</td>
                       <td className="py-3 px-4 text-center font-bold text-slate-700">{rec.creditDays}d</td>
-                      <td className="py-3 px-4 text-right font-mono text-slate-600">${rec.totalAmountUSD.toFixed(2)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-emerald-600 font-semibold">${rec.amountPaidUSD.toFixed(2)}</td>
-                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">${rec.balanceUSD.toFixed(2)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-600">{formatUSD(rec.totalAmountUSD)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-emerald-600 font-semibold">{formatUSD(rec.amountPaidUSD)}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatUSD(rec.balanceUSD)}</td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-emerald-700">
-                        {balanceBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+                        {formatBs(balanceBs)}
                       </td>
                       <td className="py-3 px-4 text-center">
                         {rec.status === 'al_dia' && (
@@ -365,9 +366,9 @@ export const AccountsReceivableView: React.FC = () => {
               <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 space-y-1 text-blue-900">
                 <p>Factura: <strong>{selectedReceivable.invoiceNumber}</strong></p>
                 <p>Cliente: <strong>{selectedReceivable.customerName}</strong></p>
-                <p>Saldo Pendiente Actual: <strong className="font-mono text-sm">${selectedReceivable.balanceUSD.toFixed(2)} USD</strong></p>
+                <p>Saldo Pendiente Actual: <strong className="font-mono text-sm">{formatUSD(selectedReceivable.balanceUSD)} USD</strong></p>
                 <p className="text-[11px] text-blue-700">
-                  ≈ {(selectedReceivable.balanceUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                  ≈ {formatBs(selectedReceivable.balanceUSD * settings.bcvRate)}
                 </p>
               </div>
 

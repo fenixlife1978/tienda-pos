@@ -272,10 +272,18 @@ export interface BcvHistoryEntry {
   id: string;
   rate: number;
   date: string;
+  effectiveDate?: string;
   type: 'manual' | 'automatic';
   updatedBy: string;
+  source?: string;
   previousRate?: number;
   changePercent?: number;
+  currencies?: {
+    EUR?: number;
+    CNY?: number;
+    TRY?: number;
+    RUB?: number;
+  };
 }
 
 export interface SystemSettings {
@@ -288,6 +296,8 @@ export interface SystemSettings {
   autoUpdateBcv: boolean;
   lastBcvUpdate: string;
   bcvAutoUpdateIntervalSeconds?: number;
+  bcvSourceUrl?: string;
+  bcvEffectiveDate?: string;
   bcvHistory?: BcvHistoryEntry[];
   defaultCreditDays: number;
   defaultCreditLimitUSD: number;

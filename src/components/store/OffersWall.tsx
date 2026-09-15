@@ -16,6 +16,7 @@ import {
   Plus,
   Minus,
 } from 'lucide-react';
+import { formatUSD, formatBs } from '../../utils/formatUtils';
 
 export const OffersWall: React.FC = () => {
   const { products, settings, addToCart, triggerPushNotification } = useApp();
@@ -186,7 +187,7 @@ export const OffersWall: React.FC = () => {
                       ¡Tu Ahorro por unidad!
                     </span>
                     <span className="font-bold text-emerald-700 font-mono">
-                      +${savingsUSD.toFixed(2)} ({savingsBs.toFixed(0)} Bs)
+                      +{formatUSD(savingsUSD)} ({formatBs(savingsBs)})
                     </span>
                   </div>
                 </div>
@@ -198,16 +199,16 @@ export const OffersWall: React.FC = () => {
                   <div>
                     <div className="flex items-baseline gap-2">
                       <span className="text-2xl font-black text-blue-700 font-mono">
-                        ${discountedPriceUSD.toFixed(2)}
+                        {formatUSD(discountedPriceUSD)}
                       </span>
                       <span className="text-xs line-through text-slate-400 font-mono">
-                        ${product.priceUSD.toFixed(2)}
+                        {formatUSD(product.priceUSD)}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1.5 text-xs text-slate-600 font-mono font-medium">
-                      <span>{discountedPriceBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</span>
+                      <span>{formatBs(discountedPriceBs)}</span>
                       <span className="text-[10px] line-through text-slate-400">
-                        {originalPriceBs.toLocaleString('es-VE', { minimumFractionDigits: 0 })} Bs
+                        {formatBs(originalPriceBs)}
                       </span>
                     </div>
                   </div>

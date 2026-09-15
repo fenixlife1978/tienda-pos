@@ -19,6 +19,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 export const InventoryView: React.FC = () => {
   const { products, addProduct, updateProduct, deleteProduct, adjustProductStock, settings } = useApp();
@@ -94,7 +95,7 @@ export const InventoryView: React.FC = () => {
     const rows = [
       ['REPORTE DE INVENTARIO Y VALORIZACIÓN EN TIEMPO REAL'],
       ['Fecha', new Date().toLocaleString('es-VE')],
-      ['Tasa BCV', `${settings.bcvRate.toFixed(2)} Bs/USD`],
+      ['Tasa BCV', `${formatPlainNumber(settings.bcvRate, 2)} Bs/USD`],
       [],
       ['SKU', 'Producto', 'Categoría', 'Stock Físico', 'Stock Mínimo', 'Unidad', 'Costo USD', 'Precio USD', 'Precio Bs', 'Valor Costo Total USD'],
       ...products.map((p) => [
@@ -104,10 +105,10 @@ export const InventoryView: React.FC = () => {
         p.stock,
         p.minStock,
         p.unit,
-        p.costUSD.toFixed(2),
-        p.priceUSD.toFixed(2),
-        (p.priceUSD * settings.bcvRate).toFixed(2),
-        (p.costUSD * p.stock).toFixed(2),
+        formatPlainNumber(p.costUSD, 6),
+        formatPlainNumber(p.priceUSD, 6),
+        formatPlainNumber(p.priceUSD * settings.bcvRate, 2),
+        formatPlainNumber(p.costUSD * p.stock, 6),
       ]),
     ];
     exportToCSV(`Inventario_${new Date().toISOString().split('T')[0]}`, rows);
@@ -169,9 +170,9 @@ export const InventoryView: React.FC = () => {
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">Valor Inventario (Costo)</span>
-          <p className="text-2xl font-extrabold text-emerald-700 mt-1 font-mono">${totalValueUSD.toFixed(2)}</p>
+          <p className="text-2xl font-extrabold text-emerald-700 mt-1 font-mono">{formatUSD(totalValueUSD)}</p>
           <p className="text-[10px] text-emerald-600 mt-0.5">
-            ≈ {(totalValueUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 0 })} Bs.
+            ≈ {formatBs(totalValueUSD * settings.bcvRate)}
           </p>
         </div>
       </div>
@@ -303,19 +304,19 @@ export const InventoryView: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-4 text-right font-mono text-slate-600">
-                      <div>${p.costUSD.toFixed(2)}</div>
+                      <div>{formatUSD(p.costUSD)}</div>
                       {p.highestSupplierCost && (
                         <div className="text-[9px] text-blue-600 font-semibold">Regla Max</div>
                       )}
                     </td>
 
                     <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                      <div>${p.priceUSD.toFixed(2)}</div>
+                      <div>{formatUSD(p.priceUSD)}</div>
                       <div className="text-[9px] text-indigo-600 font-semibold">+{margin}% mg</div>
                     </td>
 
                     <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-700">
-                      {priceBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+                      {formatBs(priceBs)}
                     </td>
 
                     <td className="py-3 px-4 text-center">

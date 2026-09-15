@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { InvoiceModal } from '../common/InvoiceModal';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 export const OrdersManagementView: React.FC = () => {
   const {
@@ -61,8 +62,8 @@ export const OrdersManagementView: React.FC = () => {
         o.orderStatus.toUpperCase(),
         formatPaymentMethod(o.paymentMethod),
         o.paymentStatus.toUpperCase(),
-        o.totalUSD.toFixed(2),
-        o.totalBs.toFixed(2),
+        formatPlainNumber(o.totalUSD, 6),
+        formatPlainNumber(o.totalBs, 6),
       ]),
     ];
     exportToCSV(`Pedidos_ERP_${new Date().toISOString().split('T')[0]}`, rows);
@@ -223,9 +224,9 @@ export const OrdersManagementView: React.FC = () => {
 
                       {/* Monto */}
                       <td className="py-3 px-4">
-                        <p className="font-mono font-bold text-slate-900">${order.totalUSD.toFixed(2)}</p>
+                        <p className="font-mono font-bold text-slate-900">{formatUSD(order.totalUSD)}</p>
                         <p className="text-[10px] font-mono text-emerald-700 font-semibold">
-                          {order.totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+                          {formatBs(order.totalBs)}
                         </p>
                       </td>
 

@@ -1,0 +1,39 @@
+{
+  "appId": "com.lagranbodega.distribuidora",
+  "productName": "Distribuidora La Gran Bodega M&S",
+  "directories": {
+    "output": "release-builds"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "main": "electron/main.cjs",
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      },
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "public/logo.png"
+  },
+  "portable": {
+    "artifactName": "Distribuidora-Demo-Portable.exe"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Distribuidora La Gran Bodega ERP",
+    "artifactName": "Distribuidora-Setup-Installer.exe",
+    "installerIcon": "public/logo.png",
+    "uninstallerIcon": "public/logo.png"
+  }
+}

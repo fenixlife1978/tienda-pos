@@ -27,6 +27,7 @@ import {
   Legend,
 } from 'recharts';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 export const FinancialReportsView: React.FC = () => {
   const { orders, products, receivables, payables, settings } = useApp();
@@ -89,22 +90,22 @@ export const FinancialReportsView: React.FC = () => {
     const rows = [
       ['ESTADO FINANCIERO Y REPORTES CONSOLIDADOS - ERP COMERCIAL'],
       ['Fecha de Emisión', new Date().toLocaleString('es-VE')],
-      ['Tasa Oficial BCV Aplicada', `${settings.bcvRate.toFixed(2)} Bs/USD`],
+      ['Tasa Oficial BCV Aplicada', `${formatPlainNumber(settings.bcvRate, 2)} Bs/USD`],
       [],
       ['INDICADOR FINANCIERO', 'MONTO (USD)', 'MONTO (BS BCV)'],
-      ['Ventas Brutas Totales', totalSalesUSD.toFixed(2), totalSalesBs.toFixed(2)],
-      ['Costo de Ventas (Mercancía)', totalCostUSD.toFixed(2), (totalCostUSD * settings.bcvRate).toFixed(2)],
-      ['Utilidad Bruta Operativa', grossProfitUSD.toFixed(2), (grossProfitUSD * settings.bcvRate).toFixed(2)],
-      ['Ticket Promedio por Venta', averageTicketUSD.toFixed(2), (averageTicketUSD * settings.bcvRate).toFixed(2)],
-      ['Cuentas por Cobrar Pendientes (CxC)', totalReceivablesUSD.toFixed(2), (totalReceivablesUSD * settings.bcvRate).toFixed(2)],
-      ['Cuentas por Pagar a Proveedores (CxP)', totalPayablesUSD.toFixed(2), (totalPayablesUSD * settings.bcvRate).toFixed(2)],
-      ['Valorización Total del Inventario', totalInventoryUSD.toFixed(2), (totalInventoryUSD * settings.bcvRate).toFixed(2)],
+      ['Ventas Brutas Totales', formatPlainNumber(totalSalesUSD, 6), formatPlainNumber(totalSalesBs, 6)],
+      ['Costo de Ventas (Mercancía)', formatPlainNumber(totalCostUSD, 6), formatPlainNumber(totalCostUSD * settings.bcvRate, 6)],
+      ['Utilidad Bruta Operativa', formatPlainNumber(grossProfitUSD, 6), formatPlainNumber(grossProfitUSD * settings.bcvRate, 6)],
+      ['Ticket Promedio por Venta', formatPlainNumber(averageTicketUSD, 6), formatPlainNumber(averageTicketUSD * settings.bcvRate, 6)],
+      ['Cuentas por Cobrar Pendientes (CxC)', formatPlainNumber(totalReceivablesUSD, 6), formatPlainNumber(totalReceivablesUSD * settings.bcvRate, 6)],
+      ['Cuentas por Pagar a Proveedores (CxP)', formatPlainNumber(totalPayablesUSD, 6), formatPlainNumber(totalPayablesUSD * settings.bcvRate, 6)],
+      ['Valorización Total del Inventario', formatPlainNumber(totalInventoryUSD, 6), formatPlainNumber(totalInventoryUSD * settings.bcvRate, 6)],
       [],
       ['DETALLE DE VENTAS POR CATEGORÍA'],
       ['Categoría', 'Venta USD', 'Participación %'],
       ...categoryChartData.map((c) => [
         c.name,
-        c.value.toFixed(2),
+        formatPlainNumber(c.value, 6),
         totalSalesUSD > 0 ? `${((c.value / totalSalesUSD) * 100).toFixed(1)}%` : '0%',
       ]),
     ];
@@ -149,39 +150,39 @@ export const FinancialReportsView: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ventas Totales</span>
-          <p className="text-lg font-extrabold text-slate-900 mt-1 font-mono">${totalSalesUSD.toFixed(2)}</p>
+          <p className="text-lg font-extrabold text-slate-900 mt-1 font-mono">{formatUSD(totalSalesUSD)}</p>
           <p className="text-[10px] text-emerald-600 font-medium truncate">
-            {totalSalesBs.toLocaleString('es-VE', { minimumFractionDigits: 0 })} Bs
+            {formatBs(totalSalesBs)}
           </p>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Utilidad Bruta</span>
-          <p className="text-lg font-extrabold text-emerald-700 mt-1 font-mono">${grossProfitUSD.toFixed(2)}</p>
+          <p className="text-lg font-extrabold text-emerald-700 mt-1 font-mono">{formatUSD(grossProfitUSD)}</p>
           <p className="text-[10px] text-slate-500 font-medium">Margen estimado</p>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ticket Promedio</span>
-          <p className="text-lg font-extrabold text-slate-800 mt-1 font-mono">${averageTicketUSD.toFixed(2)}</p>
+          <p className="text-lg font-extrabold text-slate-800 mt-1 font-mono">{formatUSD(averageTicketUSD)}</p>
           <p className="text-[10px] text-slate-400 font-medium">{completedOrders.length} transacciones</p>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Por Cobrar (CxC)</span>
-          <p className="text-lg font-extrabold text-blue-700 mt-1 font-mono">${totalReceivablesUSD.toFixed(2)}</p>
+          <p className="text-lg font-extrabold text-blue-700 mt-1 font-mono">{formatUSD(totalReceivablesUSD)}</p>
           <p className="text-[10px] text-slate-400 font-medium">Líneas de crédito</p>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold text-rose-700 uppercase tracking-wider">Por Pagar (CxP)</span>
-          <p className="text-lg font-extrabold text-rose-700 mt-1 font-mono">${totalPayablesUSD.toFixed(2)}</p>
+          <p className="text-lg font-extrabold text-rose-700 mt-1 font-mono">{formatUSD(totalPayablesUSD)}</p>
           <p className="text-[10px] text-slate-400 font-medium">A proveedores</p>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold text-purple-700 uppercase tracking-wider">Stock Valorizado</span>
-          <p className="text-lg font-extrabold text-purple-700 mt-1 font-mono">${totalInventoryUSD.toFixed(2)}</p>
+          <p className="text-lg font-extrabold text-purple-700 mt-1 font-mono">{formatUSD(totalInventoryUSD)}</p>
           <p className="text-[10px] text-slate-400 font-medium">Al costo de compra</p>
         </div>
       </div>
@@ -282,42 +283,42 @@ export const FinancialReportsView: React.FC = () => {
           <div className="py-2.5 flex justify-between font-semibold text-slate-800">
             <span>(+) Ingresos por Ventas de Mercancía (Facturadas)</span>
             <span className="font-mono text-indigo-700 font-bold">
-              ${totalSalesUSD.toFixed(2)} USD / {totalSalesBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+              {formatUSD(totalSalesUSD)} USD / {formatBs(totalSalesBs)}
             </span>
           </div>
 
           <div className="py-2.5 flex justify-between text-slate-600">
             <span>(-) Costo Directo de Mercancía Vendida (CMV)</span>
             <span className="font-mono text-rose-600">
-              -${totalCostUSD.toFixed(2)} USD / -{(totalCostUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+              -{formatUSD(totalCostUSD)} USD / -{formatBs(totalCostUSD * settings.bcvRate)}
             </span>
           </div>
 
           <div className="py-3 flex justify-between font-extrabold text-emerald-800 text-sm bg-emerald-50/50 px-2 rounded-lg">
             <span>(=) UTILIDAD BRUTA ESTIMADA</span>
             <span className="font-mono">
-              ${grossProfitUSD.toFixed(2)} USD / {(grossProfitUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+              {formatUSD(grossProfitUSD)} USD / {formatBs(grossProfitUSD * settings.bcvRate)}
             </span>
           </div>
 
           <div className="py-2.5 flex justify-between text-slate-600">
             <span>Cartera Pendiente de Cobro (Activo Circulante CxC)</span>
             <span className="font-mono font-medium text-blue-700">
-              ${totalReceivablesUSD.toFixed(2)} USD / {(totalReceivablesUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+              {formatUSD(totalReceivablesUSD)} USD / {formatBs(totalReceivablesUSD * settings.bcvRate)}
             </span>
           </div>
 
           <div className="py-2.5 flex justify-between text-slate-600">
             <span>Obligaciones Comerciales con Proveedores (Pasivo CxP)</span>
             <span className="font-mono font-medium text-rose-700">
-              ${totalPayablesUSD.toFixed(2)} USD / {(totalPayablesUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+              {formatUSD(totalPayablesUSD)} USD / {formatBs(totalPayablesUSD * settings.bcvRate)}
             </span>
           </div>
 
           <div className="py-2.5 flex justify-between text-slate-600">
             <span>Valoración de Existencias Físicas en Almacén</span>
             <span className="font-mono font-medium text-purple-700">
-              ${totalInventoryUSD.toFixed(2)} USD / {(totalInventoryUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs
+              {formatUSD(totalInventoryUSD)} USD / {formatBs(totalInventoryUSD * settings.bcvRate)}
             </span>
           </div>
         </div>

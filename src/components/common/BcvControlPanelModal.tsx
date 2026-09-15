@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   TrendingUp,
@@ -14,6 +14,10 @@ import {
   X,
   ArrowRight,
   BarChart3,
+  Globe,
+  Download,
+  Search,
+  Calendar,
 } from 'lucide-react';
 
 export const BcvControlPanelModal: React.FC = () => {
@@ -21,6 +25,7 @@ export const BcvControlPanelModal: React.FC = () => {
     settings,
     updateBcvRate,
     fetchAutomaticBcvRate,
+    syncBcvOfficialHistory,
     updateSettings,
     products,
     isBcvPanelOpen,
@@ -29,8 +34,46 @@ export const BcvControlPanelModal: React.FC = () => {
 
   const [manualRateInput, setManualRateInput] = useState<string>(settings.bcvRate.toFixed(2));
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isSyncingHistory, setIsSyncingHistory] = useState<boolean>(false);
+  const [historySearch, setHistorySearch] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'adjust' | 'impact' | 'history'>('adjust');
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
+
+  const historyList = useMemo(() => settings.bcvHistory || [], [settings.bcvHistory]);
+
+  const latestCurrencies = useMemo(() => {
+    for (const h of historyList) {
+      if (h.currencies && (h.currencies.EUR || h.currencies.CNY)) {
+        return h.currencies;
+      }
+    }
+    return undefined;
+  }, [historyList]);
+
+  const filteredHistory = useMemo(() => {
+    if (!historySearch.trim()) return historyList;
+    const q = historySearch.toLowerCase();
+    return historyList.filter(
+      (item) =>
+        item.updatedBy.toLowerCase().includes(q) ||
+        item.date.toLowerCase().includes(q) ||
+        (item.effectiveDate && item.effectiveDate.toLowerCase().includes(q)) ||
+        item.rate.toString().includes(q) ||
+        (item.source && item.source.toLowerCase().includes(q))
+    );
+  }, [historyList, historySearch]);
+
+  const stats = useMemo(() => {
+    if (historyList.length === 0) {
+      return { min: settings.bcvRate, max: settings.bcvRate, total: 0 };
+    }
+    const rates = historyList.map((h) => h.rate).filter((r) => r > 0);
+    return {
+      min: Math.min(...rates),
+      max: Math.max(...rates),
+      total: historyList.length,
+    };
+  }, [historyList, settings.bcvRate]);
 
   if (!isBcvPanelOpen) return null;
 
@@ -61,17 +104,84 @@ export const BcvControlPanelModal: React.FC = () => {
       setManualRateInput(newRate.toFixed(2));
       setFeedbackMsg({
         type: 'success',
-        text: `Sincronización exitosa con la API oficial del BCV. Tasa actualizada a ${newRate.toFixed(2)} Bs/USD.`,
+        text: `Sincronización exitosa desde https://bcv.today/api/rate.json. Tasa fijada en ${newRate.toFixed(2)} Bs/USD.`,
+      });
+      setTimeout(() => setFeedbackMsg(null), 4500);
+    } catch {
+      setFeedbackMsg({
+        type: 'error',
+        text: 'Error al consultar la fuente https://bcv.today/api/rate.json. Puede ingresar la tasa manualmente.',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSyncFullHistory = async () => {
+    setIsSyncingHistory(true);
+    setFeedbackMsg(null);
+    try {
+      const count = await syncBcvOfficialHistory(60);
+      setFeedbackMsg({
+        type: 'success',
+        text: `Se sincronizaron ${count} registros históricos oficiales desde bcv.today.`,
       });
       setTimeout(() => setFeedbackMsg(null), 4000);
     } catch {
       setFeedbackMsg({
         type: 'error',
-        text: 'Error al consultar el servicio del BCV. Puede ingresar la tasa manualmente.',
+        text: 'Error al consultar el histórico oficial de bcv.today.',
       });
     } finally {
-      setIsSyncing(false);
+      setIsSyncingHistory(false);
     }
+  };
+
+  const handleExportCsv = () => {
+    if (historyList.length === 0) return;
+
+    const headers = [
+      'ID',
+      'Fecha_Registro',
+      'Fecha_Efectiva_BCV',
+      'Tipo',
+      'Responsable',
+      'Fuente',
+      'Tasa_Bs_USD',
+      'Tasa_Previa',
+      'Variacion_Pct',
+      'EUR_Bs',
+      'CNY_Bs',
+      'TRY_Bs',
+      'RUB_Bs',
+    ];
+
+    const rows = historyList.map((item) => [
+      `"${item.id}"`,
+      `"${item.date}"`,
+      `"${item.effectiveDate || ''}"`,
+      `"${item.type}"`,
+      `"${item.updatedBy.replace(/"/g, '""')}"`,
+      `"${item.source || 'https://bcv.today/api/rate.json'}"`,
+      item.rate,
+      item.previousRate !== undefined ? item.previousRate : '',
+      item.changePercent !== undefined ? item.changePercent : '',
+      item.currencies?.EUR || '',
+      item.currencies?.CNY || '',
+      item.currencies?.TRY || '',
+      item.currencies?.RUB || '',
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `historico_tasas_bcv_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleToggleAutoUpdate = (enabled: boolean) => {
@@ -79,7 +189,7 @@ export const BcvControlPanelModal: React.FC = () => {
     setFeedbackMsg({
       type: 'info',
       text: enabled
-        ? `Actualización automática activada cada ${settings.bcvAutoUpdateIntervalSeconds || 60} segundos.`
+        ? `Actualización automática activada cada ${settings.bcvAutoUpdateIntervalSeconds || 60} segundos desde https://bcv.today/api/rate.json.`
         : 'Actualización automática en segundo plano desactivada.',
     });
     setTimeout(() => setFeedbackMsg(null), 3500);
@@ -94,7 +204,6 @@ export const BcvControlPanelModal: React.FC = () => {
     setTimeout(() => setFeedbackMsg(null), 3000);
   };
 
-  // Preview sample products impact
   const previewProducts = products.slice(0, 6);
 
   return (
@@ -117,7 +226,7 @@ export const BcvControlPanelModal: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-emerald-100/80">
-                Banco Central de Venezuela — Afecta en tiempo real tienda online, POS de caja y facturación fiscal.
+                Banco Central de Venezuela — Fuente oficial bcv.today con almacenamiento histórico continuo.
               </p>
             </div>
           </div>
@@ -144,10 +253,17 @@ export const BcvControlPanelModal: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-slate-500">
+          <div className="flex items-center gap-4 text-xs text-slate-500">
+            {settings.bcvEffectiveDate && (
+              <div className="flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <span>Fecha BCV:</span>
+                <span className="font-semibold text-slate-700">{settings.bcvEffectiveDate}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Última actualización:</span>
+              <span>Última sync:</span>
               <span className="font-semibold text-slate-700">
                 {new Date(settings.lastBcvUpdate).toLocaleTimeString('es-VE', {
                   hour: '2-digit',
@@ -158,6 +274,36 @@ export const BcvControlPanelModal: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Extra Currencies Bar if available */}
+        {latestCurrencies && (
+          <div className="bg-emerald-50/70 border-b border-emerald-100 px-6 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px]">
+            <span className="font-bold text-emerald-900 flex items-center gap-1">
+              <Globe className="w-3 h-3 text-emerald-700" />
+              Cotizaciones BCV Adicionales:
+            </span>
+            {latestCurrencies.EUR && (
+              <span className="text-emerald-800 font-mono">
+                <strong>EUR:</strong> {latestCurrencies.EUR.toFixed(2)} Bs.
+              </span>
+            )}
+            {latestCurrencies.CNY && (
+              <span className="text-emerald-800 font-mono">
+                <strong>CNY:</strong> {latestCurrencies.CNY.toFixed(2)} Bs.
+              </span>
+            )}
+            {latestCurrencies.TRY && (
+              <span className="text-emerald-800 font-mono">
+                <strong>TRY:</strong> {latestCurrencies.TRY.toFixed(2)} Bs.
+              </span>
+            )}
+            {latestCurrencies.RUB && (
+              <span className="text-emerald-800 font-mono">
+                <strong>RUB:</strong> {latestCurrencies.RUB.toFixed(2)} Bs.
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Feedback Alert Toast */}
         {feedbackMsg && (
@@ -215,7 +361,7 @@ export const BcvControlPanelModal: React.FC = () => {
             }`}
           >
             <History className="w-3.5 h-3.5" />
-            Historial de Tasas ({settings.bcvHistory?.length || 0})
+            Historial de Tasas ({historyList.length})
           </button>
         </div>
 
@@ -237,7 +383,7 @@ export const BcvControlPanelModal: React.FC = () => {
                   </div>
 
                   <p className="text-slate-500 leading-relaxed text-[11px]">
-                    Ingrese directamente el valor oficial en bolívares por dólar. Al aplicar, todos los precios del catálogo mayorista, tienda en línea y tickets se sincronizan al instante.
+                    Ingrese directamente el valor oficial en bolívares por dólar. Al aplicar, todos los precios del catálogo mayorista, tienda en línea y facturación se sincronizan al instante y se almacena en el registro histórico.
                   </p>
 
                   <form onSubmit={handleApplyManualRate} className="space-y-3">
@@ -249,33 +395,25 @@ export const BcvControlPanelModal: React.FC = () => {
                         <input
                           type="number"
                           step="0.01"
-                          min="1"
+                          min="0.01"
                           value={manualRateInput}
                           onChange={(e) => setManualRateInput(e.target.value)}
-                          className="w-full pl-3 pr-16 py-2.5 bg-slate-50 border border-slate-300 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 rounded-xl font-mono text-base font-extrabold text-slate-900 transition"
-                          placeholder="68.45"
+                          placeholder="Ej: 842.21"
+                          className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono text-base font-extrabold text-emerald-700 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition"
                         />
-                        <span className="absolute right-3 top-2.5 font-mono text-xs font-bold text-slate-400">
-                          Bs/USD
+                        <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                          Bs. / $
                         </span>
                       </div>
-                    </div>
-
-                    {/* Impact preview pill */}
-                    <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-lg text-emerald-900 flex items-center justify-between">
-                      <span className="text-[11px]">Ejemplo: $10.00 pasará a:</span>
-                      <span className="font-mono font-bold text-xs text-emerald-800">
-                        {(10 * simulatedRate).toFixed(2)} Bs.
-                      </span>
                     </div>
 
                     <button
                       type="submit"
                       disabled={!isValidManualRate}
-                      className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      Fijar Tasa Manualmente & Propagar
+                      Guardar y Aplicar Tasa Manual
                     </button>
                   </form>
                 </div>
@@ -286,7 +424,7 @@ export const BcvControlPanelModal: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-slate-900 flex items-center gap-1.5 text-sm">
                         <Zap className="w-4 h-4 text-teal-600" />
-                        2. Sincronización Automática
+                        2. Sincronización con bcv.today
                       </span>
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         settings.autoUpdateBcv ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
@@ -295,15 +433,25 @@ export const BcvControlPanelModal: React.FC = () => {
                       </span>
                     </div>
 
+                    <div className="p-2.5 bg-white border border-teal-200 rounded-lg text-[11px] text-teal-950 flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-teal-600 shrink-0" />
+                      <div className="overflow-hidden">
+                        <span className="font-bold">Fuente Oficial API: </span>
+                        <code className="text-[10px] bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-700 break-all">
+                          https://bcv.today/api/rate.json
+                        </code>
+                      </div>
+                    </div>
+
                     <p className="text-slate-500 leading-relaxed text-[11px]">
-                      Conecta periódicamente con el feed del Banco Central de Venezuela para obtener la cotización oficial sin intervención humana.
+                      Consulta automáticamente la tasa publicada por el Banco Central de Venezuela. El sistema guarda cada variación en el historial con fecha y porcentaje de cambio.
                     </p>
 
                     {/* Toggle auto-update */}
                     <div className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
                       <div>
                         <p className="font-bold text-slate-800 text-xs">Actualización en Segundo Plano</p>
-                        <p className="text-[10px] text-slate-400">Consulta automática de tasa</p>
+                        <p className="text-[10px] text-slate-400">Actualiza periódicamente desde bcv.today</p>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
@@ -349,10 +497,10 @@ export const BcvControlPanelModal: React.FC = () => {
                     type="button"
                     onClick={handleSyncAutomatic}
                     disabled={isSyncing}
-                    className="w-full py-2.5 px-4 bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer mt-2"
+                    className="w-full py-2.5 px-4 bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-50"
                   >
                     <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                    {isSyncing ? 'Consultando API BCV...' : 'Sincronizar con API BCV Ahora'}
+                    {isSyncing ? 'Consultando bcv.today...' : 'Sincronizar con bcv.today Ahora'}
                   </button>
                 </div>
               </div>
@@ -361,10 +509,11 @@ export const BcvControlPanelModal: React.FC = () => {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 flex items-start gap-3">
                 <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
                 <div className="text-[11px] leading-relaxed">
-                  <p className="font-bold text-blue-950 mb-0.5">Propagación Universal Inmediata</p>
+                  <p className="font-bold text-blue-950 mb-0.5">Propagación Universal Inmediata y Auditoría Histórica</p>
                   <p className="text-blue-800">
-                    Cualquier cambio de tasa (manual o automático) impacta de forma transparente y matemática a:
+                    Cualquier actualización de tasa impacta de forma transparente y matemática a:
                     <strong> Catálogo Online, Carrito de Compras, Pantalla de Venta POS de Caja, Facturas Fiscales emitidas y Cuentas por Cobrar en Bolívares</strong>.
+                    Además, cada tasa queda registrada con fecha, hora, responsable y fuente para consulta y exportación contable.
                   </p>
                 </div>
               </div>
@@ -453,46 +602,120 @@ export const BcvControlPanelModal: React.FC = () => {
 
           {activeTab === 'history' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="font-bold text-slate-800 text-xs">Registro de Auditoría de Cambios de Tasa</h4>
-                <span className="text-[10px] text-slate-400">Últimos movimientos registrados</span>
+              {/* Stat summary cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <p className="text-[10px] text-slate-500 font-medium">Tasa Actual Vigente</p>
+                  <p className="text-base font-black font-mono text-emerald-700">
+                    {settings.bcvRate.toFixed(2)} <span className="text-[10px] font-sans text-slate-500">Bs/$</span>
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <p className="text-[10px] text-slate-500 font-medium">Mínima en Histórico</p>
+                  <p className="text-base font-black font-mono text-slate-700">
+                    {stats.min.toFixed(2)} <span className="text-[10px] font-sans text-slate-500">Bs/$</span>
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <p className="text-[10px] text-slate-500 font-medium">Máxima en Histórico</p>
+                  <p className="text-base font-black font-mono text-slate-700">
+                    {stats.max.toFixed(2)} <span className="text-[10px] font-sans text-slate-500">Bs/$</span>
+                  </p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <p className="text-[10px] text-slate-500 font-medium">Total Registros Guardados</p>
+                  <p className="text-base font-black font-mono text-teal-700">
+                    {stats.total} <span className="text-[10px] font-sans text-slate-500">tasas</span>
+                  </p>
+                </div>
               </div>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+              {/* Action Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    placeholder="Buscar por fecha, responsable o valor..."
+                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSyncFullHistory}
+                    disabled={isSyncingHistory}
+                    className="px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                    title="Obtener últimos 60 días oficiales del BCV desde bcv.today"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-teal-700 ${isSyncingHistory ? 'animate-spin' : ''}`} />
+                    <span>{isSyncingHistory ? 'Sincronizando...' : 'Cargar Histórico Oficial bcv.today'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportCsv}
+                    disabled={historyList.length === 0}
+                    className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Exportar CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* History Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs max-h-[360px] overflow-y-auto">
                 <table className="w-full text-left text-[11px]">
-                  <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
+                  <thead className="bg-slate-100/90 sticky top-0 z-10 text-slate-700 font-bold border-b border-slate-200 backdrop-blur-xs">
                     <tr>
                       <th className="py-2.5 px-3">Fecha y Hora</th>
+                      <th className="py-2.5 px-3">Fecha BCV</th>
                       <th className="py-2.5 px-3">Origen</th>
                       <th className="py-2.5 px-3">Responsable</th>
                       <th className="py-2.5 px-3 text-right">Tasa Fijada</th>
                       <th className="py-2.5 px-3 text-right">Tasa Previa</th>
                       <th className="py-2.5 px-3 text-right">Variación %</th>
+                      <th className="py-2.5 px-3 text-right">EUR (Bs.)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono">
-                    {(!settings.bcvHistory || settings.bcvHistory.length === 0) ? (
+                    {filteredHistory.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-6 text-center text-slate-400 font-sans">
-                          No hay historial de cambios registrado aún.
+                        <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
+                          {historySearch ? 'No se encontraron coincidencias para la búsqueda.' : 'No hay historial de cambios registrado aún.'}
                         </td>
                       </tr>
                     ) : (
-                      settings.bcvHistory.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50/80">
-                          <td className="py-2.5 px-3 text-slate-700">
-                            {new Date(item.date).toLocaleString('es-VE')}
+                      filteredHistory.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-2.5 px-3 text-slate-700 font-sans text-[10px]">
+                            {new Date(item.date).toLocaleDateString('es-VE')}{' '}
+                            <span className="text-slate-400">
+                              {new Date(item.date).toLocaleTimeString('es-VE', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-sans text-slate-600 text-[10px]">
+                            {item.effectiveDate || '—'}
                           </td>
                           <td className="py-2.5 px-3 font-sans">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
                               item.type === 'automatic'
                                 ? 'bg-teal-100 text-teal-800 border border-teal-200'
                                 : 'bg-blue-100 text-blue-800 border border-blue-200'
                             }`}>
-                              {item.type === 'automatic' ? 'API Automática' : 'Manual'}
+                              {item.type === 'automatic' ? 'bcv.today' : 'Manual'}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 font-sans text-slate-600">{item.updatedBy}</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-600 text-[10px] truncate max-w-[130px]" title={item.updatedBy}>
+                            {item.updatedBy}
+                          </td>
                           <td className="py-2.5 px-3 text-right font-bold text-emerald-700">
                             {item.rate.toFixed(2)} Bs.
                           </td>
@@ -500,9 +723,17 @@ export const BcvControlPanelModal: React.FC = () => {
                             {item.previousRate ? `${item.previousRate.toFixed(2)} Bs.` : '—'}
                           </td>
                           <td className={`py-2.5 px-3 text-right font-bold ${
-                            (item.changePercent || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                            (item.changePercent || 0) > 0
+                              ? 'text-emerald-600'
+                              : (item.changePercent || 0) < 0
+                              ? 'text-rose-600'
+                              : 'text-slate-400'
                           }`}>
-                            {(item.changePercent || 0) >= 0 ? '+' : ''}{item.changePercent || 0}%
+                            {(item.changePercent || 0) > 0 ? '+' : ''}
+                            {(item.changePercent || 0).toFixed(2)}%
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-slate-500 text-[10px]">
+                            {item.currencies?.EUR ? `${item.currencies.EUR.toFixed(2)}` : '—'}
                           </td>
                         </tr>
                       ))
@@ -515,10 +746,12 @@ export const BcvControlPanelModal: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Los cálculos se efectúan con redondeo matemático oficial a dos decimales.</span>
+        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              Tasa sincronizada con <strong>https://bcv.today/api/rate.json</strong>. Todos los cálculos se efectúan con redondeo matemático oficial.
+            </span>
           </div>
           <button
             type="button"

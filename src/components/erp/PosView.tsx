@@ -21,6 +21,7 @@ import {
   Wine,
   Layers,
 } from 'lucide-react';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 interface PosTicketItem {
   id: string;
@@ -85,7 +86,7 @@ export const PosView: React.FC = () => {
     }
     if (item.saleMode === 'weight' && item.weightKg) {
       const rate = item.product.pricePerKgUSD || item.product.priceUSD;
-      return Number((rate * item.weightKg).toFixed(2));
+      return rate * item.weightKg;
     }
     if (item.saleMode === 'custom_amount' && item.customAmountUSD) {
       return item.customAmountUSD;
@@ -339,7 +340,7 @@ export const PosView: React.FC = () => {
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {p.isWeighable && (
                           <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                            <Scale className="w-2.5 h-2.5 text-emerald-600" /> Balanza: ${(p.pricePerKgUSD || p.priceUSD).toFixed(2)}/Kg
+                            <Scale className="w-2.5 h-2.5 text-emerald-600" /> Balanza: {formatUSD(p.pricePerKgUSD || p.priceUSD)}/Kg
                           </span>
                         )}
                         {p.isFractionable && (
@@ -358,10 +359,10 @@ export const PosView: React.FC = () => {
 
                   <div className="mt-2 pt-2 border-t border-slate-100 flex items-baseline justify-between">
                     <span className="text-sm font-extrabold text-indigo-700 font-mono">
-                      ${p.priceUSD.toFixed(2)}
+                      {formatUSD(p.priceUSD)}
                     </span>
                     <span className="text-[10px] font-mono text-slate-700 font-semibold">
-                      {priceBs.toFixed(0)} Bs
+                      {formatBs(priceBs)}
                     </span>
                   </div>
                 </button>
@@ -450,25 +451,25 @@ export const PosView: React.FC = () => {
 
                         {item.saleMode === 'presentation' && item.selectedPresentation && (
                           <p className="text-[11px] text-blue-700 font-medium mt-0.5">
-                            {item.selectedPresentation.name} ({item.selectedPresentation.factor} un.) @ ${item.selectedPresentation.priceUSD.toFixed(2)}
+                            {item.selectedPresentation.name} ({item.selectedPresentation.factor} un.) @ {formatUSD(item.selectedPresentation.priceUSD)}
                           </p>
                         )}
 
                         {item.saleMode === 'weight' && (
                           <p className="text-[11px] text-emerald-700 font-medium mt-0.5">
-                            Balanza: {item.weightKg} Kg ({Math.round((item.weightKg || 0) * 1000)}g) @ ${(item.product.pricePerKgUSD || item.product.priceUSD).toFixed(2)}/Kg
+                            Balanza: {item.weightKg} Kg ({Math.round((item.weightKg || 0) * 1000)}g) @ {formatUSD(item.product.pricePerKgUSD || item.product.priceUSD)}/Kg
                           </p>
                         )}
 
                         {item.saleMode === 'custom_amount' && (
                           <p className="text-[11px] text-purple-700 font-medium mt-0.5">
-                            Monto libre: {item.customAmountBs?.toFixed(2)} Bs. (${item.customAmountUSD?.toFixed(2)} USD) &rarr; Cantidad: {item.quantity} {item.product.fractionUnit || item.product.unit || 'L'}
+                            Monto libre: {formatBs(item.customAmountBs || 0)} ({formatUSD(item.customAmountUSD || 0)}) &rarr; Cantidad: {item.quantity} {item.product.fractionUnit || item.product.unit || 'L'}
                           </p>
                         )}
 
                         <div className="flex items-center gap-2 mt-0.5 text-[10px] font-mono text-slate-500">
-                          <span>Subtotal: <strong className="text-slate-700">${itemSubtotalUSD.toFixed(2)} USD</strong></span>
-                          <span>({itemSubtotalBs.toFixed(2)} Bs)</span>
+                          <span>Subtotal: <strong className="text-slate-700">{formatUSD(itemSubtotalUSD)}</strong></span>
+                          <span>({formatBs(itemSubtotalBs)})</span>
                         </div>
                       </div>
 
@@ -513,20 +514,20 @@ export const PosView: React.FC = () => {
             <div className="space-y-1 text-xs">
               <div className="flex justify-between text-slate-600">
                 <span>Subtotal Base Imponible:</span>
-                <span className="font-mono font-medium">${subtotalUSD.toFixed(2)} USD</span>
+                <span className="font-mono font-medium">{formatUSD(subtotalUSD)} USD</span>
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>IVA ({settings.ivaPercentage}%):</span>
-                <span className="font-mono font-medium">${taxUSD.toFixed(2)} USD</span>
+                <span className="font-mono font-medium">{formatUSD(taxUSD)} USD</span>
               </div>
               <div className="flex justify-between font-bold text-slate-900 text-base pt-1 border-t border-slate-200">
                 <span>Total Factura:</span>
-                <span className="font-mono text-indigo-700">${totalUSD.toFixed(2)} USD</span>
+                <span className="font-mono text-indigo-700">{formatUSD(totalUSD)} USD</span>
               </div>
               <div className="flex justify-between font-bold text-sm bg-emerald-50 text-emerald-800 p-2 rounded-lg">
                 <span>Total en Bolívares (BCV):</span>
                 <span className="font-mono">
-                  {totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                  {formatBs(totalBs)}
                 </span>
               </div>
             </div>
@@ -650,7 +651,7 @@ export const PosView: React.FC = () => {
                   <input
                     type="number"
                     step="any"
-                    placeholder={totalBs.toFixed(2)}
+                    placeholder={formatPlainNumber(totalBs, 2)}
                     value={cashTenderedBs}
                     onChange={(e) => setCashTenderedBs(e.target.value)}
                     className="w-32 px-2 py-1 border border-emerald-300 rounded font-mono text-right font-bold focus:ring-2 focus:ring-emerald-500 bg-white"
@@ -660,7 +661,7 @@ export const PosView: React.FC = () => {
                   <div className="flex justify-between items-center text-xs font-bold text-emerald-900 pt-1 border-t border-emerald-200">
                     <span>Cambio / Vuelto a entregar:</span>
                     <span className="font-mono text-sm">
-                      {changeBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs ({changeUSDFromBs > 0 ? `$${changeUSDFromBs.toFixed(2)}` : '$0.00'})
+                      {formatBs(changeBs)} ({changeUSDFromBs > 0 ? formatUSD(changeUSDFromBs) : '$0.00'})
                     </span>
                   </div>
                 )}
@@ -674,8 +675,8 @@ export const PosView: React.FC = () => {
                   <label className="font-semibold text-slate-700">Monto recibido (USD):</label>
                   <input
                     type="number"
-                    step="1"
-                    placeholder={totalUSD.toFixed(2)}
+                    step="any"
+                    placeholder={formatPlainNumber(totalUSD, 6)}
                     value={cashTenderedUSD}
                     onChange={(e) => setCashTenderedUSD(e.target.value)}
                     className="w-24 px-2 py-1 border border-slate-300 rounded font-mono text-right font-bold focus:ring-2 focus:ring-indigo-500 bg-white"
@@ -685,7 +686,7 @@ export const PosView: React.FC = () => {
                   <div className="flex justify-between items-center text-xs font-bold text-emerald-800 pt-1 border-t border-slate-200">
                     <span>Cambio / Vuelto a entregar:</span>
                     <span className="font-mono text-sm">
-                      ${changeUSD.toFixed(2)} ({changeBsFromUSD.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs)
+                      {formatUSD(changeUSD)} ({formatBs(changeBsFromUSD)})
                     </span>
                   </div>
                 )}
@@ -697,7 +698,7 @@ export const PosView: React.FC = () => {
               <div className="p-2.5 bg-indigo-50/50 rounded-xl border border-indigo-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-indigo-900 font-semibold">
                   <span>Terminal Biopago BDV</span>
-                  <span className="font-mono font-bold">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</span>
+                  <span className="font-mono font-bold">{formatBs(totalBs)}</span>
                 </div>
                 <input
                   type="text"
@@ -714,7 +715,7 @@ export const PosView: React.FC = () => {
               <div className="p-2.5 bg-blue-50/50 rounded-xl border border-blue-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-blue-900 font-semibold">
                   <span>Transferencia Bancaria / Punto de Venta</span>
-                  <span className="font-mono font-bold">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</span>
+                  <span className="font-mono font-bold">{formatBs(totalBs)}</span>
                 </div>
                 <input
                   type="text"
@@ -731,7 +732,7 @@ export const PosView: React.FC = () => {
               <div className="p-2.5 bg-purple-50/50 rounded-xl border border-purple-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-purple-900 font-semibold">
                   <span>Pago Electrónico Zelle</span>
-                  <span className="font-mono font-bold">${totalUSD.toFixed(2)} USD</span>
+                  <span className="font-mono font-bold">{formatUSD(totalUSD)} USD</span>
                 </div>
                 <input
                   type="text"
@@ -748,7 +749,7 @@ export const PosView: React.FC = () => {
               <div className="p-2.5 bg-sky-50/50 rounded-xl border border-sky-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-sky-900 font-semibold">
                   <span>Pago Móvil Interbancario</span>
-                  <span className="font-mono font-bold">{totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.</span>
+                  <span className="font-mono font-bold">{formatBs(totalBs)}</span>
                 </div>
                 <input
                   type="text"

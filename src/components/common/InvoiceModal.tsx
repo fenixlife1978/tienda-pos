@@ -1,8 +1,10 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { Invoice, formatPaymentMethod } from '../../types';
-import { Printer, Download, X, QrCode, Building2, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import { Printer, Download, X, QrCode, Building2, CheckCircle2, Clock, AlertTriangle, MessageCircle } from 'lucide-react';
 import { exportToCSV, printElement } from '../../utils/exportUtils';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
+import { getInvoiceWhatsAppUrl } from '../../utils/whatsappUtils';
 
 interface InvoiceModalProps {
   invoice: Invoice | null;
@@ -25,7 +27,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
       ['RIF/Cédula Cliente', invoice.customerRif],
       ['Dirección', invoice.customerAddress],
       ['Teléfono', invoice.customerPhone],
-      ['Tasa BCV Aplicada', `${invoice.bcvRate.toFixed(2)} Bs/USD`],
+      ['Tasa BCV Aplicada', `${formatPlainNumber(invoice.bcvRate, 2)} Bs/USD`],
       ['Condición de Pago', invoice.isCredit ? `Crédito (${invoice.creditDays || 15} días)` : formatPaymentMethod(invoice.paymentMethod)],
       ['Estado de Pago', invoice.paymentStatus.toUpperCase()],
       [],
@@ -33,15 +35,15 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
       ...invoice.items.map((it) => [
         it.productName,
         it.quantity,
-        it.unitPriceUSD.toFixed(2),
-        it.subtotalUSD.toFixed(2),
-        (it.subtotalUSD * invoice.bcvRate).toFixed(2),
+        formatPlainNumber(it.unitPriceUSD, 6),
+        formatPlainNumber(it.subtotalUSD, 6),
+        formatPlainNumber(it.subtotalUSD * invoice.bcvRate, 2),
       ]),
       [],
-      ['Subtotal Base Imponible (USD)', invoice.subtotalUSD.toFixed(2)],
-      ['IVA (16%) (USD)', invoice.taxUSD.toFixed(2)],
-      ['TOTAL FACTURA (USD)', invoice.totalUSD.toFixed(2)],
-      ['TOTAL FACTURA (Bs)', invoice.totalBs.toFixed(2)],
+      ['Subtotal Base Imponible (USD)', formatPlainNumber(invoice.subtotalUSD, 6)],
+      ['IVA (16%) (USD)', formatPlainNumber(invoice.taxUSD, 6)],
+      ['TOTAL FACTURA (USD)', formatPlainNumber(invoice.totalUSD, 6)],
+      ['TOTAL FACTURA (Bs)', formatPlainNumber(invoice.totalBs, 2)],
     ];
     exportToCSV(`Factura_${invoice.invoiceNumber}`, rows);
   };
@@ -75,6 +77,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
             )}
           </div>
           <div className="flex items-center gap-2">
+            <a
+              href={getInvoiceWhatsAppUrl(invoice, settings)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition cursor-pointer shadow-xs"
+              title="Compartir factura por WhatsApp al equipo de ventas (+58 424-5751804)"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              WhatsApp
+            </a>
             <button
               onClick={handlePrint}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition cursor-pointer"
@@ -179,15 +191,15 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
                 <tr key={idx} className="hover:bg-slate-50/60">
                   <td className="py-2.5 px-2 font-medium text-slate-800">{item.productName}</td>
                   <td className="py-2.5 px-2 text-center">{item.quantity}</td>
-                  <td className="py-2.5 px-2 text-right font-mono">${item.unitPriceUSD.toFixed(2)}</td>
+                  <td className="py-2.5 px-2 text-right font-mono">{formatUSD(item.unitPriceUSD)}</td>
                   <td className="py-2.5 px-2 text-right font-mono text-slate-600">
-                    {(item.unitPriceUSD * invoice.bcvRate).toFixed(2)} Bs
+                    {formatBs(item.unitPriceUSD * invoice.bcvRate)}
                   </td>
                   <td className="py-2.5 px-2 text-right font-mono font-semibold text-slate-900">
-                    ${item.subtotalUSD.toFixed(2)}
+                    {formatUSD(item.subtotalUSD)}
                   </td>
                   <td className="py-2.5 px-2 text-right font-mono text-slate-700">
-                    {(item.subtotalUSD * invoice.bcvRate).toFixed(2)} Bs
+                    {formatBs(item.subtotalUSD * invoice.bcvRate)}
                   </td>
                 </tr>
               ))}
@@ -209,20 +221,20 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
             <div className="w-72 space-y-1.5 text-xs">
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-600">Subtotal Base Imponible:</span>
-                <span className="font-mono font-medium">${invoice.subtotalUSD.toFixed(2)} USD</span>
+                <span className="font-mono font-medium">{formatUSD(invoice.subtotalUSD)} USD</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-600">IVA (16%):</span>
-                <span className="font-mono font-medium">${invoice.taxUSD.toFixed(2)} USD</span>
+                <span className="font-mono font-medium">{formatUSD(invoice.taxUSD)} USD</span>
               </div>
               <div className="flex justify-between py-2 border-b-2 border-slate-300 font-bold text-slate-900 text-sm">
                 <span>Total Factura (USD):</span>
-                <span className="font-mono text-blue-700">${invoice.totalUSD.toFixed(2)}</span>
+                <span className="font-mono text-blue-700">{formatUSD(invoice.totalUSD)}</span>
               </div>
               <div className="flex justify-between py-2 rounded bg-slate-100 px-2 font-bold text-slate-900 text-sm">
                 <span>Total a Pagar (Bs):</span>
                 <span className="font-mono text-emerald-700">
-                  {invoice.totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                  {formatBs(invoice.totalBs)}
                 </span>
               </div>
             </div>
@@ -234,8 +246,19 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ invoice, onClose }) 
           </div>
         </div>
 
-        {/* Modal Bottom Close */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+        {/* Modal Bottom Actions */}
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+          <a
+            href={getInvoiceWhatsAppUrl(invoice, settings)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition cursor-pointer shadow-xs"
+            title="Enviar factura al equipo de ventas por WhatsApp (+58 424-5751804)"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span>Enviar al WhatsApp de Ventas ({settings.companyPhone || '+58 424-5751804'})</span>
+          </a>
+
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition cursor-pointer"

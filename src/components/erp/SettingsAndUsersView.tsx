@@ -22,6 +22,9 @@ import {
   Info,
   Layers,
   TrendingUp,
+  Database,
+  Server,
+  Cloud,
 } from 'lucide-react';
 
 export const SettingsAndUsersView: React.FC = () => {
@@ -40,6 +43,9 @@ export const SettingsAndUsersView: React.FC = () => {
     setIsCategoryUnitModalOpen,
     categories,
     units,
+    tursoState,
+    setIsTursoModalOpen,
+    syncWithTurso,
   } = useApp();
 
   const [isRefreshingBcv, setIsRefreshingBcv] = useState(false);
@@ -175,9 +181,14 @@ export const SettingsAndUsersView: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <RefreshCw className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-bold text-slate-900 text-sm">
-                  Tipo de Cambio Oficial BCV (Banco Central de Venezuela)
-                </h3>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Tipo de Cambio Oficial BCV (Banco Central de Venezuela)
+                  </h3>
+                  <span className="text-[10px] text-emerald-700 font-mono">
+                    Fuente API: https://bcv.today/api/rate.json
+                  </span>
+                </div>
               </div>
               <span className="text-[10px] font-mono text-slate-500">
                 Última sync: {new Date(settings.lastBcvUpdate).toLocaleDateString('es-VE')} {new Date(settings.lastBcvUpdate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -211,7 +222,7 @@ export const SettingsAndUsersView: React.FC = () => {
                   className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${isRefreshingBcv ? 'animate-spin' : ''}`} />
-                  <span>{isRefreshingBcv ? 'Consultando BCV...' : 'Sincronizar con API BCV Ahora'}</span>
+                  <span>{isRefreshingBcv ? 'Consultando bcv.today...' : 'Sincronizar con bcv.today Ahora'}</span>
                 </button>
 
                 <button
@@ -232,6 +243,73 @@ export const SettingsAndUsersView: React.FC = () => {
                   />
                   <span>Actualización automática de tasa BCV cada 60s</span>
                 </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Turso Cloud Database (LibSQL) Integration Card */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-slate-900 text-sm">
+                      Base de Datos Turso (LibSQL Cloud)
+                    </h3>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        tursoState.isConnected
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : tursoState.errorMessage
+                          ? 'bg-rose-100 text-rose-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {tursoState.isConnected ? '🟢 Conectado' : tursoState.errorMessage ? '🔴 Error' : '🟡 Modo Local'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Tablas automáticas DDL, persistencia cloud y compatibilidad con variables Vercel.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTursoModalOpen(true)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Server className="w-3.5 h-3.5" />
+                  <span>Configurar Turso</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="space-y-0.5">
+                <div className="font-semibold text-slate-800 flex items-center gap-2">
+                  <span>Estado: {tursoState.statusText}</span>
+                  {tursoState.isSyncing && <RefreshCw className="w-3 h-3 text-emerald-600 animate-spin" />}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {tursoState.tablesCreated.length > 0
+                    ? `12 tablas DDL activas: products, orders, categories, invoices, customers, etc.`
+                    : `Las tablas se crean automáticamente en Turso al ingresar URL y Token.`}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => syncWithTurso()}
+                  disabled={!tursoState.isConnected || tursoState.isSyncing}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${tursoState.isSyncing ? 'animate-spin' : ''}`} />
+                  <span>Sincronizar Cloud</span>
+                </button>
               </div>
             </div>
           </div>

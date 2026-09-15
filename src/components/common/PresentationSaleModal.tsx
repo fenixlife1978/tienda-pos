@@ -16,6 +16,7 @@ import {
   ShoppingBag,
   Info,
 } from 'lucide-react';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 export const PresentationSaleModal: React.FC = () => {
   const {
@@ -339,12 +340,12 @@ export const PresentationSaleModal: React.FC = () => {
                   <div className="mt-3 pt-2 border-t border-slate-100 flex items-baseline justify-between">
                     <div>
                       <span className="font-mono font-extrabold text-sm text-slate-900">
-                        ${product.priceUSD.toFixed(2)}
+                        {formatUSD(product.priceUSD)}
                       </span>
                       <span className="text-[10px] text-slate-400 font-mono ml-1">USD</span>
                     </div>
                     <span className="font-mono font-bold text-emerald-700 text-xs">
-                      {(product.priceUSD * bcvRate).toFixed(2)} Bs.
+                      {formatBs(product.priceUSD * bcvRate)}
                     </span>
                   </div>
                 </div>
@@ -392,12 +393,12 @@ export const PresentationSaleModal: React.FC = () => {
                       <div className="mt-3 pt-2 border-t border-slate-100 flex items-baseline justify-between">
                         <div>
                           <span className="font-mono font-extrabold text-sm text-slate-900">
-                            ${pres.priceUSD.toFixed(2)}
+                            {formatUSD(pres.priceUSD)}
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono ml-1">USD</span>
                         </div>
                         <span className="font-mono font-bold text-emerald-700 text-xs">
-                          {(pres.priceUSD * bcvRate).toFixed(2)} Bs.
+                          {formatBs(pres.priceUSD * bcvRate)}
                         </span>
                       </div>
                     </div>
@@ -447,13 +448,13 @@ export const PresentationSaleModal: React.FC = () => {
                     <div>
                       <span className="text-[11px] text-emerald-800">Total a Pagar ({presQuantity}x):</span>
                       <p className="text-base font-black font-mono text-emerald-900">
-                        ${effectiveUSD.toFixed(2)} USD
+                        {formatUSD(effectiveUSD)} USD
                       </p>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] text-emerald-700">En Bolívares (Tasa BCV {bcvRate.toFixed(2)}):</span>
+                      <span className="text-[10px] text-emerald-700">En Bolívares (Tasa BCV {formatPlainNumber(bcvRate, 2)}):</span>
                       <p className="text-base font-black font-mono text-emerald-800">
-                        {effectiveBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs.
+                        {formatBs(effectiveBs)}
                       </p>
                     </div>
                   </div>
@@ -489,12 +490,12 @@ export const PresentationSaleModal: React.FC = () => {
                 <div className="flex items-baseline justify-between pt-1">
                   <div>
                     <span className="text-lg font-black font-mono text-amber-950">
-                      ${pricePerKgUSD.toFixed(2)} USD
+                      {formatUSD(pricePerKgUSD)} USD
                     </span>
                     <span className="text-xs text-amber-800 ml-1">/ Kg</span>
                   </div>
                   <span className="font-mono font-bold text-amber-900 text-xs">
-                    {pricePerKgBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs. / Kg
+                    {formatBs(pricePerKgBs)} / Kg
                   </span>
                 </div>
               </div>
@@ -599,13 +600,13 @@ export const PresentationSaleModal: React.FC = () => {
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-600">Precio de Venta en Dólares:</span>
                   <span className="font-mono font-extrabold text-indigo-700 text-sm">
-                    ${weightTotalUSD.toFixed(2)} USD
+                    {formatUSD(weightTotalUSD)} USD
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs pt-1 border-t border-amber-200">
-                  <span className="font-bold text-slate-800">Total en Bolívares (BCV {bcvRate.toFixed(2)}):</span>
+                  <span className="font-bold text-slate-800">Total en Bolívares (BCV {formatPlainNumber(bcvRate, 2)}):</span>
                   <span className="font-mono font-black text-emerald-800 text-base">
-                    {weightTotalBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs.
+                    {formatBs(weightTotalBs)}
                   </span>
                 </div>
               </div>
@@ -617,7 +618,7 @@ export const PresentationSaleModal: React.FC = () => {
                 className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer text-xs"
               >
                 <Scale className="w-4 h-4" />
-                Agregar Corte de {effectiveWeightKg.toFixed(3)} Kg ({weightTotalBs.toFixed(2)} Bs.)
+                Agregar Corte de {effectiveWeightKg.toFixed(3)} Kg ({formatBs(weightTotalBs)})
               </button>
             </div>
           )}
@@ -640,12 +641,12 @@ export const PresentationSaleModal: React.FC = () => {
                 <div className="flex items-baseline justify-between pt-1">
                   <div>
                     <span className="text-lg font-black font-mono text-purple-950">
-                      ${referencePriceUSD.toFixed(2)} USD
+                      {formatUSD(referencePriceUSD)} USD
                     </span>
                     <span className="text-xs text-purple-800 ml-1">/ {product.unit || 'Litro'}</span>
                   </div>
                   <span className="font-mono font-bold text-purple-900 text-xs">
-                    {referencePriceBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs. / {product.unit || 'Litro'}
+                    {formatBs(referencePriceBs)} / {product.unit || 'Litro'}
                   </span>
                 </div>
               </div>
@@ -725,9 +726,9 @@ export const PresentationSaleModal: React.FC = () => {
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-700 font-medium">Monto Pagado por el Cliente:</span>
                   <span className="font-mono font-black text-purple-900 text-sm">
-                    {fractionalAmountBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs.
+                    {formatBs(fractionalAmountBs)}
                     <span className="text-[11px] text-slate-500 font-normal ml-1">
-                      (${fractionalAmountUSD.toFixed(2)} USD)
+                      ({formatUSD(fractionalAmountUSD)} USD)
                     </span>
                   </span>
                 </div>
@@ -761,7 +762,7 @@ export const PresentationSaleModal: React.FC = () => {
                 className="w-full py-3 px-4 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer text-xs"
               >
                 <Wine className="w-4 h-4" />
-                Despachar {Math.round(quantityToDispatch * 1000)} ml por {fractionalAmountBs.toFixed(2)} Bs.
+                Despachar {Math.round(quantityToDispatch * 1000)} ml por {formatBs(fractionalAmountBs)}
               </button>
             </div>
           )}

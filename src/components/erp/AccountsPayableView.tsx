@@ -13,6 +13,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { exportToCSV } from '../../utils/exportUtils';
+import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 export const AccountsPayableView: React.FC = () => {
   const { payables, suppliers, settings, registerPayablePayment, addSupplier } = useApp();
@@ -75,7 +76,7 @@ export const AccountsPayableView: React.FC = () => {
     const rows = [
       ['REPORTE DE CUENTAS POR PAGAR (CxP) A PROVEEDORES'],
       ['Fecha Generación', new Date().toLocaleString('es-VE')],
-      ['Tasa BCV', `${settings.bcvRate.toFixed(2)} Bs/USD`],
+      ['Tasa BCV', `${formatPlainNumber(settings.bcvRate, 2)} Bs/USD`],
       [],
       ['N° Factura Compra', 'Proveedor', 'Concepto', 'Fecha Emisión', 'Fecha Vencimiento', 'Total USD', 'Abonado USD', 'Saldo Pendiente USD', 'Saldo Pendiente Bs', 'Estado'],
       ...payables.map((p) => [
@@ -84,10 +85,10 @@ export const AccountsPayableView: React.FC = () => {
         p.description,
         p.issuedDate,
         p.dueDate,
-        p.totalAmountUSD.toFixed(2),
-        p.amountPaidUSD.toFixed(2),
-        p.balanceUSD.toFixed(2),
-        (p.balanceUSD * settings.bcvRate).toFixed(2),
+        formatPlainNumber(p.totalAmountUSD, 6),
+        formatPlainNumber(p.amountPaidUSD, 6),
+        formatPlainNumber(p.balanceUSD, 6),
+        formatPlainNumber(p.balanceUSD * settings.bcvRate, 6),
         p.status.toUpperCase(),
       ]),
     ];
@@ -135,10 +136,10 @@ export const AccountsPayableView: React.FC = () => {
             Total Pasivo por Pagar (CxP)
           </span>
           <p className="text-2xl font-extrabold text-rose-700 mt-1 font-mono">
-            ${totalPayableUSD.toFixed(2)} USD
+            {formatUSD(totalPayableUSD)} USD
           </p>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            ≈ {(totalPayableUSD * settings.bcvRate).toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+            ≈ {formatBs(totalPayableUSD * settings.bcvRate)}
           </p>
         </div>
 
@@ -147,7 +148,7 @@ export const AccountsPayableView: React.FC = () => {
             Pagos Realizados a Proveedores
           </span>
           <p className="text-2xl font-extrabold text-emerald-700 mt-1 font-mono">
-            ${totalPaidUSD.toFixed(2)} USD
+            {formatUSD(totalPaidUSD)} USD
           </p>
           <p className="text-[10px] text-emerald-600 mt-0.5">
             Amortizaciones de compras
@@ -225,12 +226,12 @@ export const AccountsPayableView: React.FC = () => {
                     <td className="py-3 px-4 text-slate-600">{pay.description}</td>
                     <td className="py-3 px-4 text-slate-600 font-mono">{pay.issuedDate}</td>
                     <td className="py-3 px-4 font-mono font-bold text-slate-800">{pay.dueDate}</td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-600">${pay.totalAmountUSD.toFixed(2)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-emerald-600 font-semibold">${pay.amountPaidUSD.toFixed(2)}</td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-600">{formatUSD(pay.totalAmountUSD)}</td>
+                    <td className="py-3 px-4 text-right font-mono text-emerald-600 font-semibold">{formatUSD(pay.amountPaidUSD)}</td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-rose-700">
-                      ${pay.balanceUSD.toFixed(2)}
+                      {formatUSD(pay.balanceUSD)}
                       <span className="block text-[10px] text-slate-400">
-                        {balanceBs.toLocaleString('es-VE', { minimumFractionDigits: 0 })} Bs
+                        {formatBs(balanceBs)}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -289,7 +290,7 @@ export const AccountsPayableView: React.FC = () => {
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
                 <p>Proveedor: <strong>{selectedPayable.supplierName}</strong></p>
                 <p>Factura: <strong>{selectedPayable.invoiceNumber}</strong></p>
-                <p>Saldo Pendiente: <strong className="font-mono text-sm text-rose-700">${selectedPayable.balanceUSD.toFixed(2)} USD</strong></p>
+                <p>Saldo Pendiente: <strong className="font-mono text-sm text-rose-700">{formatUSD(selectedPayable.balanceUSD)} USD</strong></p>
               </div>
 
               <div>

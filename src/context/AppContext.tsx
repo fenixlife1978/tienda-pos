@@ -36,6 +36,8 @@ import {
   INITIAL_UNITS,
   INITIAL_USERS,
 } from '../data/initialData';
+import { tursoService, TursoSyncState } from '../services/tursoService';
+import { fetchBcvRateFromApi, fetchBcvOfficialHistory } from '../services/bcvService';
 
 interface AppContextType {
   mode: 'store' | 'erp';
@@ -107,8 +109,23 @@ interface AppContextType {
   reorder: (orderId: string) => boolean;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   updatePaymentStatus: (orderId: string, paymentStatus: PaymentStatus) => void;
-  updateBcvRate: (newRate: number, updatedBy?: string, type?: 'manual' | 'automatic') => void;
+  updateBcvRate: (
+    newRate: number,
+    updatedBy?: string,
+    type?: 'manual' | 'automatic',
+    extra?: {
+      effectiveDate?: string;
+      source?: string;
+      currencies?: {
+        EUR?: number;
+        CNY?: number;
+        TRY?: number;
+        RUB?: number;
+      };
+    }
+  ) => void;
   fetchAutomaticBcvRate: () => Promise<number>;
+  syncBcvOfficialHistory: (daysLimit?: number) => Promise<number>;
   addProduct: (product: Omit<Product, 'id'>) => void;
   updateProduct: (product: Product) => void;
   deleteProduct: (productId: string) => void;
@@ -208,6 +225,12 @@ interface AppContextType {
   setIsOrdersModalOpen: (open: boolean) => void;
   selectedInvoiceForModal: Invoice | null;
   setSelectedInvoiceForModal: (invoice: Invoice | null) => void;
+  lastSuccessfulOrder: Order | null;
+  setLastSuccessfulOrder: (order: Order | null) => void;
+  // Turso Database Cloud State
+  tursoState: TursoSyncState;
+  bootstrapTursoSchema: () => Promise<{ success: boolean; tables: string[]; error?: string }>;
+  syncWithTurso: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -219,7 +242,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [settings, setSettings] = useState<SystemSettings>(() => {
     const saved = localStorage.getItem('omni_settings');
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Ensure mandatory official contact information is kept updated
+        if (
+          !parsed.companyPhone ||
+          parsed.companyPhone.includes('212-765') ||
+          parsed.companyPhone.includes('414-987')
+        ) {
+          parsed.companyPhone = '+58 424-5751804';
+        }
+        if (!parsed.companyEmail || parsed.companyEmail.includes('contacto@lagranbodega')) {
+          parsed.companyEmail = 'lagranbodegams@gmail.com';
+        }
+        if (!parsed.companyAddress || parsed.companyAddress.includes('Caracas')) {
+          parsed.companyAddress = 'Av. 3 entre calles 21 y 22, Sector Monte Oscuro, San Felipe, Edo. Yaracuy';
+        }
+        if (parsed.pagoMovilPhone && parsed.pagoMovilPhone.includes('414-9876543')) {
+          parsed.pagoMovilPhone = '0424-5751804';
+        }
+        parsed.bcvSourceUrl = 'https://bcv.today/api/rate.json';
+        if (!parsed.bcvHistory || !Array.isArray(parsed.bcvHistory) || parsed.bcvHistory.length === 0) {
+          const savedHist = localStorage.getItem('omni_bcv_history');
+          parsed.bcvHistory = savedHist ? JSON.parse(savedHist) : INITIAL_SETTINGS.bcvHistory;
+        }
+        if (parsed.bcvRate && parsed.bcvRate < 100) {
+          parsed.bcvRate = INITIAL_SETTINGS.bcvRate;
+          parsed.bcvEffectiveDate = INITIAL_SETTINGS.bcvEffectiveDate;
+        }
+        return parsed;
+      } catch (e) {
+        console.error('Error reading omni_settings:', e);
+      }
+    }
+    return INITIAL_SETTINGS;
   });
 
   const [users, setUsers] = useState<User[]>(() => {
@@ -315,7 +372,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             id: 'notif-1',
             title: 'Bienvenido al Sistema OmniPOS',
             message: 'Tasa BCV configurada a 68.45 Bs/USD. Tienda online y ERP sincronizados.',
-            type: 'bcv_update',
+            type: 'custom_broadcast',
             createdAt: new Date().toISOString(),
             read: false,
           },
@@ -326,6 +383,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isOrdersModalOpen, setIsOrdersModalOpen] = useState(false);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
+  const [lastSuccessfulOrder, setLastSuccessfulOrder] = useState<Order | null>(null);
   const [storeTab, setStoreTab] = useState<'catalog' | 'offers'>('catalog');
   const [customerPortalTab, setCustomerPortalTab] = useState<CustomerPortalTab>('catalogo');
   const [isAdminActive, setIsAdminActive] = useState<boolean>(false);
@@ -403,6 +461,120 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
   }, [suppliers]);
 
+  // --- Turso Cloud DB State & Sync Engine ---
+  const [tursoState, setTursoState] = useState<TursoSyncState>({
+    isConnected: false,
+    isSyncing: false,
+    statusText: 'Iniciando...',
+    lastSyncTime: null,
+    errorMessage: null,
+    tablesCreated: [],
+    totalRecordsInCloud: 0,
+  });
+
+  const bootstrapTursoSchema = async () => {
+    setTursoState((prev) => ({
+      ...prev,
+      isSyncing: true,
+      statusText: 'Creando y verificando tablas automáticas...',
+    }));
+    try {
+      const res = await tursoService.autoBootstrapSchema();
+      if (res.success) {
+        await tursoService.autoSeedIfEmpty();
+        setTursoState((prev) => ({
+          ...prev,
+          isConnected: true,
+          isSyncing: false,
+          statusText: 'Tablas creadas y sincronizadas',
+          lastSyncTime: new Date().toISOString(),
+          tablesCreated: res.tables,
+          errorMessage: null,
+        }));
+      } else {
+        setTursoState((prev) => ({
+          ...prev,
+          isConnected: false,
+          isSyncing: false,
+          statusText: 'Error en creación de tablas',
+          errorMessage: res.error || 'Error desconocido',
+        }));
+      }
+      return res;
+    } catch (err: any) {
+      const errorMsg = err.message || String(err);
+      setTursoState((prev) => ({
+        ...prev,
+        isConnected: false,
+        isSyncing: false,
+        statusText: 'Error de conexión',
+        errorMessage: errorMsg,
+      }));
+      return { success: false, tables: [], error: errorMsg };
+    }
+  };
+
+  const syncWithTurso = async () => {
+    if (!tursoService.isConfigured()) return;
+    setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
+    try {
+      const cloudData = await tursoService.loadAllData();
+      if (cloudData.products.length > 0) setProducts(cloudData.products);
+      if (cloudData.categories.length > 0) setCategories(cloudData.categories);
+      if (cloudData.units.length > 0) setUnits(cloudData.units);
+      if (cloudData.customers.length > 0) setCustomers(cloudData.customers);
+      if (cloudData.suppliers.length > 0) setSuppliers(cloudData.suppliers);
+      if (cloudData.orders.length > 0) setOrders(cloudData.orders);
+      if (cloudData.invoices.length > 0) setInvoices(cloudData.invoices);
+      if (cloudData.receivables.length > 0) setReceivables(cloudData.receivables);
+      if (cloudData.payables.length > 0) setPayables(cloudData.payables);
+      if (cloudData.users.length > 0) setUsers(cloudData.users);
+      if (cloudData.settings) setSettings(cloudData.settings);
+
+      setTursoState({
+        isConnected: true,
+        isSyncing: false,
+        statusText: 'Sincronizado con Turso DB',
+        lastSyncTime: new Date().toISOString(),
+        errorMessage: null,
+        tablesCreated: [
+          'products', 'categories', 'units', 'customers', 'suppliers',
+          'orders', 'invoices', 'accounts_receivable', 'accounts_payable',
+          'system_users', 'system_settings', 'bcv_history'
+        ],
+        totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
+      });
+    } catch (err: any) {
+      console.error('Error syncing with Turso:', err);
+      setTursoState((prev) => ({
+        ...prev,
+        isSyncing: false,
+        errorMessage: err.message || 'Fallo de sincronización',
+      }));
+    }
+  };
+
+  // Initial Turso Auto-Init on component mount
+  useEffect(() => {
+    const initTursoOnMount = async () => {
+      if (tursoService.isConfigured()) {
+        await bootstrapTursoSchema();
+        await syncWithTurso();
+      } else {
+        setTursoState({
+          isConnected: false,
+          isSyncing: false,
+          statusText: 'Modo Local (Sin configurar)',
+          lastSyncTime: null,
+          errorMessage: null,
+          tablesCreated: [],
+          totalRecordsInCloud: 0,
+        });
+      }
+    };
+    initTursoOnMount();
+  }, []);
+
   // Active push notification toasts floating on screen
   const [activePushToasts, setActivePushToasts] = useState<AppNotification[]>([]);
 
@@ -418,6 +590,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     badge?: string;
     sound?: boolean;
   }) => {
+    // Suppress push notifications and sound alerts for BCV rate updates
+    if (options.type === 'bcv_update') {
+      return;
+    }
+
     const type = options.type || 'promotion';
     const newNotif: AppNotification = {
       id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -1068,7 +1245,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateBcvRate = (
     newRate: number,
     updatedBy = 'Administrador',
-    type: 'manual' | 'automatic' = 'manual'
+    type: 'manual' | 'automatic' = 'manual',
+    extra?: {
+      effectiveDate?: string;
+      source?: string;
+      currencies?: {
+        EUR?: number;
+        CNY?: number;
+        TRY?: number;
+        RUB?: number;
+      };
+    }
   ) => {
     if (newRate <= 0) return;
     const cleanRate = Number(newRate.toFixed(2));
@@ -1077,47 +1264,167 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       previousRate > 0 ? Number((((cleanRate - previousRate) / previousRate) * 100).toFixed(2)) : 0;
 
     const historyEntry: BcvHistoryEntry = {
-      id: `bcv-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      id: `bcv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       rate: cleanRate,
       date: new Date().toISOString(),
+      effectiveDate: extra?.effectiveDate || new Date().toISOString().split('T')[0],
       type,
       updatedBy,
+      source: extra?.source || (type === 'automatic' ? 'https://bcv.today/api/rate.json' : 'manual'),
       previousRate,
       changePercent,
+      currencies: extra?.currencies,
     };
 
-    setSettings((prev) => ({
-      ...prev,
-      bcvRate: cleanRate,
-      lastBcvUpdate: new Date().toISOString(),
-      bcvHistory: [historyEntry, ...(prev.bcvHistory || [])].slice(0, 50),
-    }));
+    setSettings((prev) => {
+      const existingHistory = prev.bcvHistory || [];
+      // Evitar duplicados inmediatos si es la misma tasa registrada en el mismo minuto
+      const isDuplicate =
+        existingHistory.length > 0 &&
+        existingHistory[0].rate === cleanRate &&
+        Math.abs(new Date(existingHistory[0].date).getTime() - new Date(historyEntry.date).getTime()) < 60000;
 
-    pushNotification(
-      'Tasa BCV Actualizada',
-      `Tasa oficial: ${cleanRate.toFixed(2)} Bs/USD (${changePercent >= 0 ? '+' : ''}${changePercent}%). Catálogo y facturación sincronizados.`,
-      'bcv_update'
-    );
+      const updatedHistory = isDuplicate
+        ? existingHistory
+        : [historyEntry, ...existingHistory].slice(0, 1000); // Conservar hasta 1000 registros históricos
+
+      const updatedSettings: SystemSettings = {
+        ...prev,
+        bcvRate: cleanRate,
+        lastBcvUpdate: new Date().toISOString(),
+        bcvSourceUrl: 'https://bcv.today/api/rate.json',
+        bcvEffectiveDate: extra?.effectiveDate || prev.bcvEffectiveDate || new Date().toISOString().split('T')[0],
+        bcvHistory: updatedHistory,
+      };
+
+      try {
+        localStorage.setItem('omni_bcv_history', JSON.stringify(updatedHistory));
+        localStorage.setItem('omni_settings', JSON.stringify(updatedSettings));
+      } catch (e) {
+        console.warn('Error saving omni_bcv_history:', e);
+      }
+
+      // Persistir en Turso Cloud si está conectado
+      if (tursoState.isConnected) {
+        tursoService.saveBcvHistoryEntry(historyEntry).catch(console.warn);
+        tursoService.saveSettings(updatedSettings).catch(console.warn);
+      }
+
+      return updatedSettings;
+    });
   };
 
+  /**
+   * Sincroniza la tasa oficial en tiempo real desde: https://bcv.today/api/rate.json
+   */
   const fetchAutomaticBcvRate = async (): Promise<number> => {
-    // Simulate real-time API call to BCV feed with slight realistic fluctuation
-    await new Promise((res) => setTimeout(res, 850));
-    const variation = Math.random() * 0.4 - 0.18;
-    const newRate = Number((settings.bcvRate + variation).toFixed(2));
-    updateBcvRate(newRate, 'API BCV Oficial (Automático)', 'automatic');
-    return newRate;
+    try {
+      const result = await fetchBcvRateFromApi();
+      const newRate = Number(result.rate.toFixed(2));
+      updateBcvRate(
+        newRate,
+        'API Oficial BCV (bcv.today)',
+        'automatic',
+        {
+          effectiveDate: result.effectiveDate,
+          source: result.sourceUrl,
+          currencies: result.currencies,
+        }
+      );
+      return newRate;
+    } catch (err) {
+      console.warn('Error al consultar bcv.today:', err);
+      return settings.bcvRate;
+    }
   };
+
+  /**
+   * Sincroniza y pobla el historial oficial desde bcv.today
+   */
+  const syncBcvOfficialHistory = async (daysLimit: number = 60): Promise<number> => {
+    try {
+      const historyList = await fetchBcvOfficialHistory(daysLimit);
+      if (historyList.length === 0) return 0;
+
+      setSettings((prev) => {
+        const existing = prev.bcvHistory || [];
+        const existingDates = new Set(
+          existing.map((h) => h.effectiveDate || h.date.split('T')[0])
+        );
+
+        const newEntries = historyList.filter(
+          (h) => !existingDates.has(h.effectiveDate || h.date.split('T')[0])
+        );
+
+        const merged = [...existing, ...newEntries]
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 1000);
+
+        const updatedSettings: SystemSettings = {
+          ...prev,
+          bcvHistory: merged,
+        };
+
+        try {
+          localStorage.setItem('omni_bcv_history', JSON.stringify(merged));
+          localStorage.setItem('omni_settings', JSON.stringify(updatedSettings));
+        } catch (e) {
+          console.warn('Error saving bcv history:', e);
+        }
+
+        if (tursoState.isConnected) {
+          for (const item of newEntries) {
+            tursoService.saveBcvHistoryEntry(item).catch(console.warn);
+          }
+          tursoService.saveSettings(updatedSettings).catch(console.warn);
+        }
+
+        return updatedSettings;
+      });
+
+      return historyList.length;
+    } catch (err) {
+      console.warn('Error syncing official BCV history:', err);
+      return 0;
+    }
+  };
+
+  // Inicialización silenciosa al cargar la app: consultar bcv.today y asegurar histórico
+  useEffect(() => {
+    let active = true;
+
+    const initializeBcvData = async () => {
+      try {
+        await fetchAutomaticBcvRate();
+      } catch (e) {
+        console.warn('Initial BCV rate sync attempt:', e);
+      }
+
+      if (active && (!settings.bcvHistory || settings.bcvHistory.length < 5)) {
+        try {
+          await syncBcvOfficialHistory(60);
+        } catch (e) {
+          console.warn('Initial BCV history sync attempt:', e);
+        }
+      }
+    };
+
+    initializeBcvData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Background timer for automatic BCV rate synchronization when enabled
   useEffect(() => {
     if (!settings.autoUpdateBcv) return;
-    const intervalSec = settings.bcvAutoUpdateIntervalSeconds || 60;
+    const intervalSec = Math.max(30, settings.bcvAutoUpdateIntervalSeconds || 60);
     const timer = setInterval(() => {
       fetchAutomaticBcvRate();
     }, intervalSec * 1000);
     return () => clearInterval(timer);
-  }, [settings.autoUpdateBcv, settings.bcvAutoUpdateIntervalSeconds, settings.bcvRate]);
+  }, [settings.autoUpdateBcv, settings.bcvAutoUpdateIntervalSeconds]);
 
   // Product CRUD
   const addProduct = (product: Omit<Product, 'id'>) => {
@@ -1347,7 +1654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     triggerPushNotification({
       title: 'Sistema Reiniciado desde Cero',
       message: 'Valores restablecidos a fábrica. El Administrador Inicial (Genérico) ha sido restaurado.',
-      type: 'bcv_update',
+      type: 'custom_broadcast',
       badge: 'Reset de Fábrica',
     });
   };
@@ -1405,6 +1712,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePaymentStatus,
         updateBcvRate,
         fetchAutomaticBcvRate,
+        syncBcvOfficialHistory,
         addProduct,
         updateProduct,
         deleteProduct,
@@ -1467,6 +1775,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsOrdersModalOpen,
         selectedInvoiceForModal,
         setSelectedInvoiceForModal,
+        lastSuccessfulOrder,
+        setLastSuccessfulOrder,
+        // Turso Database Cloud State
+        tursoState,
+        bootstrapTursoSchema,
+        syncWithTurso,
       }}
     >
       {children}

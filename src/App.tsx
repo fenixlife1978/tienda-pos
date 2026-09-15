@@ -15,6 +15,7 @@ import { PushNotificationToastContainer } from './components/common/PushNotifica
 import { BcvControlPanelModal } from './components/common/BcvControlPanelModal';
 import { CategoryUnitManagementModal } from './components/common/CategoryUnitManagementModal';
 import { PresentationSaleModal } from './components/common/PresentationSaleModal';
+import { OrderSuccessModal } from './components/store/OrderSuccessModal';
 
 const MainLayout: React.FC = () => {
   const {
@@ -24,6 +25,10 @@ const MainLayout: React.FC = () => {
     authInitialTab,
     selectedInvoiceForModal,
     setSelectedInvoiceForModal,
+    lastSuccessfulOrder,
+    setLastSuccessfulOrder,
+    invoices,
+    setIsOrdersModalOpen,
     isAuthModalOpen,
     setIsAuthModalOpen,
     isAdminModalOpen,
@@ -58,6 +63,25 @@ const MainLayout: React.FC = () => {
           <LandingPage />
         </div>
       )}
+
+      {/* Order Success Summary Modal with 'Share via WhatsApp' button */}
+      <OrderSuccessModal
+        isOpen={Boolean(lastSuccessfulOrder)}
+        order={lastSuccessfulOrder}
+        onClose={() => setLastSuccessfulOrder(null)}
+        onViewInvoice={() => {
+          if (lastSuccessfulOrder) {
+            const inv = invoices.find((i) => i.orderId === lastSuccessfulOrder.id);
+            if (inv) {
+              setSelectedInvoiceForModal(inv);
+            }
+          }
+        }}
+        onViewOrders={() => {
+          setLastSuccessfulOrder(null);
+          setIsOrdersModalOpen(true);
+        }}
+      />
 
       {/* Global Invoice Preview / Print Modal */}
       {selectedInvoiceForModal && (
