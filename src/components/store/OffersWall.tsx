@@ -19,7 +19,7 @@ import {
 import { formatUSD, formatBs } from '../../utils/formatUtils';
 
 export const OffersWall: React.FC = () => {
-  const { products, settings, addToCart, triggerPushNotification } = useApp();
+  const { products, settings, addToCart, triggerPushNotification, lastStockUpdateEvent } = useApp();
   const [addedProductIds, setAddedProductIds] = useState<Record<string, boolean>>({});
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [selectedCategory, setSelectedCategory] = useState('Todos');
@@ -133,11 +133,21 @@ export const OffersWall: React.FC = () => {
           const qty = quantities[product.id] || 1;
           const isAdded = Boolean(addedProductIds[product.id]);
           const isOutOfStock = product.stock <= 0;
+          const isRecentlyUpdated = Boolean(
+            lastStockUpdateEvent &&
+              lastStockUpdateEvent.productIds.includes(product.id) &&
+              Date.now() - lastStockUpdateEvent.timestamp < 7000
+          );
+          const safeQty = Math.max(1, Math.min(product.stock > 0 ? product.stock : 1, qty));
 
           return (
             <div
               key={product.id}
-              className="bg-white rounded-2xl border-2 border-rose-100 hover:border-rose-300 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden flex flex-col justify-between"
+              className={`bg-white rounded-2xl border-2 transition-all duration-200 overflow-hidden flex flex-col justify-between ${
+                isRecentlyUpdated
+                  ? 'border-emerald-500 ring-2 ring-emerald-200 shadow-md animate-pulse'
+                  : 'border-rose-100 hover:border-rose-300 shadow-sm hover:shadow-md'
+              }`}
             >
               {/* Top part: Image, badge, tags */}
               <div>
@@ -157,11 +167,26 @@ export const OffersWall: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Stock countdown pill */}
-                  <div className="absolute top-2.5 right-2.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-amber-400" />
-                    <span>Quedan {product.stock} {product.unit}</span>
+                  {/* Real-time stock countdown pill */}
+                  <div className="absolute top-2.5 right-2.5 bg-slate-900/85 backdrop-blur-xs text-white text-[10px] font-bold px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-sm">
+                    {!isOutOfStock ? (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                    ) : (
+                      <Clock className="w-3 h-3 text-rose-400" />
+                    )}
+                    <span>{isOutOfStock ? 'Agotado' : `Quedan ${product.stock} ${product.unit}`}</span>
                   </div>
+
+                  {/* Real-time live update badge */}
+                  {isRecentlyUpdated && (
+                    <div className="absolute bottom-2 left-2 bg-emerald-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
+                      Stock en tiempo real
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 space-y-2">
@@ -220,16 +245,16 @@ export const OffersWall: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleUpdateQty(product.id, -1, product.stock)}
-                      disabled={isOutOfStock || qty <= 1}
+                      disabled={isOutOfStock || safeQty <= 1}
                       className="p-2 text-slate-600 hover:text-slate-900 disabled:opacity-30 cursor-pointer"
                     >
                       <Minus className="w-3.5 h-3.5" />
                     </button>
-                    <span className="px-2 text-xs font-bold font-mono text-slate-900">{qty}</span>
+                    <span className="px-2 text-xs font-bold font-mono text-slate-900">{safeQty}</span>
                     <button
                       type="button"
                       onClick={() => handleUpdateQty(product.id, 1, product.stock)}
-                      disabled={isOutOfStock || qty >= product.stock}
+                      disabled={isOutOfStock || safeQty >= product.stock}
                       className="p-2 text-slate-600 hover:text-slate-900 disabled:opacity-30 cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />

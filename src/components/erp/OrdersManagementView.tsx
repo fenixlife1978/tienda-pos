@@ -15,8 +15,10 @@ import {
   CreditCard,
   Building2,
   Download,
+  CheckSquare,
 } from 'lucide-react';
 import { InvoiceModal } from '../common/InvoiceModal';
+import { OrderChecklistModal } from './OrderChecklistModal';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
@@ -33,6 +35,7 @@ export const OrdersManagementView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   const [channelFilter, setChannelFilter] = useState<string>('todos');
+  const [selectedOrderForChecklist, setSelectedOrderForChecklist] = useState<Order | null>(null);
 
   const filteredOrders = orders.filter((o) => {
     const matchesSearch =
@@ -214,12 +217,25 @@ export const OrdersManagementView: React.FC = () => {
 
                       {/* Productos */}
                       <td className="py-3 px-4 max-w-xs">
-                        <p className="font-medium text-slate-700">
-                          {order.items.length} producto(s)
-                        </p>
-                        <p className="text-[10px] text-slate-400 truncate">
-                          {order.items.map((it) => `${it.quantity}x ${it.productName}`).join(', ')}
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrderForChecklist(order)}
+                          className="w-full text-left group p-1.5 -m-1.5 rounded-lg hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition cursor-pointer"
+                          title="Clic para checar lista de productos y cantidades antes de aprobar"
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="inline-flex items-center gap-1 font-bold text-indigo-700 text-xs group-hover:text-indigo-900">
+                              <Package className="w-3.5 h-3.5 text-indigo-600" />
+                              {order.items.length} producto(s)
+                            </span>
+                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100/80 px-2 py-0.5 rounded-md group-hover:bg-indigo-600 group-hover:text-white transition">
+                              Checar ↗
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 truncate mt-1">
+                            {order.items.map((it) => `${it.quantity}x ${it.productName}`).join(', ')}
+                          </p>
+                        </button>
                       </td>
 
                       {/* Monto */}
@@ -270,8 +286,20 @@ export const OrdersManagementView: React.FC = () => {
                       {/* Acciones ERP */}
                       <td className="py-3 px-4">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          {/* Botón Checar y Organizar Pedido */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedOrderForChecklist(order)}
+                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="Checar lista de productos y cantidades para organizar antes de aprobar"
+                          >
+                            <Package className="w-3 h-3 text-indigo-600" />
+                            <span>Checar Pedido</span>
+                          </button>
+
                           {/* Invoice button */}
                           <button
+                            type="button"
                             onClick={() => handleViewInvoice(order.id)}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 rounded-lg bg-slate-100 hover:bg-indigo-50 transition cursor-pointer"
                             title="Ver Factura Fiscal / Imprimir"
@@ -282,6 +310,7 @@ export const OrdersManagementView: React.FC = () => {
                           {/* Pipeline action buttons */}
                           {order.orderStatus === 'en_tramite' && (
                             <button
+                              type="button"
                               onClick={() => {
                                 updateOrderStatus(order.id, 'despachado_facturado');
                                 if (order.paymentStatus === 'pendiente') {
@@ -292,7 +321,7 @@ export const OrdersManagementView: React.FC = () => {
                               title="Marcar como despachado y facturado"
                             >
                               <Truck className="w-3 h-3" />
-                              <span>Despachar / Facturar</span>
+                              <span>Despachar</span>
                             </button>
                           )}
                         </div>
@@ -306,6 +335,13 @@ export const OrdersManagementView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Checklist and Organization Modal */}
+      <OrderChecklistModal
+        order={selectedOrderForChecklist}
+        onClose={() => setSelectedOrderForChecklist(null)}
+        onViewInvoice={handleViewInvoice}
+      />
 
       {/* Invoice Modal */}
       <InvoiceModal

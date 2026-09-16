@@ -14,6 +14,8 @@ import {
   SlidersHorizontal,
   Package,
   TrendingUp,
+  Radio,
+  Zap,
 } from 'lucide-react';
 
 export const StoreCatalog: React.FC = () => {
@@ -25,6 +27,9 @@ export const StoreCatalog: React.FC = () => {
     setStoreTab,
     setIsAuthModalOpen,
     setIsNotificationSettingsOpen,
+    lastStockUpdateEvent,
+    addToCart,
+    triggerPushNotification,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -173,12 +178,42 @@ export const StoreCatalog: React.FC = () => {
           </button>
         </div>
 
-        {/* BCV Rate Pill */}
-        <div className="hidden sm:flex items-center gap-2 text-xs bg-slate-100 px-3 py-1.5 rounded-xl text-slate-700 font-mono font-medium">
-          <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Tasa BCV: <strong>{settings.bcvRate.toFixed(2)} Bs/$</strong></span>
+        {/* Right side: BCV Rate & Live Real-Time Stock Status */}
+        <div className="flex items-center gap-2">
+          {/* Real-time live stock indicator */}
+          <div
+            className="flex items-center gap-1.5 text-xs bg-emerald-50 border border-emerald-200/80 px-2.5 py-1.5 rounded-xl text-emerald-800 font-semibold"
+            title="El inventario se sincroniza en tiempo real para todos los clientes conectados"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="hidden sm:inline">Stock en Vivo</span>
+          </div>
+
+          {/* BCV Rate Pill */}
+          <div className="hidden sm:flex items-center gap-2 text-xs bg-slate-100 px-3 py-1.5 rounded-xl text-slate-700 font-mono font-medium">
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Tasa BCV: <strong>{settings.bcvRate.toFixed(2)} Bs/$</strong></span>
+          </div>
         </div>
       </div>
+
+      {/* Real-time Stock Sync Pulse Banner if recent order placed */}
+      {lastStockUpdateEvent && Date.now() - lastStockUpdateEvent.timestamp < 10000 && (
+        <div className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-between shadow-xs animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-300" />
+            <span>
+              {lastStockUpdateEvent.summary || 'El stock del catálogo se ha actualizado en tiempo real.'}
+            </span>
+          </div>
+          <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono">
+            Sincronizado
+          </span>
+        </div>
+      )}
 
       {/* RENDER ACTIVE TAB */}
       {storeTab === 'offers' ? (

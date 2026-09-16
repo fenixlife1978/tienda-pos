@@ -9,9 +9,18 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const { addToCart, settings, triggerPushNotification, setPresentationModalProduct } = useApp();
+  const { addToCart, settings, triggerPushNotification, setPresentationModalProduct, lastStockUpdateEvent } = useApp();
   const [qty, setQty] = useState(1);
   const [addedAnimation, setAddedAnimation] = useState(false);
+
+  // Auto-clamp qty if stock dropped
+  const safeQty = Math.max(1, Math.min(product.stock > 0 ? product.stock : 1, qty));
+
+  const isRecentlyUpdated = Boolean(
+    lastStockUpdateEvent &&
+      lastStockUpdateEvent.productIds.includes(product.id) &&
+      Date.now() - lastStockUpdateEvent.timestamp < 7000
+  );
 
   const hasSpecialSalesMode = Boolean(
     (product.presentations && product.presentations.length > 0) ||
@@ -36,19 +45,25 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       return;
     }
 
-    addToCart(product, qty);
+    addToCart(product, safeQty);
     setAddedAnimation(true);
     setTimeout(() => setAddedAnimation(false), 1200);
 
     triggerPushNotification({
       title: 'Producto agregado al carrito',
-      message: `${qty}x ${product.name} añadido correctamente.`,
+      message: `${safeQty}x ${product.name} añadido correctamente.`,
       type: 'order_status',
     });
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all duration-200 p-3 flex flex-col justify-between group">
+    <div
+      className={`bg-white rounded-2xl border transition-all duration-200 p-3 flex flex-col justify-between group ${
+        isRecentlyUpdated
+          ? 'border-emerald-400 ring-2 ring-emerald-200/70 shadow-md animate-pulse'
+          : 'border-slate-200/90 shadow-xs hover:shadow-md'
+      }`}
+    >
       {/* Product Image */}
       <div>
         <div className="relative aspect-4/3 w-full rounded-xl overflow-hidden bg-slate-100 mb-2.5">
@@ -66,6 +81,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
               -{product.discountPercentage}%
             </span>
           )}
+
+          {/* Real-time sync badge indicator */}
+          {isRecentlyUpdated && (
+            <span className="absolute bottom-2 left-2 bg-emerald-600/90 backdrop-blur-xs text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
+              Stock en vivo
+            </span>
+          )}
         </div>
 
         {/* SKU code and Stock pill */}
@@ -74,7 +97,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             {product.code}
           </span>
           <span
-            className={`text-[10px] font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${
+            className={`text-[10px] font-bold px-2 py-0.5 rounded-md whitespace-nowrap inline-flex items-center gap-1 ${
               isOutOfStock
                 ? 'bg-rose-100 text-rose-700'
                 : isLowStock
@@ -82,6 +105,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                 : 'bg-slate-100 text-slate-700'
             }`}
           >
+            {!isOutOfStock && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            )}
             {isOutOfStock ? 'Agotado' : `Stock: ${product.stock}`}
           </span>
         </div>

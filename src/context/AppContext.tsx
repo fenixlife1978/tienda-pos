@@ -235,6 +235,17 @@ interface AppContextType {
   // Automated Credit and Past-Due Invoice Reminders
   automatedReminders: AutomatedReminderRecord[];
   runManualReminderScan: () => AutomatedReminderRecord[];
+  // Real-Time Stock Synchronization
+  lastStockUpdateEvent: {
+    productIds: string[];
+    timestamp: number;
+    source: 'order' | 'adjustment' | 'pos';
+    summary?: string;
+  } | null;
+  broadcastStockUpdate: (
+    updatedProducts: Product[],
+    meta?: { productIds: string[]; source: 'order' | 'adjustment' | 'pos'; summary?: string }
+  ) => void;
   // Turso Database Cloud State
   tursoState: TursoSyncState;
   bootstrapTursoSchema: () => Promise<{ success: boolean; tables: string[]; error?: string }>;
@@ -469,6 +480,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
   }, [suppliers]);
+
+  // --- Real-time multi-client / cross-tab stock synchronization ---
+  const [lastStockUpdateEvent, setLastStockUpdateEvent] = useState<{
+    productIds: string[];
+    timestamp: number;
+    source: 'order' | 'adjustment' | 'pos';
+    summary?: string;
+  } | null>(null);
+
+  const broadcastStockUpdate = (
+    updatedProducts: Product[],
+    meta?: { productIds: string[]; source: 'order' | 'adjustment' | 'pos'; summary?: string }
+  ) => {
+    try {
+      localStorage.setItem('omni_products', JSON.stringify(updatedProducts));
+      const pulse = {
+        productIds: meta?.productIds || [],
+        source: meta?.source || 'order',
+        summary: meta?.summary || 'Stock actualizado en tiempo real',
+        timestamp: Date.now(),
+      };
+      localStorage.setItem('omni_stock_pulse', JSON.stringify(pulse));
+
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const channel = new BroadcastChannel('omni_stock_sync_channel');
+        channel.postMessage({
+          type: 'REALTIME_STOCK_UPDATE',
+          products: updatedProducts,
+          affectedProductIds: meta?.productIds || [],
+          source: meta?.source || 'order',
+          summary: meta?.summary,
+          timestamp: Date.now(),
+        });
+        channel.close();
+      }
+    } catch (e) {
+      console.warn('Error broadcasting real-time stock update:', e);
+    }
+  };
+
+  useEffect(() => {
+    let broadcastChannel: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        broadcastChannel = new BroadcastChannel('omni_stock_sync_channel');
+        broadcastChannel.onmessage = (event) => {
+          const data = event.data;
+          if (data && data.type === 'REALTIME_STOCK_UPDATE' && Array.isArray(data.products)) {
+            setProducts(data.products);
+            setLastStockUpdateEvent({
+              productIds: data.affectedProductIds || [],
+              timestamp: data.timestamp || Date.now(),
+              source: data.source || 'order',
+              summary: data.summary,
+            });
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('BroadcastChannel initialization error:', e);
+    }
+
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === 'omni_products' && e.newValue) {
+        try {
+          const parsedProducts: Product[] = JSON.parse(e.newValue);
+          if (Array.isArray(parsedProducts)) {
+            setProducts(parsedProducts);
+          }
+        } catch (err) {
+          console.error('Error parsing synced products from storage:', err);
+        }
+      }
+      if (e.key === 'omni_stock_pulse' && e.newValue) {
+        try {
+          const pulse = JSON.parse(e.newValue);
+          setLastStockUpdateEvent({
+            productIds: pulse.productIds || [],
+            timestamp: pulse.timestamp || Date.now(),
+            source: pulse.source || 'order',
+            summary: pulse.summary,
+          });
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageEvent);
+
+    return () => {
+      if (broadcastChannel) {
+        broadcastChannel.close();
+      }
+      window.removeEventListener('storage', handleStorageEvent);
+    };
+  }, []);
 
   // --- Turso Cloud DB State & Sync Engine ---
   const [tursoState, setTursoState] = useState<TursoSyncState>({
@@ -1113,33 +1219,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     // Deduct stock in real-time accurately by presentation factor / weight / fractional
-    setProducts((prev) =>
-      prev.map((p) => {
-        const boughtItems = orderInput.items.filter((item) => item.product.id === p.id);
-        if (boughtItems.length > 0) {
-          let totalStockDeduction = 0;
-          for (const bought of boughtItems) {
-            if (bought.selectedPresentation) {
-              totalStockDeduction += bought.quantity * bought.selectedPresentation.factor;
-            } else if (bought.saleMode === 'weight' && bought.weightKg) {
-              totalStockDeduction += bought.weightKg;
-            } else {
-              totalStockDeduction += bought.quantity;
-            }
+    const boughtProductIds: string[] = [];
+    const updatedProducts = products.map((p) => {
+      const boughtItems = orderInput.items.filter((item) => item.product.id === p.id);
+      if (boughtItems.length > 0) {
+        boughtProductIds.push(p.id);
+        let totalStockDeduction = 0;
+        for (const bought of boughtItems) {
+          if (bought.selectedPresentation) {
+            totalStockDeduction += bought.quantity * bought.selectedPresentation.factor;
+          } else if (bought.saleMode === 'weight' && bought.weightKg) {
+            totalStockDeduction += bought.weightKg;
+          } else {
+            totalStockDeduction += bought.quantity;
           }
-          const remaining = Math.max(0, Number((p.stock - totalStockDeduction).toFixed(3)));
-          if (remaining <= p.minStock) {
-            pushNotification(
-              'Alerta de Inventario',
-              `El producto ${p.name} ha alcanzado su nivel crítico (${remaining} ${p.unit}).`,
-              'inventory_alert'
-            );
-          }
-          return { ...p, stock: remaining };
         }
-        return p;
-      })
-    );
+        const remaining = Math.max(0, Number((p.stock - totalStockDeduction).toFixed(3)));
+        if (remaining <= p.minStock) {
+          pushNotification(
+            'Alerta de Inventario',
+            `El producto ${p.name} ha alcanzado su nivel crítico (${remaining} ${p.unit}).`,
+            'inventory_alert'
+          );
+        }
+        return { ...p, stock: remaining };
+      }
+      return p;
+    });
+
+    setProducts(updatedProducts);
+    broadcastStockUpdate(updatedProducts, {
+      productIds: boughtProductIds,
+      source: orderInput.channel === 'pos' ? 'pos' : 'order',
+      summary: `Pedido ${newOrder.orderNumber}: Stock sincronizado en tiempo real`,
+    });
 
     // If credit, add to Cuentas por Cobrar (CxC) and increase customer debt
     if (isCredit && dueDate) {
@@ -1530,27 +1643,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...product,
       id: `prod-${Date.now()}`,
     };
-    setProducts((prev) => [newProd, ...prev]);
+    const updated = [newProd, ...products];
+    setProducts(updated);
+    broadcastStockUpdate(updated, {
+      productIds: [newProd.id],
+      source: 'adjustment',
+      summary: `Nuevo producto agregado: ${newProd.name}`,
+    });
   };
 
   const updateProduct = (product: Product) => {
-    setProducts((prev) => prev.map((p) => (p.id === product.id ? product : p)));
+    const updated = products.map((p) => (p.id === product.id ? product : p));
+    setProducts(updated);
+    broadcastStockUpdate(updated, {
+      productIds: [product.id],
+      source: 'adjustment',
+      summary: `Producto actualizado: ${product.name}`,
+    });
   };
 
   const deleteProduct = (productId: string) => {
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    const updated = products.filter((p) => p.id !== productId);
+    setProducts(updated);
+    broadcastStockUpdate(updated, {
+      productIds: [productId],
+      source: 'adjustment',
+      summary: 'Producto eliminado',
+    });
   };
 
   const adjustProductStock = (productId: string, delta: number, reason: string) => {
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.id === productId) {
-          const newStock = Math.max(0, p.stock + delta);
-          return { ...p, stock: newStock };
-        }
-        return p;
-      })
-    );
+    const target = products.find((p) => p.id === productId);
+    const updated = products.map((p) => {
+      if (p.id === productId) {
+        const newStock = Math.max(0, p.stock + delta);
+        return { ...p, stock: newStock };
+      }
+      return p;
+    });
+    setProducts(updated);
+    broadcastStockUpdate(updated, {
+      productIds: [productId],
+      source: 'adjustment',
+      summary: `Stock ajustado (${delta > 0 ? '+' : ''}${delta}) en ${target?.name || 'producto'}: ${reason}`,
+    });
     pushNotification('Ajuste de Stock', `Inventario ajustado (${delta > 0 ? '+' : ''}${delta}). Motivo: ${reason}`, 'inventory_alert');
   };
 
@@ -1950,6 +2086,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Automated Reminders
         automatedReminders,
         runManualReminderScan,
+        // Real-Time Stock Synchronization
+        lastStockUpdateEvent,
+        broadcastStockUpdate,
         // Turso Database Cloud State
         tursoState,
         bootstrapTursoSchema,

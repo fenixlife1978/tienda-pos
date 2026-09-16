@@ -75,7 +75,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     setLoginError('');
 
     if (!loginIdentifier.trim()) {
-      setLoginError('Ingresa tu correo o RIF');
+      setLoginError('Ingresa tu correo electrónico');
       return;
     }
 
@@ -242,14 +242,14 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      RIF o Correo Electrónico *
+                      Correo Electrónico *
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
-                        type="text"
+                        type="email"
                         required
-                        placeholder="Ej. J-40123456-7 o cliente@empresa.com"
+                        placeholder="tu.correo@ejemplo.com"
                         value={loginIdentifier}
                         onChange={(e) => setLoginIdentifier(e.target.value)}
                         className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
@@ -258,18 +258,14 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-bold text-slate-700">
-                        Contraseña *
-                      </label>
-                      <span className="text-[11px] text-blue-600 cursor-pointer hover:underline">
-                        ¿Olvidaste tu clave?
-                      </span>
-                    </div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Contraseña *
+                    </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="password"
+                        required
                         placeholder="Ingresa tu contraseña"
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
@@ -282,36 +278,11 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                     type="submit"
                     className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
                   >
-                    <span>Ingresar a Mi Cuenta</span>
+                    <span>Iniciar Sesión</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </form>
               )}
-
-              {/* Quick Login Presets for convenient testing */}
-              <div className="pt-4 border-t border-slate-200">
-                <p className="text-[11px] uppercase font-bold text-slate-600 mb-2">
-                  Cuentas de Clientes Registrados (Acceso Rápido Demo):
-                </p>
-                <div className="space-y-2">
-                  {customers.slice(0, 3).map((cust) => (
-                    <button
-                      key={cust.id}
-                      type="button"
-                      onClick={() => handleQuickLogin(cust)}
-                      className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 flex items-center justify-between transition cursor-pointer text-left"
-                    >
-                      <div>
-                        <p className="text-xs font-bold text-slate-800">{cust.name}</p>
-                        <p className="text-[10px] text-slate-600">RIF: {cust.rif} • {cust.hasCredit ? `Crédito: $${cust.creditLimitUSD} (${cust.creditDays}d)` : 'Contado'}</p>
-                      </div>
-                      <span className="text-xs font-semibold text-blue-600 hover:underline">
-                        Conectar →
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           ) : (
             /* REGISTER TAB */
