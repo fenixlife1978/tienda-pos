@@ -15,6 +15,9 @@ import {
   Copy,
   Check,
   Package,
+  ShieldCheck,
+  AlertCircle,
+  CreditCard,
 } from 'lucide-react';
 import { formatUSD, formatBs } from '../../utils/formatUtils';
 import {
@@ -48,6 +51,8 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
   if (!isOpen || !order) return null;
 
+  const isCreditOrder = order.paymentMethod === 'credito';
+  const isCreditApproved = order.isCreditApproved === true;
   const whatsappUrl = getOrderWhatsAppUrl(order, settings);
 
   const handleCopySummary = async () => {
@@ -72,16 +77,32 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
         {/* Modal Header */}
         <div className="px-6 pt-6 pb-4 bg-gradient-to-b from-emerald-50/80 to-white border-b border-slate-100 flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 shadow-xs ring-4 ring-emerald-50">
-              <CheckCircle2 className="w-7 h-7" />
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ring-4 ${
+              isCreditOrder && !isCreditApproved
+                ? 'bg-amber-100 text-amber-700 ring-amber-50'
+                : 'bg-emerald-100 text-emerald-600 ring-emerald-50'
+            }`}>
+              {isCreditOrder && !isCreditApproved ? (
+                <Clock className="w-7 h-7" />
+              ) : (
+                <CheckCircle2 className="w-7 h-7" />
+              )}
             </div>
             <div>
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider mb-1">
-                <Clock className="w-3 h-3 text-emerald-600 animate-pulse" /> En trámite de despacho
-              </span>
-              <h2 className="text-xl font-bold text-slate-900">¡Pedido Registrado con Éxito!</h2>
+              {isCreditOrder && !isCreditApproved ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 uppercase tracking-wider mb-1">
+                  <Clock className="w-3 h-3 text-amber-600 animate-pulse" /> ORDEN DE PEDIDO A CRÉDITO (PENDIENTE DE APROBACIÓN)
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider mb-1">
+                  <Clock className="w-3 h-3 text-emerald-600 animate-pulse" /> En trámite de despacho
+                </span>
+              )}
+              <h2 className="text-xl font-extrabold text-slate-900">
+                {isCreditOrder && !isCreditApproved ? '¡Orden a Crédito Enviada con Éxito!' : '¡Pedido Registrado con Éxito!'}
+              </h2>
               <p className="text-xs text-slate-500">
-                Orden N° <strong className="font-mono text-blue-700">{order.orderNumber}</strong> • {new Date(order.createdAt).toLocaleDateString('es-VE')} {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                Orden N° <strong className="font-mono text-indigo-700">{order.orderNumber}</strong> • {new Date(order.createdAt).toLocaleDateString('es-VE')} {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
           </div>
@@ -98,6 +119,19 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
         {/* Modal Scrollable Body */}
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           
+          {/* Credit Approval Info Notice for Credit Orders */}
+          {isCreditOrder && !isCreditApproved && (
+            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 space-y-1.5 text-xs">
+              <div className="flex items-center gap-2 font-bold text-amber-950 text-xs uppercase tracking-wider">
+                <ShieldCheck className="w-4 h-4 text-amber-700" />
+                Validación de Cupo y Aprobación Administrativa
+              </div>
+              <p className="leading-relaxed text-amber-900">
+                ℹ️ <strong>Tu orden a crédito ha sido enviada con éxito.</strong> El administrador revisará y validará tu cupo disponible para marcar el pedido como aprobado y despachado. Una vez aprobado, tu <strong>Factura Fiscal oficial</strong> estará habilitada para descarga directa en el sistema.
+              </p>
+            </div>
+          )}
+
           {/* WhatsApp Share Card */}
           <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-lg space-y-3">
             <div className="flex items-start justify-between gap-3">
@@ -143,7 +177,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-slate-600">
               <div className="flex items-center gap-2">
-                <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <Phone className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] text-slate-400 font-medium">Teléfono Directo / WhatsApp:</p>
                   <a
@@ -159,12 +193,12 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <Mail className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] text-slate-400 font-medium">Correo Electrónico:</p>
                   <a
                     href={`mailto:${contactEmail}`}
-                    className="font-bold text-slate-800 hover:text-blue-700 transition truncate block"
+                    className="font-bold text-slate-800 hover:text-indigo-700 transition truncate block"
                     title={contactEmail}
                   >
                     {contactEmail}
@@ -173,7 +207,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] text-slate-400 font-medium">Ubicación / Sede:</p>
                   <p className="font-bold text-slate-800 text-[11px] leading-tight" title={contactAddress}>
@@ -205,7 +239,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               <div>
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">Despacho / Entrega:</p>
                 <p className="font-semibold text-slate-800 flex items-center gap-1.5">
-                  <Truck className="w-3.5 h-3.5 text-blue-600" />
+                  <Truck className="w-3.5 h-3.5 text-indigo-600" />
                   {order.customerAddress}
                 </p>
                 <p className="text-slate-500 mt-0.5">
@@ -230,7 +264,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                   return (
                     <div key={idx} className="py-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-700 flex items-center justify-center font-bold text-[11px] shrink-0">
+                        <div className="w-6 h-6 rounded-md bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-[11px] shrink-0">
                           {item.quantity}x
                         </div>
                         <div>
@@ -261,11 +295,11 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 <span>IVA (16%):</span>
                 <span className="font-mono font-medium">{formatUSD(order.taxUSD)} USD</span>
               </div>
-              <div className="flex justify-between items-center text-sm font-extrabold text-blue-900 pt-1.5 border-t border-slate-200">
+              <div className="flex justify-between items-center text-sm font-extrabold text-indigo-950 pt-1.5 border-t border-slate-200">
                 <span>Total Pedido (USD):</span>
-                <span className="font-mono text-base text-blue-700">{formatUSD(order.totalUSD)} USD</span>
+                <span className="font-mono text-base text-indigo-700">{formatUSD(order.totalUSD)} USD</span>
               </div>
-              <div className="flex justify-between items-center bg-emerald-50 px-3 py-2 rounded-lg text-emerald-900 font-bold border border-emerald-200">
+              <div className="flex justify-between items-center bg-emerald-50 px-3 py-2 rounded-xl text-emerald-900 font-bold border border-emerald-200">
                 <span>Total a Cancelar en Bolívares:</span>
                 <div className="text-right">
                   <span className="font-mono text-sm">{formatBs(order.totalBs)}</span>
@@ -285,10 +319,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 <button
                   type="button"
                   onClick={onViewInvoice}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl font-medium transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl font-bold transition cursor-pointer"
                 >
-                  <FileText className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Ver Factura Fiscal</span>
+                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>
+                    {isCreditOrder && !isCreditApproved
+                      ? 'Ver Orden de Pedido (En Espera)'
+                      : 'Ver Factura Fiscal'}
+                  </span>
                 </button>
               )}
 
@@ -296,7 +334,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 <button
                   type="button"
                   onClick={onViewOrders}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl font-medium transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl font-bold transition cursor-pointer"
                 >
                   <Package className="w-3.5 h-3.5 text-slate-600" />
                   <span>Mis Pedidos</span>

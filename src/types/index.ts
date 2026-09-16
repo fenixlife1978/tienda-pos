@@ -30,9 +30,13 @@ export interface Customer {
   phone: string;
   address: string;
   hasCredit: boolean;
-  creditDays: number; // Días de crédito específicos (e.g. 15, 30)
+  creditDays: number; // Días de crédito específicos (e.g. 7, 15, 30)
   creditLimitUSD: number;
   currentDebtUSD: number;
+  creditStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+  creditRequestedLimitUSD?: number;
+  creditRequestedDays?: number;
+  creditRequestedAt?: string;
   password?: string;
   avatar?: string;
   notificationPreferences?: CustomerNotificationPreferences;
@@ -260,6 +264,7 @@ export interface Order {
   estimatedDelivery?: string;
   creditDueDate?: string;
   creditDays?: number;
+  isCreditApproved?: boolean; // When credit order is received and approved by admin
   notes?: string;
 }
 
@@ -284,6 +289,7 @@ export interface Invoice {
   dueDate?: string;
   isCredit: boolean;
   creditDays?: number;
+  isCreditApproved?: boolean; // When credit order is received and approved by admin to release fiscal invoice
 }
 
 export interface ReceivableItem {
@@ -344,12 +350,23 @@ export interface BcvHistoryEntry {
   };
 }
 
+export interface AcceptedPaymentMethodsConfig {
+  pago_movil: boolean;
+  zelle: boolean;
+  transferencia_bs: boolean;
+  credito: boolean;
+  efectivo_usd?: boolean;
+  efectivo_bs?: boolean;
+  biopago?: boolean;
+}
+
 export interface SystemSettings {
   companyName: string;
   companyRif: string;
   companyPhone: string;
   companyEmail: string;
   companyAddress: string;
+  companyLogo?: string;
   bcvRate: number;
   autoUpdateBcv: boolean;
   lastBcvUpdate: string;
@@ -357,14 +374,27 @@ export interface SystemSettings {
   bcvSourceUrl?: string;
   bcvEffectiveDate?: string;
   bcvHistory?: BcvHistoryEntry[];
-  defaultCreditDays: number;
-  defaultCreditLimitUSD: number;
+  defaultCreditDays: number; // Por defecto: 7 días
+  defaultCreditLimitUSD: number; // Por defecto: $1,000
   ivaPercentage: number;
+  // Métodos de Pago Aceptados
+  acceptedPaymentMethods: AcceptedPaymentMethodsConfig;
+  // Datos Pago Móvil
   pagoMovilBank: string;
   pagoMovilPhone: string;
   pagoMovilRif: string;
+  // Datos Zelle
   zelleEmail: string;
   zelleBeneficiary: string;
+  // Datos Transferencia Bancaria
+  transferenciaBank?: string;
+  transferenciaAccountNumber?: string;
+  transferenciaAccountType?: string; // Corriente / Ahorro
+  transferenciaBeneficiary?: string;
+  transferenciaRif?: string;
+  // Políticas & Cron de Recordatorios
+  autoRemindersEnabled?: boolean;
+  creditReminderThresholdPercent?: number; // Ej: 80%
 }
 
 export interface AppNotification {

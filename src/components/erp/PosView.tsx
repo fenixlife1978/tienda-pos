@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { Product, PaymentMethod, ProductPresentation } from '../../types';
 import {
   Search,
@@ -13,6 +15,7 @@ import {
   Smartphone,
   Printer,
   CheckCircle,
+  CheckCircle2,
   UserCheck,
   AlertCircle,
   Banknote,
@@ -20,8 +23,18 @@ import {
   Scale,
   Wine,
   Layers,
+  Wifi,
+  WifiOff,
+  Database,
+  Save,
+  Barcode,
+  Zap,
+  Volume2,
+  X,
+  Sparkles,
 } from 'lucide-react';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
+import { playNotificationSound } from '../../utils/notificationSound';
 
 interface PosTicketItem {
   id: string;
@@ -46,9 +59,28 @@ export const PosView: React.FC = () => {
     openPresentationModal,
   } = useApp();
 
+  const isOnline = useOnlineStatus();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
-  const [ticketItems, setTicketItems] = useState<PosTicketItem[]>([]);
+
+  // Load active ticket items from local storage to survive offline reloads
+  const [ticketItems, setTicketItems] = useState<PosTicketItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('omni_pos_ticket');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Sync ticket items to localStorage automatically
+  useEffect(() => {
+    try {
+      localStorage.setItem('omni_pos_ticket', JSON.stringify(ticketItems));
+    } catch (e) {
+      console.warn('Error al guardar ticket de caja en caché local:', e);
+    }
+  }, [ticketItems]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[0]?.id || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo_usd');
   const [customCreditDays, setCustomCreditDays] = useState<number>(15);
@@ -56,6 +88,20 @@ export const PosView: React.FC = () => {
   const [cashTenderedBs, setCashTenderedBs] = useState<string>('');
   const [paymentReference, setPaymentReference] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Barcode Scanner state & visual feedback
+  const [scanFeedback, setScanFeedback] = useState<{
+    id: string;
+    type: 'success' | 'error';
+    title: string;
+    message: string;
+    productName?: string;
+    productCode?: string;
+    productPriceUSD?: number;
+    productImage?: string;
+  } | null>(null);
+  const [isScannerTestOpen, setIsScannerTestOpen] = useState(false);
+  const [testBarcodeInput, setTestBarcodeInput] = useState('');
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || customers[0];
 
@@ -100,6 +146,229 @@ export const PosView: React.FC = () => {
     }
     return getItemUnitPriceUSD(item) * item.quantity;
   };
+
+  /**
+   * Barcode scanner capture handler: searches by product code, id, presentation barcode or supplier barcode,
+   * and automatically adds the scanned item to the cart/ticket.
+   */
+  const handleBarcodeScanned = useCallback(
+    (rawBarcode: string) => {
+      const clean = rawBarcode.trim();
+      if (!clean) return;
+
+      const cleanLower = clean.toLowerCase();
+
+      // Find matching product
+      let matchedPresentation: ProductPresentation | undefined;
+      const matchedProduct = products.find((p) => {
+        if (p.code && p.code.toLowerCase() === cleanLower) return true;
+        if (p.id && p.id.toLowerCase() === cleanLower) return true;
+
+        // Match barcode in presentations
+        const pres = p.presentations?.find(
+          (pr) => pr.barcode && pr.barcode.toLowerCase() === cleanLower
+        );
+        if (pres) {
+          matchedPresentation = pres;
+          return true;
+        }
+
+        // Match barcode in supplier info
+        const supp = p.suppliersInfo?.find(
+          (s) => s.barcode && s.barcode.toLowerCase() === cleanLower
+        );
+        if (supp) return true;
+
+        return false;
+      });
+
+      if (!matchedProduct) {
+        playNotificationSound('scanner_error');
+        const feedbackId = `fb-${Date.now()}`;
+        setScanFeedback({
+          id: feedbackId,
+          type: 'error',
+          title: 'Código No Registrado',
+          message: `El código de barras "${clean}" no coincide con ningún producto.`,
+        });
+        setTimeout(() => {
+          setScanFeedback((prev) => (prev?.id === feedbackId ? null : prev));
+        }, 3500);
+        return;
+      }
+
+      // Check stock
+      if (matchedProduct.stock <= 0) {
+        playNotificationSound('scanner_error');
+        const feedbackId = `fb-${Date.now()}`;
+        setScanFeedback({
+          id: feedbackId,
+          type: 'error',
+          title: 'Producto Agotado',
+          message: `${matchedProduct.name} no tiene existencias disponibles en inventario.`,
+          productName: matchedProduct.name,
+          productCode: matchedProduct.code,
+        });
+        setTimeout(() => {
+          setScanFeedback((prev) => (prev?.id === feedbackId ? null : prev));
+        }, 3500);
+        return;
+      }
+
+      // If matched a specific presentation
+      if (matchedPresentation) {
+        setTicketItems((prev) => {
+          const existing = prev.find(
+            (i) =>
+              i.product.id === matchedProduct.id &&
+              i.saleMode === 'presentation' &&
+              i.selectedPresentation?.id === matchedPresentation!.id
+          );
+          if (existing) {
+            return prev.map((item) =>
+              item.id === existing.id ? { ...item, quantity: item.quantity + 1 } : item
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: `pos-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              product: matchedProduct,
+              quantity: 1,
+              selectedPresentation: matchedPresentation,
+              saleMode: 'presentation',
+              unitPriceUSD: matchedPresentation!.priceUSD,
+            },
+          ];
+        });
+
+        playNotificationSound('scanner');
+        const feedbackId = `fb-${Date.now()}`;
+        setScanFeedback({
+          id: feedbackId,
+          type: 'success',
+          title: '⚡ Presentación Escaneada',
+          message: `Añadido: ${matchedPresentation.name} al ticket (+1)`,
+          productName: matchedProduct.name,
+          productCode: matchedPresentation.barcode || matchedProduct.code,
+          productPriceUSD: matchedPresentation.priceUSD,
+          productImage: matchedProduct.image,
+        });
+        setTimeout(() => {
+          setScanFeedback((prev) => (prev?.id === feedbackId ? null : prev));
+        }, 3000);
+      } else {
+        // Standard item or check if weighable modal required
+        const isWeighableItem = Boolean(matchedProduct.isWeighable || matchedProduct.isFractionable);
+
+        if (isWeighableItem) {
+          openPresentationModal(matchedProduct, (result) => {
+            setTicketItems((prev) => [
+              ...prev,
+              {
+                id: `pos-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                product: result.product,
+                quantity: result.quantity,
+                selectedPresentation: result.presentation,
+                saleMode: result.saleMode,
+                weightKg: result.weightKg,
+                customAmountBs: result.customAmountBs,
+                customAmountUSD: result.customAmountUSD,
+                unitPriceUSD: result.unitPriceUSD,
+                customNote: result.customNote,
+              },
+            ]);
+            playNotificationSound('scanner');
+          });
+
+          const feedbackId = `fb-${Date.now()}`;
+          setScanFeedback({
+            id: feedbackId,
+            type: 'success',
+            title: '⚡ Balanza / Modal Abierto',
+            message: `Ingrese peso o porción para ${matchedProduct.name}`,
+            productName: matchedProduct.name,
+            productCode: matchedProduct.code,
+            productPriceUSD: matchedProduct.priceUSD,
+            productImage: matchedProduct.image,
+          });
+          setTimeout(() => {
+            setScanFeedback((prev) => (prev?.id === feedbackId ? null : prev));
+          }, 3000);
+        } else {
+          // Automatic +1 in ticket
+          let reachedMax = false;
+          setTicketItems((prev) => {
+            const existing = prev.find(
+              (i) => i.product.id === matchedProduct.id && (!i.saleMode || i.saleMode === 'standard')
+            );
+            if (existing) {
+              if (existing.quantity >= matchedProduct.stock) {
+                reachedMax = true;
+                return prev;
+              }
+              return prev.map((item) =>
+                item.id === existing.id ? { ...item, quantity: item.quantity + 1 } : item
+              );
+            }
+            return [
+              ...prev,
+              {
+                id: `pos-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                product: matchedProduct,
+                quantity: 1,
+                saleMode: 'standard',
+                unitPriceUSD: matchedProduct.priceUSD,
+              },
+            ];
+          });
+
+          if (reachedMax) {
+            playNotificationSound('scanner_error');
+            const feedbackId = `fb-${Date.now()}`;
+            setScanFeedback({
+              id: feedbackId,
+              type: 'error',
+              title: 'Stock Máximo en Ticket',
+              message: `Ya se alcanzó el stock total de ${matchedProduct.stock} unidades para este producto.`,
+              productName: matchedProduct.name,
+              productCode: matchedProduct.code,
+            });
+            setTimeout(() => {
+              setScanFeedback((prev) => (prev?.id === feedbackId ? null : prev));
+            }, 3000);
+            return;
+          }
+
+          playNotificationSound('scanner');
+          const feedbackId = `fb-${Date.now()}`;
+          setScanFeedback({
+            id: feedbackId,
+            type: 'success',
+            title: '⚡ ¡Producto Escaneado!',
+            message: `Añadido al ticket (+1 unidad)`,
+            productName: matchedProduct.name,
+            productCode: matchedProduct.code,
+            productPriceUSD: matchedProduct.priceUSD,
+            productImage: matchedProduct.image,
+          });
+          setTimeout(() => {
+            setScanFeedback((prev) => (prev?.id === feedbackId ? null : prev));
+          }, 3000);
+        }
+      }
+
+      // Clear search query if it had remnants of scan
+      setSearchQuery('');
+    },
+    [products, openPresentationModal]
+  );
+
+  // Register Global Barcode Scanner Keyboard Listener
+  const scannerState = useBarcodeScanner({
+    onScan: handleBarcodeScanned,
+    enabled: true,
+  });
 
   const handleProductSelect = (product: Product) => {
     if (product.stock <= 0) {
@@ -180,6 +449,9 @@ export const PosView: React.FC = () => {
 
   const clearTicket = () => {
     setTicketItems([]);
+    try {
+      localStorage.removeItem('omni_pos_ticket');
+    } catch {}
     setCashTenderedUSD('');
     setCashTenderedBs('');
     setPaymentReference('');
@@ -264,21 +536,161 @@ export const PosView: React.FC = () => {
         {/* Left Side: Product catalog and search (7 Cols) */}
         <div className="lg:col-span-7 space-y-4">
           
-          {/* POS Header Bar */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:max-w-xs">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Escanear código o escribir producto..."
-                className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              />
+          {/* Offline Resilient Notice */}
+          {!isOnline && (
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-300 text-amber-900 text-xs flex items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  <strong>Modo Fuera de Línea Activo:</strong> El catálogo, buscador por código y armado de tickets funcionan localmente con almacenamiento PWA sin requerir conexión a internet.
+                </span>
+              </div>
+              <span className="text-[10px] bg-amber-200 text-amber-900 font-black px-2 py-0.5 rounded-md shrink-0 uppercase tracking-wide">
+                Caché POS
+              </span>
+            </div>
+          )}
+
+          {/* POS Header Bar with Search, Barcode Scanner HUD, Categories & Connectivity Indicator */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col gap-3">
+            
+            {/* Top row: Barcode Scanner Live Status Indicator & Offline Badge */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                  <Barcode className="w-4 h-4 text-indigo-600" />
+                  <span>Lector de Código de Barras:</span>
+                  <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-200 inline-flex items-center gap-1">
+                    <Zap className="w-3 h-3 text-emerald-600" />
+                    Escuchando pistola / teclado
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {scannerState.scanCount > 0 && (
+                  <span className="text-[11px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-md border border-indigo-200">
+                    {scannerState.scanCount} {scannerState.scanCount === 1 ? 'escaneo' : 'escaneos'}
+                  </span>
+                )}
+                
+                <button
+                  type="button"
+                  onClick={() => setIsScannerTestOpen(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                  title="Simular o probar lectura de códigos de barras"
+                >
+                  <Sparkles className="w-3 h-3 text-indigo-600" />
+                  <span>Probar Lector</span>
+                </button>
+
+                {/* Status Badge */}
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition ${
+                    isOnline
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                  }`}
+                  title={isOnline ? 'Conexión a internet estable' : 'Operando con memoria caché local'}
+                >
+                  {isOnline ? (
+                    <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : (
+                    <WifiOff className="w-3.5 h-3.5 text-amber-700" />
+                  )}
+                  <span>{isOnline ? 'POS Online' : 'Offline'}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Scan Feedback Banner */}
+            {scanFeedback && (
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between gap-3 shadow-md transition-all duration-300 animate-in fade-in slide-in-from-top-2 ${
+                  scanFeedback.type === 'success'
+                    ? 'bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-300'
+                    : 'bg-rose-600 text-white border-rose-700 ring-2 ring-rose-300'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  {scanFeedback.productImage ? (
+                    <img
+                      src={scanFeedback.productImage}
+                      alt=""
+                      className="w-10 h-10 object-cover rounded-lg bg-white/20 shrink-0 border border-white/30"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                      {scanFeedback.type === 'success' ? (
+                        <CheckCircle2 className="w-6 h-6 text-white" />
+                      ) : (
+                        <AlertCircle className="w-6 h-6 text-white" />
+                      )}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider bg-black/20 px-1.5 py-0.5 rounded">
+                        {scanFeedback.title}
+                      </span>
+                      {scanFeedback.productCode && (
+                        <span className="text-[11px] font-mono bg-white/20 px-1.5 py-0.5 rounded font-bold">
+                          {scanFeedback.productCode}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs font-semibold mt-0.5 truncate text-white/95">
+                      {scanFeedback.message}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {scanFeedback.productPriceUSD !== undefined && (
+                    <span className="text-xs font-extrabold bg-white text-emerald-800 px-2.5 py-1 rounded-lg shadow-xs">
+                      ${scanFeedback.productPriceUSD.toFixed(2)} USD
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setScanFeedback(null)}
+                    className="p-1 hover:bg-white/20 rounded-md transition text-white/80 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Search Input and Categories */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative w-full">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && searchQuery.trim()) {
+                      e.preventDefault();
+                      handleBarcodeScanned(searchQuery.trim());
+                    }
+                  }}
+                  placeholder="Escanear código de barras con pistola o buscar por nombre / código..."
+                  className="w-full pl-9 pr-24 py-2.5 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 pointer-events-none">
+                  <Barcode className="w-3 h-3 text-slate-500" />
+                  <span>Enter ↵</span>
+                </div>
+              </div>
             </div>
 
             {/* Category pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 no-scrollbar">
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full pb-1 no-scrollbar border-t border-slate-100 pt-2.5">
               {categories.map((cat) => (
                 <button
                   key={cat}
@@ -378,8 +790,15 @@ export const PosView: React.FC = () => {
             {/* Ticket Header & Customer Selector */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-indigo-600" />
-                <h3 className="font-bold text-slate-900 text-base">Ticket de Venta Caja</h3>
+                <ShoppingCart className="w-5 h-5 text-indigo-600 shrink-0" />
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base leading-tight">Ticket de Venta Caja</h3>
+                  {ticketItems.length > 0 && (
+                    <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                      <Save className="w-2.5 h-2.5" /> Guardado en caché ({ticketItems.length} {ticketItems.length === 1 ? 'ítem' : 'ítems'})
+                    </span>
+                  )}
+                </div>
               </div>
               <button
                 onClick={clearTicket}
@@ -799,6 +1218,159 @@ export const PosView: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Barcode Scanner Test & Diagnostic Modal */}
+      {isScannerTestOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                  <Barcode className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    Lector de Código de Barras POS
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Disparador de eventos por teclado para pistolas lectoras
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsScannerTestOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs text-indigo-900 space-y-2">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <Zap className="w-4 h-4 text-indigo-600" />
+                  <span>¿Cómo funciona el lector en el POS?</span>
+                </div>
+                <p className="text-indigo-800 leading-relaxed text-[11px]">
+                  Cualquier lector de código de barras USB, inalámbrico 2.4G o Bluetooth conectado actúa como un dispositivo de entrada de teclado de alta velocidad. El sistema detecta automáticamente la ráfaga de pulsaciones de teclas y el <strong>Enter</strong> final, agregando el producto al ticket al instante sin necesidad de enfocar campos manualmente.
+                </p>
+              </div>
+
+              {/* Manual code test input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Probar lectura de código de barras manual:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={testBarcodeInput}
+                    onChange={(e) => setTestBarcodeInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && testBarcodeInput.trim()) {
+                        e.preventDefault();
+                        handleBarcodeScanned(testBarcodeInput.trim());
+                        setTestBarcodeInput('');
+                        setIsScannerTestOpen(false);
+                      }
+                    }}
+                    placeholder="Ej. ALM-HAR-001 o código EAN..."
+                    className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (testBarcodeInput.trim()) {
+                        handleBarcodeScanned(testBarcodeInput.trim());
+                        setTestBarcodeInput('');
+                        setIsScannerTestOpen(false);
+                      }
+                    }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Disparar</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sound Tester */}
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Volume2 className="w-4 h-4 text-slate-500" />
+                  Prueba de Sonido de Confirmación (Beep POS)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => playNotificationSound('scanner')}
+                    className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-bold rounded-lg transition cursor-pointer"
+                  >
+                    Beep Éxito
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => playNotificationSound('scanner_error')}
+                    className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 text-[11px] font-bold rounded-lg transition cursor-pointer"
+                  >
+                    Beep Error
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick sample products barcodes */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-700 block">
+                  Códigos rápidos de prueba del catálogo:
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {products.slice(0, 6).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        handleBarcodeScanned(p.code);
+                        setIsScannerTestOpen(false);
+                      }}
+                      className="p-2 border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/40 rounded-xl text-left transition flex items-center gap-2 group cursor-pointer"
+                    >
+                      <img
+                        src={p.image}
+                        alt=""
+                        className="w-8 h-8 rounded-md object-cover bg-slate-100 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-[10px] font-bold text-indigo-700 truncate">
+                            {p.code}
+                          </span>
+                          <span className="text-[10px] font-extrabold text-slate-800">
+                            ${p.priceUSD.toFixed(2)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 truncate font-medium">
+                          {p.name}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsScannerTestOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

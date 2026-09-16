@@ -16,6 +16,8 @@ import { BcvControlPanelModal } from './components/common/BcvControlPanelModal';
 import { CategoryUnitManagementModal } from './components/common/CategoryUnitManagementModal';
 import { PresentationSaleModal } from './components/common/PresentationSaleModal';
 import { OrderSuccessModal } from './components/store/OrderSuccessModal';
+import { BusinessSettingsModal } from './components/erp/BusinessSettingsModal';
+import { OfflineIndicator } from './components/common/OfflineIndicator';
 
 const MainLayout: React.FC = () => {
   const {
@@ -37,6 +39,8 @@ const MainLayout: React.FC = () => {
     setIsNotificationSettingsOpen,
     isSellerAlertsModalOpen,
     setIsSellerAlertsModalOpen,
+    isBusinessSettingsModalOpen,
+    setIsBusinessSettingsModalOpen,
   } = useApp();
 
   return (
@@ -124,6 +128,15 @@ const MainLayout: React.FC = () => {
 
       {/* Presentation, Weight-based (Queso, etc.) and Fractional Bs. (Licor) Sales Modal */}
       <PresentationSaleModal />
+
+      {/* Business Identity & Commercial Credit Policies Modal */}
+      <BusinessSettingsModal
+        isOpen={isBusinessSettingsModalOpen}
+        onClose={() => setIsBusinessSettingsModalOpen(false)}
+      />
+
+      {/* PWA Offline & Connectivity Restored Banner */}
+      <OfflineIndicator />
     </div>
   );
 };

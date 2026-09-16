@@ -22,6 +22,7 @@ import {
   Package,
   Layers,
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export const Header: React.FC = () => {
   const {
@@ -393,6 +394,9 @@ export const Header: React.FC = () => {
                 </div>
               </>
             )}
+
+            {/* In-App PWA Install Button */}
+            <PWAInstallButton className="hidden sm:inline-flex" />
 
             {/* Notification Bell Dropdown */}
             <div className="relative">

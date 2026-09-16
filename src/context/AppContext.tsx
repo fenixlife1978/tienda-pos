@@ -38,6 +38,7 @@ import {
 } from '../data/initialData';
 import { tursoService, TursoSyncState } from '../services/tursoService';
 import { fetchBcvRateFromApi, fetchBcvOfficialHistory } from '../services/bcvService';
+import { scanAndGenerateReminders, AutomatedReminderRecord } from '../services/reminderService';
 
 interface AppContextType {
   mode: 'store' | 'erp';
@@ -133,6 +134,8 @@ interface AppContextType {
   addCustomer: (customer: Omit<Customer, 'id'>) => void;
   updateCustomer: (customer: Customer) => void;
   updateCustomerCredit: (customerId: string, hasCredit: boolean, creditDays: number, creditLimitUSD: number) => void;
+  approveCustomerCreditRequest: (customerId: string, approvedLimitUSD: number, approvedCreditDays: number) => void;
+  rejectCustomerCreditRequest: (customerId: string) => void;
   registerReceivablePayment: (receivableId: string, amountUSD: number) => void;
   registerPayablePayment: (payableId: string, amountUSD: number) => void;
   addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
@@ -186,6 +189,8 @@ interface AppContextType {
   setIsNotificationSettingsOpen: (open: boolean) => void;
   isSellerAlertsModalOpen: boolean;
   setIsSellerAlertsModalOpen: (open: boolean) => void;
+  isBusinessSettingsModalOpen: boolean;
+  setIsBusinessSettingsModalOpen: (open: boolean) => void;
   // BCV Control Panel & Category/Unit Modal
   isBcvPanelOpen: boolean;
   setIsBcvPanelOpen: (open: boolean) => void;
@@ -227,6 +232,9 @@ interface AppContextType {
   setSelectedInvoiceForModal: (invoice: Invoice | null) => void;
   lastSuccessfulOrder: Order | null;
   setLastSuccessfulOrder: (order: Order | null) => void;
+  // Automated Credit and Past-Due Invoice Reminders
+  automatedReminders: AutomatedReminderRecord[];
+  runManualReminderScan: () => AutomatedReminderRecord[];
   // Turso Database Cloud State
   tursoState: TursoSyncState;
   bootstrapTursoSchema: () => Promise<{ success: boolean; tables: string[]; error?: string }>;
@@ -262,6 +270,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           companyPhone: parsed.companyPhone || INITIAL_SETTINGS.companyPhone,
           companyEmail: parsed.companyEmail || INITIAL_SETTINGS.companyEmail,
           companyAddress: parsed.companyAddress || INITIAL_SETTINGS.companyAddress,
+          companyLogo: parsed.companyLogo || INITIAL_SETTINGS.companyLogo || '/logo.png',
+          defaultCreditDays: parsed.defaultCreditDays || 7,
+          defaultCreditLimitUSD: parsed.defaultCreditLimitUSD || 1000,
         };
       } catch (e) {
         console.error('Error reading omni_settings:', e);
@@ -383,6 +394,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
   const [isSellerAlertsModalOpen, setIsSellerAlertsModalOpen] = useState(false);
+  const [isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen] = useState(false);
   const [isBcvPanelOpen, setIsBcvPanelOpen] = useState(false);
   const [isCategoryUnitModalOpen, setIsCategoryUnitModalOpen] = useState(false);
   const [presentationModalProduct, setPresentationModalProduct] = useState<Product | null>(null);
@@ -400,6 +412,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [categories, setCategories] = useState<ProductCategory[]>(() => {
     const saved = localStorage.getItem('omni_categories');
     return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+  });
+
+  // Automated Credit and Past-Due Invoice Reminders State
+  const [automatedReminders, setAutomatedReminders] = useState<AutomatedReminderRecord[]>(() => {
+    const saved = localStorage.getItem('omni_automated_reminders');
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [units, setUnits] = useState<ProductUnit[]>(() => {
@@ -578,6 +596,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     message: string;
     type?: AppNotification['type'];
     relatedOrderId?: string;
+    targetCustomerId?: string;
+    targetRole?: 'client' | 'seller' | 'all';
+    priority?: 'normal' | 'high' | 'urgent';
+    actionUrl?: string;
     badge?: string;
     sound?: boolean;
   }) => {
@@ -595,6 +617,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
       read: false,
       relatedOrderId: options.relatedOrderId,
+      targetCustomerId: options.targetCustomerId,
+      targetRole: options.targetRole,
+      priority: options.priority,
+      actionUrl: options.actionUrl,
       badge: options.badge,
     };
 
@@ -1417,6 +1443,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearInterval(timer);
   }, [settings.autoUpdateBcv, settings.bcvAutoUpdateIntervalSeconds]);
 
+  // Automated background cron/timer for credit limit & overdue invoice reminders
+  useEffect(() => {
+    if (settings.autoRemindersEnabled === false) return;
+
+    const runScan = () => {
+      try {
+        const { newReminders, notificationsToPush } = scanAndGenerateReminders(
+          customers,
+          invoices,
+          receivables,
+          settings,
+          automatedReminders
+        );
+
+        if (newReminders.length > 0) {
+          setAutomatedReminders((prev) => {
+            const updated = [...newReminders, ...prev].slice(0, 100);
+            try {
+              localStorage.setItem('omni_automated_reminders', JSON.stringify(updated));
+            } catch (e) {
+              console.warn('Error saving automated reminders:', e);
+            }
+            return updated;
+          });
+
+          for (const notif of notificationsToPush) {
+            triggerPushNotification({
+              title: notif.title,
+              message: notif.message,
+              type: notif.type as any,
+              targetCustomerId: notif.targetCustomerId,
+              badge: notif.badge,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Background reminder scan error:', err);
+      }
+    };
+
+    // Run after initial delay, then every 60 seconds
+    const timeout = setTimeout(runScan, 3000);
+    const interval = setInterval(runScan, 60000);
+
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [customers, invoices, receivables, settings.autoRemindersEnabled, settings.creditReminderThresholdPercent]);
+
+  const runManualReminderScan = (): AutomatedReminderRecord[] => {
+    const { newReminders, notificationsToPush } = scanAndGenerateReminders(
+      customers,
+      invoices,
+      receivables,
+      settings,
+      automatedReminders
+    );
+
+    if (newReminders.length > 0) {
+      setAutomatedReminders((prev) => {
+        const updated = [...newReminders, ...prev].slice(0, 100);
+        try {
+          localStorage.setItem('omni_automated_reminders', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      for (const notif of notificationsToPush) {
+        triggerPushNotification({
+          title: notif.title,
+          message: notif.message,
+          type: notif.type as any,
+          targetCustomerId: notif.targetCustomerId,
+          badge: notif.badge,
+        });
+      }
+    }
+    return newReminders;
+  };
+
   // Product CRUD
   const addProduct = (product: Omit<Product, 'id'>) => {
     const newProd: Product = {
@@ -1467,17 +1574,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     creditLimitUSD: number
   ) => {
     setCustomers((prev) =>
-      prev.map((c) =>
-        c.id === customerId
-          ? { ...c, hasCredit, creditDays, creditLimitUSD }
-          : c
-      )
+      prev.map((c) => {
+        if (c.id === customerId) {
+          const updated: Customer = {
+            ...c,
+            hasCredit,
+            creditDays,
+            creditLimitUSD,
+            creditStatus: hasCredit ? 'approved' : 'none',
+          };
+          if (currentCustomer?.id === customerId) {
+            setCurrentCustomer(updated);
+          }
+          return updated;
+        }
+        return c;
+      })
     );
-    pushNotification(
-      'Crédito Actualizado',
-      `Términos de crédito modificados: ${creditDays} días, límite $${creditLimitUSD.toFixed(2)}.`,
-      'credit_alert'
+    triggerPushNotification({
+      title: '💳 Crédito Comercial Modificado',
+      message: `Términos de crédito: ${creditDays} días, límite $${creditLimitUSD.toFixed(2)}.`,
+      type: 'credit_alert',
+    });
+  };
+
+  const approveCustomerCreditRequest = (
+    customerId: string,
+    approvedLimitUSD: number,
+    approvedCreditDays: number
+  ) => {
+    setCustomers((prev) =>
+      prev.map((c) => {
+        if (c.id === customerId) {
+          const updated: Customer = {
+            ...c,
+            hasCredit: true,
+            creditDays: approvedCreditDays,
+            creditLimitUSD: approvedLimitUSD,
+            creditStatus: 'approved',
+          };
+          if (currentCustomer?.id === customerId) {
+            setCurrentCustomer(updated);
+          }
+          return updated;
+        }
+        return c;
+      })
     );
+    triggerPushNotification({
+      title: '🎉 ¡Crédito Comercial Aprobado!',
+      message: `Línea de crédito activada: $${approvedLimitUSD.toFixed(2)} por ${approvedCreditDays} días de plazo.`,
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: 'Crédito Aprobado',
+    });
+  };
+
+  const rejectCustomerCreditRequest = (customerId: string) => {
+    setCustomers((prev) =>
+      prev.map((c) => {
+        if (c.id === customerId) {
+          const updated: Customer = {
+            ...c,
+            hasCredit: false,
+            creditStatus: 'rejected',
+          };
+          if (currentCustomer?.id === customerId) {
+            setCurrentCustomer(updated);
+          }
+          return updated;
+        }
+        return c;
+      })
+    );
+    triggerPushNotification({
+      title: '⚠️ Solicitud de Crédito Revisada',
+      message: 'La solicitud de crédito comercial no fue aprobada por el momento.',
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+    });
   };
 
   // Accounts Receivable payment registration (Cobro a Clientes)
@@ -1711,6 +1886,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addCustomer,
         updateCustomer,
         updateCustomerCredit,
+        approveCustomerCreditRequest,
+        rejectCustomerCreditRequest,
         registerReceivablePayment,
         registerPayablePayment,
         addSupplier,
@@ -1750,6 +1927,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsNotificationSettingsOpen,
         isSellerAlertsModalOpen,
         setIsSellerAlertsModalOpen,
+        isBusinessSettingsModalOpen,
+        setIsBusinessSettingsModalOpen,
         // BCV Panel & Category/Unit Modal & Presentation modal
         isBcvPanelOpen,
         setIsBcvPanelOpen,
@@ -1768,6 +1947,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedInvoiceForModal,
         lastSuccessfulOrder,
         setLastSuccessfulOrder,
+        // Automated Reminders
+        automatedReminders,
+        runManualReminderScan,
         // Turso Database Cloud State
         tursoState,
         bootstrapTursoSchema,

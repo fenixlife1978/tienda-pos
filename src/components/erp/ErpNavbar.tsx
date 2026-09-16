@@ -12,7 +12,9 @@ import {
   Send,
   TrendingUp,
   Layers,
+  Building2,
 } from 'lucide-react';
+import { PWAInstallButton } from '../common/PWAInstallButton';
 
 export type ErpTab = 'pos' | 'pedidos' | 'inventario' | 'cxc' | 'cxp' | 'reportes' | 'configuracion';
 
@@ -31,7 +33,13 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
   lowStockCount,
   overdueReceivablesCount,
 }) => {
-  const { setIsSellerAlertsModalOpen, setIsBcvPanelOpen, setIsCategoryUnitModalOpen, settings } = useApp();
+  const {
+    setIsSellerAlertsModalOpen,
+    setIsBcvPanelOpen,
+    setIsCategoryUnitModalOpen,
+    setIsBusinessSettingsModalOpen,
+    settings,
+  } = useApp();
 
   const totalCriticalAlerts = pendingOrdersCount + lowStockCount + overdueReceivablesCount;
 
@@ -139,6 +147,20 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
               <Layers className="w-3.5 h-3.5 text-indigo-600" />
               <span>Categorías & Unidades</span>
             </button>
+
+            {/* Datos de la Empresa / Distribuidora */}
+            <button
+              type="button"
+              onClick={() => setIsBusinessSettingsModalOpen(true)}
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 rounded-xl text-xs font-bold transition cursor-pointer"
+              title="Configurar Datos Comerciales, RIF, Logo y Políticas de Crédito"
+            >
+              <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Datos del Negocio</span>
+            </button>
+
+            {/* PWA Install Button in ERP Navbar */}
+            <PWAInstallButton className="hidden xl:inline-flex" variant="full" />
 
             {/* Quick Alert & Push Broadcaster CTA */}
             <button

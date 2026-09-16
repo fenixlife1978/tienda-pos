@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ShoppingCart, X, Trash2, Plus, Minus, ArrowRight, ShieldCheck } from 'lucide-react';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { ShoppingCart, X, Trash2, Plus, Minus, ArrowRight, ShieldCheck, WifiOff, Save } from 'lucide-react';
 import { CheckoutModal } from './CheckoutModal';
 import { formatUSD, formatBs } from '../../utils/formatUtils';
 
@@ -16,6 +17,7 @@ export const CartDrawer: React.FC = () => {
     setIsOrdersModalOpen,
   } = useApp();
 
+  const isOnline = useOnlineStatus();
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   if (!isCartOpen) return null;
@@ -48,20 +50,33 @@ export const CartDrawer: React.FC = () => {
           <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col">
             
             {/* Drawer Header */}
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-slate-900 text-base">Carrito de Compras</h3>
-                <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded-full">
-                  {cart.length}
-                </span>
+            <div className="p-4 bg-slate-50 border-b border-slate-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-blue-600" />
+                  <h3 className="font-bold text-slate-900 text-base">Carrito de Compras</h3>
+                  <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded-full">
+                    {cart.length}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setIsCartOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button
-                onClick={() => setIsCartOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+
+              {!isOnline && (
+                <div className="mt-2.5 px-2.5 py-1.5 bg-amber-100/80 border border-amber-300 rounded-lg text-[11px] text-amber-900 flex items-center justify-between">
+                  <span className="flex items-center gap-1 font-semibold">
+                    <WifiOff className="w-3 h-3 text-amber-700 shrink-0" /> Modo Fuera de Línea
+                  </span>
+                  <span className="text-[10px] text-amber-800 flex items-center gap-1">
+                    <Save className="w-2.5 h-2.5" /> Guardado localmente
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Cart Items List */}

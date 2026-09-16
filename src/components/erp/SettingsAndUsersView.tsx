@@ -48,6 +48,7 @@ export const SettingsAndUsersView: React.FC = () => {
     tursoState,
     setIsTursoModalOpen,
     syncWithTurso,
+    setIsBusinessSettingsModalOpen,
   } = useApp();
 
   const [isRefreshingBcv, setIsRefreshingBcv] = useState(false);
@@ -406,7 +407,7 @@ export const SettingsAndUsersView: React.FC = () => {
 
           {/* Company Fiscal & Contact Profile */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
               <div className="flex items-center gap-2">
                 <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
                   <Building2 className="w-5 h-5" />
@@ -420,6 +421,15 @@ export const SettingsAndUsersView: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setIsBusinessSettingsModalOpen(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                <span>Modal de Empresa & Logo</span>
+              </button>
             </div>
 
             <form onSubmit={handleSaveSettings} className="space-y-4 text-xs">

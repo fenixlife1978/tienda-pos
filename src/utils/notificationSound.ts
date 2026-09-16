@@ -18,7 +18,7 @@ function getAudioContext(): AudioContext | null {
   }
 }
 
-export type SoundType = 'order_status' | 'promotion' | 'alert' | 'success' | 'cash';
+export type SoundType = 'order_status' | 'promotion' | 'alert' | 'success' | 'cash' | 'scanner' | 'scanner_error';
 
 export function playNotificationSound(type: SoundType = 'order_status'): void {
   try {
@@ -27,7 +27,34 @@ export function playNotificationSound(type: SoundType = 'order_status'): void {
 
     const now = ctx.currentTime;
 
-    if (type === 'order_status') {
+    if (type === 'scanner') {
+      // Classic crisp POS barcode scanner beep (High-pitch quick chirp ~1800Hz)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1864.66, now); // A#6
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } else if (type === 'scanner_error') {
+      // Barcode not found / stock error low buzz
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.linearRampToValueAtTime(150, now + 0.18);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.18);
+    } else if (type === 'order_status') {
       // Pleasant two-tone ascending chime (C5 -> G5)
       const osc1 = ctx.createOscillator();
       const osc2 = ctx.createOscillator();
