@@ -42,6 +42,7 @@ import {
   Tag,
   Sliders,
   Coins,
+  Wand2,
 } from 'lucide-react';
 import {
   formatUSD,
@@ -50,6 +51,11 @@ import {
   isValidDecimalInput,
   parseFreeTextInput,
 } from '../../utils/formatUtils';
+import {
+  generateUniqueSKU,
+  validateSKU,
+  SKUStrategy,
+} from '../../utils/skuGenerator';
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -75,6 +81,33 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [category, setCategory] = useState(categories[0]?.name || 'Víveres');
   const [unit, setUnit] = useState(units[0]?.name || 'Unidad');
   const [description, setDescription] = useState('');
+
+  // SKU Generator & Validation State
+  const [isSkuGeneratorOpen, setIsSkuGeneratorOpen] = useState(false);
+  const [skuStrategy, setSkuStrategy] = useState<SKUStrategy>('category_name_seq');
+  const [customSkuPrefix, setCustomSkuPrefix] = useState('SKU');
+  const [skuDigits, setSkuDigits] = useState(4);
+
+  // Live SKU Uniqueness and Syntax Validation
+  const skuValidation = useMemo(() => {
+    return validateSKU(code, products, productToEdit?.id);
+  }, [code, products, productToEdit]);
+
+  const handleGenerateSKU = (strategyToUse?: SKUStrategy) => {
+    const strat = strategyToUse || skuStrategy;
+    const newSku = generateUniqueSKU(
+      {
+        strategy: strat,
+        category,
+        name: name.trim() || 'PRODUCTO',
+        prefix: customSkuPrefix,
+        digits: skuDigits,
+      },
+      products,
+      productToEdit?.id
+    );
+    setCode(newSku);
+  };
 
   // ==================== TAB 2: ESTRUCTURA DE COSTOS Y FORMACIÓN DE PRECIOS ====================
   // 1. Estructura de costos
@@ -269,10 +302,21 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         setCompositeComponents(productToEdit.compositeComponents || []);
         setImage(productToEdit.image || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80');
       } else {
-        // New product defaults
-        setCode(`SKU-${Math.floor(100000 + Math.random() * 900000)}`);
+        // New product defaults with collision-free unique SKU
+        const initialCategory = categories[0]?.name || 'Víveres';
+        const initialSku = generateUniqueSKU(
+          {
+            strategy: 'category_name_seq',
+            category: initialCategory,
+            name: 'NUEVO',
+            prefix: 'SKU',
+            digits: 4,
+          },
+          products
+        );
+        setCode(initialSku);
         setName('');
-        setCategory(categories[0]?.name || 'Víveres');
+        setCategory(initialCategory);
         setUnit(units[0]?.name || 'Unidad');
         setDescription('');
 
@@ -682,6 +726,14 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       return;
     }
 
+    // Strict SKU Uniqueness & Syntax Validation
+    const skuCheck = validateSKU(code, products, productToEdit?.id);
+    if (!skuCheck.isValid) {
+      alert(skuCheck.error || 'Código SKU inválido.');
+      setActiveTab('general');
+      return;
+    }
+
     if (realCostUSD <= 0) {
       alert('El costo de compra real debe ser mayor a 0.');
       setActiveTab('pricing');
@@ -906,16 +958,144 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 {/* Left 2 Cols: Form Data */}
                 <div className="md:col-span-2 space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Código / SKU / Barra *</label>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="font-bold text-slate-700 flex items-center gap-1.5">
+                          <span>Código / SKU / Barra *</span>
+                          {skuValidation.isValid && !skuValidation.warning && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Único
+                            </span>
+                          )}
+                          {skuValidation.isDuplicate && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 animate-pulse">
+                              <AlertCircle className="w-2.5 h-2.5 text-rose-600" /> Repetido
+                            </span>
+                          )}
+                        </label>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateSKU('category_name_seq')}
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5"
+                            title="Generar automáticamente un código único basado en la categoría y nombre"
+                          >
+                            <Sparkles className="w-3 h-3 text-indigo-600" /> Auto-SKU
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsSkuGeneratorOpen(!isSkuGeneratorOpen)}
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-semibold transition cursor-pointer ${
+                              isSkuGeneratorOpen
+                                ? 'bg-indigo-600 text-white font-bold'
+                                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                            }`}
+                            title="Abrir opciones de formato de SKU"
+                          >
+                            ⚙️ Opciones
+                          </button>
+                        </div>
+                      </div>
+
                       <input
                         type="text"
                         required
                         value={code}
-                        onChange={(e) => setCode(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:ring-2 focus:ring-indigo-500 font-bold"
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        className={`w-full px-3 py-2 border rounded-xl font-mono focus:ring-2 font-bold uppercase transition ${
+                          skuValidation.isDuplicate
+                            ? 'border-rose-400 bg-rose-50/50 text-rose-900 focus:ring-rose-500'
+                            : skuValidation.warning
+                            ? 'border-amber-300 focus:ring-amber-500'
+                            : 'border-slate-300 focus:ring-indigo-500'
+                        }`}
                         placeholder="SKU-100234"
                       />
+
+                      {/* Duplicate Alert Banner & 1-Click Fix */}
+                      {skuValidation.isDuplicate && skuValidation.duplicateProduct && (
+                        <div className="p-2 bg-rose-50 rounded-xl border border-rose-200 text-[11px] text-rose-700 flex items-start justify-between gap-2 shadow-2xs">
+                          <div>
+                            <p className="font-bold flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                              Código ya asignado:
+                            </p>
+                            <p className="text-[10px] text-rose-600 mt-0.5">
+                              En uso por <strong className="font-bold">{skuValidation.duplicateProduct.name}</strong> ({skuValidation.duplicateProduct.category})
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateSKU('category_name_seq')}
+                            className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-[10px] shrink-0 cursor-pointer shadow-2xs transition flex items-center gap-1"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            Corregir
+                          </button>
+                        </div>
+                      )}
+
+                      {skuValidation.warning && (
+                        <p className="text-[10px] text-amber-600 font-medium">{skuValidation.warning}</p>
+                      )}
+
+                      {/* SKU Generator Strategy Selector Box */}
+                      {isSkuGeneratorOpen && (
+                        <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 animate-in fade-in">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800 text-[11px] flex items-center gap-1">
+                              <Wand2 className="w-3 h-3 text-indigo-600" />
+                              Formatos de SKU Disponibles
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setIsSkuGeneratorOpen(false)}
+                              className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSKU('category_name_seq')}
+                              className="p-1.5 bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 rounded-lg text-left transition cursor-pointer shadow-2xs"
+                            >
+                              <p className="font-bold text-slate-800 text-[10px]">Cat. + Nombre</p>
+                              <p className="text-[9px] font-mono text-indigo-600">Ej: VIV-HAR-0001</p>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSKU('ean13')}
+                              className="p-1.5 bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 rounded-lg text-left transition cursor-pointer shadow-2xs"
+                            >
+                              <p className="font-bold text-slate-800 text-[10px]">EAN-13 (13 dígitos)</p>
+                              <p className="text-[9px] font-mono text-indigo-600">Ej: 7590001000427</p>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSKU('category_seq')}
+                              className="p-1.5 bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 rounded-lg text-left transition cursor-pointer shadow-2xs"
+                            >
+                              <p className="font-bold text-slate-800 text-[10px]">Cat. Secuencial</p>
+                              <p className="text-[9px] font-mono text-indigo-600">Ej: VIV-0042</p>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateSKU('prefix_seq')}
+                              className="p-1.5 bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 rounded-lg text-left transition cursor-pointer shadow-2xs"
+                            >
+                              <p className="font-bold text-slate-800 text-[10px]">Prefijo Estándar</p>
+                              <p className="text-[9px] font-mono text-indigo-600">Ej: SKU-0042</p>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="sm:col-span-2">

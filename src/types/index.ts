@@ -40,6 +40,20 @@ export interface Customer {
   password?: string;
   avatar?: string;
   notificationPreferences?: CustomerNotificationPreferences;
+  // Campos de Verificación y Gestión de Solicitudes
+  verificationStatus?: 'pending' | 'verified' | 'rejected';
+  isFirstTime?: boolean;
+  registeredAt?: string;
+  businessType?: string; // Bodegón, Minimarket, Panadería, Restaurante, Detal, etc.
+  tradeName?: string; // Razón comercial / Rótulo del local
+  contactPerson?: string; // Nombre del contacto o comprador
+  attachedDocRif?: string; // e.g. "RIF Fiscal J-41234567-8 Verificado"
+  attachedCommercialRef?: string; // Referencia comercial o bancaria
+  rejectionReason?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  assignedPriceTier?: 'publico' | 'mayorista' | 'distribuidor' | 'especial';
+  verificationNotes?: string;
 }
 
 export interface ProductCategory {
@@ -292,6 +306,20 @@ export interface Invoice {
   isCreditApproved?: boolean; // When credit order is received and approved by admin to release fiscal invoice
 }
 
+export interface ReceivablePaymentRecord {
+  id: string;
+  date: string;
+  amountUSD: number;
+  amountBs: number;
+  bcvRate: number;
+  paymentMethod: PaymentMethod;
+  reference?: string;
+  notes?: string;
+  registeredBy?: string;
+  balanceAfterUSD: number;
+  isFullSettlement?: boolean;
+}
+
 export interface ReceivableItem {
   id: string;
   invoiceId: string;
@@ -306,6 +334,7 @@ export interface ReceivableItem {
   dueDate: string;
   creditDays: number;
   status: 'al_dia' | 'por_vencer' | 'vencido' | 'pagado';
+  paymentHistory?: ReceivablePaymentRecord[];
 }
 
 export interface Supplier {

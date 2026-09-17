@@ -1,1 +1,81 @@
 @import "tailwindcss";
+
+/* ==========================================================================
+   Thermal Printer & POS Receipt Printing Styles & Media Queries
+   ========================================================================== */
+
+/* Utility classes for screen thermal receipt preview */
+.thermal-ticket-container {
+  font-family: 'Courier New', Courier, Monaco, Consolas, 'Lucida Console', monospace;
+  width: 100%;
+  max-width: 320px;
+  background-color: #ffffff;
+  color: #000000;
+  line-height: 1.25;
+}
+
+.thermal-ticket-divider {
+  border-top: 1px dashed #000000;
+  margin: 6px 0;
+}
+
+.thermal-ticket-divider-double {
+  border-top: 2px dashed #000000;
+  margin: 8px 0;
+}
+
+.thermal-ticket-divider-solid {
+  border-top: 1px solid #000000;
+  margin: 6px 0;
+}
+
+/* Print-specific layout rules */
+@media print {
+  /* Standard reset for print */
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Thermal 80mm & 58mm POS Receipt Specific Media Query */
+  @page thermal-receipt-page {
+    size: 80mm auto;
+    margin: 0mm;
+  }
+
+  .print-thermal-receipt {
+    page: thermal-receipt-page;
+    width: 76mm !important;
+    max-width: 76mm !important;
+    margin: 0 auto !important;
+    padding: 2mm !important;
+    font-family: 'Courier New', Courier, Monaco, Consolas, 'Lucida Console', monospace !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    color: #000000 !important;
+    background-color: #ffffff !important;
+  }
+
+  .print-thermal-receipt * {
+    color: #000000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    font-family: 'Courier New', Courier, Monaco, Consolas, 'Lucida Console', monospace !important;
+  }
+
+  .print-thermal-receipt tr,
+  .print-thermal-receipt .item-row {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-thermal-receipt img {
+    filter: grayscale(100%) contrast(200%) !important;
+    max-width: 100% !important;
+  }
+}

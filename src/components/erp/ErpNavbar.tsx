@@ -13,15 +13,27 @@ import {
   TrendingUp,
   Layers,
   Building2,
+  LayoutDashboard,
+  UserCheck,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
-export type ErpTab = 'pos' | 'pedidos' | 'inventario' | 'cxc' | 'cxp' | 'reportes' | 'configuracion';
+export type ErpTab =
+  | 'dashboard'
+  | 'pos'
+  | 'pedidos'
+  | 'solicitudes'
+  | 'inventario'
+  | 'cxc'
+  | 'cxp'
+  | 'reportes'
+  | 'configuracion';
 
 interface ErpNavbarProps {
   activeTab: ErpTab;
   onSelectTab: (tab: ErpTab) => void;
   pendingOrdersCount: number;
+  pendingRequestsCount: number;
   lowStockCount: number;
   overdueReceivablesCount: number;
 }
@@ -30,6 +42,7 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
   activeTab,
   onSelectTab,
   pendingOrdersCount,
+  pendingRequestsCount,
   lowStockCount,
   overdueReceivablesCount,
 }) => {
@@ -41,9 +54,16 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
     settings,
   } = useApp();
 
-  const totalCriticalAlerts = pendingOrdersCount + lowStockCount + overdueReceivablesCount;
+  const totalCriticalAlerts =
+    pendingOrdersCount + pendingRequestsCount + lowStockCount + overdueReceivablesCount;
 
   const tabs = [
+    {
+      id: 'dashboard' as ErpTab,
+      label: 'Dashboard & Ventas',
+      icon: LayoutDashboard,
+      badge: null,
+    },
     {
       id: 'pos' as ErpTab,
       label: 'Punto de Venta (POS)',
@@ -56,6 +76,13 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       icon: ClipboardList,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : null,
       badgeColor: 'bg-amber-500 text-white',
+    },
+    {
+      id: 'solicitudes' as ErpTab,
+      label: 'Gestión de Solicitudes',
+      icon: UserCheck,
+      badge: pendingRequestsCount > 0 ? pendingRequestsCount : null,
+      badgeColor: 'bg-indigo-600 text-white animate-pulse',
     },
     {
       id: 'inventario' as ErpTab,

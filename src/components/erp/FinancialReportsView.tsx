@@ -12,6 +12,9 @@ import {
   HandCoins,
   Receipt,
   Boxes,
+  FileDown,
+  Loader2,
+  Building2,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -26,13 +29,16 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { exportToCSV } from '../../utils/exportUtils';
+import { exportToCSV, exportElementToPDF } from '../../utils/exportUtils';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
+import { InventoryExecutiveReportModal } from './InventoryExecutiveReportModal';
 
 export const FinancialReportsView: React.FC = () => {
   const { orders, products, receivables, payables, settings } = useApp();
 
   const [dateRange, setDateRange] = useState<'semana' | 'mes' | 'historico'>('mes');
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [isInventoryReportOpen, setIsInventoryReportOpen] = useState(false);
 
   // Calculations
   const completedOrders = orders.filter((o) => o.orderStatus !== 'cancelado');
@@ -112,6 +118,27 @@ export const FinancialReportsView: React.FC = () => {
     exportToCSV(`Reporte_Financiero_${new Date().toISOString().split('T')[0]}`, rows);
   };
 
+  const handleExportPDF = async () => {
+    if (isExportingPDF) return;
+    setIsExportingPDF(true);
+    try {
+      await exportElementToPDF(
+        'financial-sales-report-printable',
+        `Reporte_Ventas_Financiero_${new Date().toISOString().split('T')[0]}`,
+        {
+          format: 'a4',
+          orientation: 'portrait',
+          margin: 8,
+          scale: 2.2,
+        }
+      );
+    } catch (err) {
+      console.error('Error al exportar reporte PDF:', err);
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       
@@ -127,13 +154,36 @@ export const FinancialReportsView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setIsInventoryReportOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition cursor-pointer shadow-2xs"
+            title="Generar informe gerencial exportable de inventario, existencias y valorización en PDF"
+          >
+            <Boxes className="w-3.5 h-3.5" />
+            <span>Reporte Inventario PDF</span>
+          </button>
+
+          <button
+            onClick={handleExportPDF}
+            disabled={isExportingPDF}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white rounded-xl transition cursor-pointer shadow-2xs"
+            title="Exportar informe de ventas consolidado a archivo PDF"
+          >
+            {isExportingPDF ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5" />
+            )}
+            <span>{isExportingPDF ? 'Generando PDF...' : 'Exportar Ventas PDF'}</span>
+          </button>
+
           <button
             onClick={() => window.print()}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer shadow-2xs"
           >
             <Printer className="w-3.5 h-3.5 text-slate-500" />
-            Imprimir / PDF
+            Imprimir
           </button>
 
           <button
@@ -141,10 +191,37 @@ export const FinancialReportsView: React.FC = () => {
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition cursor-pointer shadow-2xs"
           >
             <Download className="w-3.5 h-3.5" />
-            Exportar Informe Completo a Excel
+            Exportar a Excel
           </button>
         </div>
       </div>
+
+      {/* Printable / PDF Exportable Container */}
+      <div id="financial-sales-report-printable" className="space-y-6 bg-slate-50/50 p-1 sm:p-2 rounded-2xl">
+        {/* PDF Header Summary Banner (Visible in PDF / print) */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-base shadow-sm">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-base font-extrabold text-slate-900 leading-tight">
+                {settings.companyName || 'ERP Sistema Comercial'}
+              </h1>
+              <p className="text-[11px] text-slate-500 font-mono">
+                RIF: {settings.companyRif || 'J-50000000-0'} | Tel: {settings.companyPhone || '+58 424-5751804'}
+              </p>
+            </div>
+          </div>
+          <div className="text-right text-xs">
+            <span className="inline-block px-2.5 py-1 bg-indigo-50 text-indigo-700 font-bold rounded-lg border border-indigo-100">
+              Tasa Oficial BCV: {formatPlainNumber(settings.bcvRate, 2)} Bs/USD
+            </span>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Fecha de Emisión: {new Date().toLocaleDateString('es-VE')} {new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
 
       {/* Main KPI Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -324,6 +401,13 @@ export const FinancialReportsView: React.FC = () => {
         </div>
       </div>
 
+      {/* Modal: Executive Inventory PDF Report Generator */}
+      <InventoryExecutiveReportModal
+        isOpen={isInventoryReportOpen}
+        onClose={() => setIsInventoryReportOpen(false)}
+      />
+
     </div>
+  </div>
   );
 };

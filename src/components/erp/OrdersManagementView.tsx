@@ -16,10 +16,12 @@ import {
   Building2,
   Download,
   CheckSquare,
+  FileDown,
+  Loader2,
 } from 'lucide-react';
 import { InvoiceModal } from '../common/InvoiceModal';
 import { OrderChecklistModal } from './OrderChecklistModal';
-import { exportToCSV } from '../../utils/exportUtils';
+import { exportToCSV, exportElementToPDF } from '../../utils/exportUtils';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 export const OrdersManagementView: React.FC = () => {
@@ -36,6 +38,7 @@ export const OrdersManagementView: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   const [channelFilter, setChannelFilter] = useState<string>('todos');
   const [selectedOrderForChecklist, setSelectedOrderForChecklist] = useState<Order | null>(null);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const filteredOrders = orders.filter((o) => {
     const matchesSearch =
@@ -72,6 +75,27 @@ export const OrdersManagementView: React.FC = () => {
     exportToCSV(`Pedidos_ERP_${new Date().toISOString().split('T')[0]}`, rows);
   };
 
+  const handleExportOrdersPDF = async () => {
+    if (isExportingPDF) return;
+    setIsExportingPDF(true);
+    try {
+      await exportElementToPDF(
+        'orders-management-table-printable',
+        `Reporte_Pedidos_Ventas_${new Date().toISOString().split('T')[0]}`,
+        {
+          format: 'a4',
+          orientation: 'landscape',
+          margin: 6,
+          scale: 2.2,
+        }
+      );
+    } catch (err) {
+      console.error('Error al exportar reporte de pedidos a PDF:', err);
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   const handleViewInvoice = (orderId: string) => {
     const inv = invoices.find((i) => i.orderId === orderId);
     if (inv) {
@@ -96,13 +120,29 @@ export const OrdersManagementView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={handleExportOrdersCSV}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer shadow-2xs"
-        >
-          <Download className="w-3.5 h-3.5 text-slate-500" />
-          Exportar Lista a Excel
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleExportOrdersPDF}
+            disabled={isExportingPDF}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white rounded-xl transition cursor-pointer shadow-2xs"
+            title="Exportar reporte de ventas y pedidos a PDF"
+          >
+            {isExportingPDF ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5" />
+            )}
+            <span>{isExportingPDF ? 'Generando PDF...' : 'Exportar a PDF'}</span>
+          </button>
+
+          <button
+            onClick={handleExportOrdersCSV}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer shadow-2xs"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            Exportar a Excel
+          </button>
+        </div>
       </div>
 
       {/* Filter and search controls */}
@@ -158,7 +198,7 @@ export const OrdersManagementView: React.FC = () => {
       </div>
 
       {/* Orders Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div id="orders-management-table-printable" className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>

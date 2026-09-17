@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ErpNavbar, ErpTab } from './ErpNavbar';
+import { SalesDashboardView } from './SalesDashboardView';
 import { PosView } from './PosView';
 import { OrdersManagementView } from './OrdersManagementView';
+import { CustomerRequestsManagementView } from './CustomerRequestsManagementView';
 import { InventoryView } from './InventoryView';
 import { AccountsReceivableView } from './AccountsReceivableView';
 import { AccountsPayableView } from './AccountsPayableView';
@@ -10,11 +12,17 @@ import { FinancialReportsView } from './FinancialReportsView';
 import { SettingsAndUsersView } from './SettingsAndUsersView';
 
 export const ErpDashboard: React.FC = () => {
-  const { orders, products, receivables } = useApp();
-  const [activeTab, setActiveTab] = useState<ErpTab>('pos');
+  const { orders, products, receivables, customers } = useApp();
+  const [activeTab, setActiveTab] = useState<ErpTab>('dashboard');
 
   // Count badges for the ERP tabs
   const pendingOrdersCount = orders.filter((o) => o.orderStatus === 'pendiente').length;
+  const pendingRequestsCount = customers.filter(
+    (c) =>
+      c.verificationStatus === 'pending' ||
+      (c.isFirstTime && c.verificationStatus !== 'verified' && c.verificationStatus !== 'rejected') ||
+      c.creditStatus === 'pending'
+  ).length;
   const lowStockCount = products.filter((p) => p.stock <= p.minStock).length;
   const overdueReceivablesCount = receivables.filter((r) => r.status === 'vencido').length;
 
@@ -25,14 +33,17 @@ export const ErpDashboard: React.FC = () => {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         pendingOrdersCount={pendingOrdersCount}
+        pendingRequestsCount={pendingRequestsCount}
         lowStockCount={lowStockCount}
         overdueReceivablesCount={overdueReceivablesCount}
       />
 
       {/* Render Active Module */}
       <main>
+        {activeTab === 'dashboard' && <SalesDashboardView />}
         {activeTab === 'pos' && <PosView />}
         {activeTab === 'pedidos' && <OrdersManagementView />}
+        {activeTab === 'solicitudes' && <CustomerRequestsManagementView />}
         {activeTab === 'inventario' && <InventoryView />}
         {activeTab === 'cxc' && <AccountsReceivableView />}
         {activeTab === 'cxp' && <AccountsPayableView />}
@@ -42,3 +53,4 @@ export const ErpDashboard: React.FC = () => {
     </div>
   );
 };
+

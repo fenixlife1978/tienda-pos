@@ -17,6 +17,7 @@ import {
   ProductPresentation,
   ProductUnit,
   ReceivableItem,
+  ReceivablePaymentRecord,
   Supplier,
   SystemSettings,
   User,
@@ -136,7 +137,55 @@ interface AppContextType {
   updateCustomerCredit: (customerId: string, hasCredit: boolean, creditDays: number, creditLimitUSD: number) => void;
   approveCustomerCreditRequest: (customerId: string, approvedLimitUSD: number, approvedCreditDays: number) => void;
   rejectCustomerCreditRequest: (customerId: string) => void;
-  registerReceivablePayment: (receivableId: string, amountUSD: number) => void;
+  approveCustomerVerification: (
+    customerId: string,
+    options: {
+      hasCredit: boolean;
+      creditDays: number;
+      creditLimitUSD: number;
+      assignedPriceTier?: 'publico' | 'mayorista' | 'distribuidor' | 'especial';
+      notes?: string;
+    }
+  ) => void;
+  rejectCustomerVerification: (customerId: string, reason: string) => void;
+  registerReceivablePayment: (
+    receivableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => void;
+  registerGlobalCustomerPayment: (
+    customerId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => { liquidatedInvoicesCount: number; partialAbonoUSD: number; fullyPaidTotalUSD: number };
+  liquidateCustomerInvoice: (
+    receivableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => void;
+  liquidateCustomerTotalDebt: (
+    customerId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => void;
   registerPayablePayment: (payableId: string, amountUSD: number) => void;
   addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
   updateSupplier: (supplier: Supplier) => void;
@@ -815,6 +864,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newCustomer: Customer = {
       ...customerData,
       id: `cust-${Date.now()}`,
+      verificationStatus: 'pending',
+      isFirstTime: true,
+      registeredAt: new Date().toISOString(),
       notificationPreferences: customerData.notificationPreferences || {
         orderStatus: true,
         promotions: true,
@@ -823,15 +875,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         channel: 'push',
       },
     };
-    setCustomers((prev) => [...prev, newCustomer]);
+    setCustomers((prev) => [newCustomer, ...prev]);
     setCurrentCustomer(newCustomer);
     localStorage.setItem('omni_active_customer_id', newCustomer.id);
     setIsAdminActive(false);
     triggerPushNotification({
       title: `¡Bienvenido a nuestro Portal!`,
-      message: `Hola ${newCustomer.name}, tu cuenta ha sido creada exitosamente. Notificaciones activadas.`,
+      message: `Hola ${newCustomer.name}, tu registro ha sido recibido. Tu cuenta está en proceso de verificación por la gerencia.`,
       type: 'promotion',
-      badge: 'Nuevo Cliente',
+      badge: 'Nuevo Registro',
     });
     return newCustomer;
   };
@@ -1791,39 +1843,326 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const approveCustomerVerification = (
+    customerId: string,
+    options: {
+      hasCredit: boolean;
+      creditDays: number;
+      creditLimitUSD: number;
+      assignedPriceTier?: 'publico' | 'mayorista' | 'distribuidor' | 'especial';
+      notes?: string;
+    }
+  ) => {
+    setCustomers((prev) =>
+      prev.map((c) => {
+        if (c.id === customerId) {
+          const updated: Customer = {
+            ...c,
+            verificationStatus: 'verified',
+            isFirstTime: false,
+            hasCredit: options.hasCredit,
+            creditDays: options.hasCredit ? options.creditDays : 0,
+            creditLimitUSD: options.hasCredit ? options.creditLimitUSD : 0,
+            creditStatus: options.hasCredit ? 'approved' : 'none',
+            verifiedAt: new Date().toISOString(),
+            verifiedBy: currentUser.name,
+            assignedPriceTier: options.assignedPriceTier || 'mayorista',
+            verificationNotes: options.notes || c.verificationNotes,
+          };
+          if (currentCustomer?.id === customerId) {
+            setCurrentCustomer(updated);
+          }
+          return updated;
+        }
+        return c;
+      })
+    );
+
+    const creditMsg = options.hasCredit
+      ? ` y se le asignó línea de crédito de $${options.creditLimitUSD.toFixed(2)} (${options.creditDays} días).`
+      : ' en modalidad de Contado.';
+
+    triggerPushNotification({
+      title: '✅ Cliente Verificado y Aprobado',
+      message: `La cuenta ha sido verificada exitosamente${creditMsg}`,
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: 'Cuenta Verificada',
+    });
+  };
+
+  const rejectCustomerVerification = (customerId: string, reason: string) => {
+    setCustomers((prev) =>
+      prev.map((c) => {
+        if (c.id === customerId) {
+          const updated: Customer = {
+            ...c,
+            verificationStatus: 'rejected',
+            rejectionReason: reason,
+            hasCredit: false,
+            creditStatus: 'rejected',
+            verifiedAt: new Date().toISOString(),
+            verifiedBy: currentUser.name,
+          };
+          if (currentCustomer?.id === customerId) {
+            setCurrentCustomer(updated);
+          }
+          return updated;
+        }
+        return c;
+      })
+    );
+
+    triggerPushNotification({
+      title: '❌ Solicitud de Registro Rechazada',
+      message: `La solicitud fue rechazada. Motivo: ${reason}`,
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: 'Solicitud Rechazada',
+    });
+  };
+
   // Accounts Receivable payment registration (Cobro a Clientes)
-  const registerReceivablePayment = (receivableId: string, amountUSD: number) => {
+  const registerReceivablePayment = (
+    receivableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const notes = details?.notes || '';
+
+    let customerId = '';
+    let invoiceNumber = '';
+    let isSettled = false;
+
     setReceivables((prev) =>
       prev.map((rec) => {
         if (rec.id === receivableId) {
-          const newPaid = rec.amountPaidUSD + amountUSD;
+          customerId = rec.customerId;
+          invoiceNumber = rec.invoiceNumber;
+          const actualAmountToPay = Math.min(rec.balanceUSD, amountUSD);
+          const newPaid = rec.amountPaidUSD + actualAmountToPay;
           const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
-          const isFull = newBalance <= 0.01;
+          isSettled = newBalance <= 0.01;
 
-          // Update customer debt
-          setCustomers((custs) =>
-            custs.map((c) =>
-              c.id === rec.customerId
-                ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - amountUSD) }
-                : c
-            )
-          );
+          const paymentRecord: ReceivablePaymentRecord = {
+            id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            date: new Date().toISOString(),
+            amountUSD: actualAmountToPay,
+            amountBs: actualAmountToPay * rate,
+            bcvRate: rate,
+            paymentMethod: method,
+            reference: ref,
+            notes: notes || (isSettled ? 'Liquidación total de factura' : 'Abono a factura'),
+            registeredBy: currentUser.name,
+            balanceAfterUSD: newBalance,
+            isFullSettlement: isSettled,
+          };
 
           return {
             ...rec,
             amountPaidUSD: newPaid,
             balanceUSD: newBalance,
-            status: isFull ? 'pagado' : rec.status,
+            status: isSettled ? 'pagado' : rec.status,
+            paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])],
           };
         }
         return rec;
       })
     );
-    pushNotification(
-      'Pago Registrado (CxC)',
-      `Abono de $${amountUSD.toFixed(2)} registrado satisfactoriamente en Cuentas por Cobrar.`,
-      'credit_alert'
+
+    // Update customer debt
+    if (customerId) {
+      setCustomers((custs) =>
+        custs.map((c) =>
+          c.id === customerId
+            ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - amountUSD) }
+            : c
+        )
+      );
+    }
+
+    // Update invoice if fully paid
+    if (invoiceNumber && isSettled) {
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.invoiceNumber === invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv
+        )
+      );
+    }
+
+    triggerPushNotification({
+      title: isSettled ? '🎉 Factura Liquidada en CxC' : '💵 Abono Registrado en CxC',
+      message: `${
+        isSettled
+          ? `Factura ${invoiceNumber} liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).`
+          : `Abono de $${amountUSD.toFixed(2)} USD registrado a factura ${invoiceNumber}.`
+      }`,
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: isSettled ? 'Factura Pagada' : 'Abono CxC',
+    });
+  };
+
+  // Liquidate a specific invoice completely in one action
+  const liquidateCustomerInvoice = (
+    receivableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const targetRec = receivables.find((r) => r.id === receivableId);
+    if (!targetRec || targetRec.balanceUSD <= 0) return;
+    registerReceivablePayment(receivableId, targetRec.balanceUSD, {
+      ...details,
+      notes: details?.notes || 'Cancelación / Liquidación completa de factura',
+    });
+  };
+
+  // Global FIFO waterfall distribution across all pending customer invoices
+  const registerGlobalCustomerPayment = (
+    customerId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const customNotes = details?.notes || 'Abono Global Distribuido (FIFO)';
+
+    // Get pending receivables for customer sorted chronologically (oldest issuedDate first)
+    const customerPendingRecs = receivables
+      .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001)
+      .sort((a, b) => new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime());
+
+    let remainingPayment = amountUSD;
+    let liquidatedCount = 0;
+    let fullyPaidTotal = 0;
+    let partialAbono = 0;
+    const settledInvoiceNumbers = new Set<string>();
+
+    const updatedReceivables = receivables.map((rec) => {
+      if (rec.customerId !== customerId || rec.balanceUSD <= 0.001 || remainingPayment <= 0.0001) {
+        return rec;
+      }
+
+      // Is this item in the pending queue?
+      const inQueue = customerPendingRecs.some((cr) => cr.id === rec.id);
+      if (!inQueue) return rec;
+
+      const toPay = Math.min(rec.balanceUSD, remainingPayment);
+      remainingPayment -= toPay;
+      const newPaid = rec.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
+
+      if (isSettled) {
+        liquidatedCount++;
+        fullyPaidTotal += toPay;
+        settledInvoiceNumbers.add(rec.invoiceNumber);
+      } else {
+        partialAbono += toPay;
+      }
+
+      const record: ReceivablePaymentRecord = {
+        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        date: new Date().toISOString(),
+        amountUSD: toPay,
+        amountBs: toPay * rate,
+        bcvRate: rate,
+        paymentMethod: method,
+        reference: ref,
+        notes: isSettled
+          ? `${customNotes} - Factura ${rec.invoiceNumber} liquidada totalmente`
+          : `${customNotes} - Abono parcial computado`,
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+      };
+
+      return {
+        ...rec,
+        amountPaidUSD: newPaid,
+        balanceUSD: newBalance,
+        status: isSettled ? 'pagado' : rec.status,
+        paymentHistory: [record, ...(rec.paymentHistory || [])],
+      };
+    });
+
+    setReceivables(updatedReceivables);
+
+    // Update customer debt
+    setCustomers((custs) =>
+      custs.map((c) =>
+        c.id === customerId
+          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - amountUSD) }
+          : c
+      )
     );
+
+    // Update matching invoices in state
+    if (settledInvoiceNumbers.size > 0) {
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          settledInvoiceNumbers.has(inv.invoiceNumber)
+            ? { ...inv, paymentStatus: 'pagado' }
+            : inv
+        )
+      );
+    }
+
+    const customerObj = customers.find((c) => c.id === customerId);
+    const custName = customerObj ? customerObj.name : 'Cliente';
+
+    triggerPushNotification({
+      title: '💳 Abono Global Distribuido (CxC)',
+      message: `Pago global de $${amountUSD.toFixed(2)} procesado para ${custName}. Se liquidaron ${liquidatedCount} factura(s)${
+        partialAbono > 0 ? ` y se aplicó un abono de $${partialAbono.toFixed(2)} a la factura más antigua.` : '.'
+      }`,
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: 'Pago Global CxC',
+    });
+
+    return {
+      liquidatedInvoicesCount: liquidatedCount,
+      partialAbonoUSD: partialAbono,
+      fullyPaidTotalUSD: fullyPaidTotal,
+    };
+  };
+
+  // Liquidate all debt for a customer
+  const liquidateCustomerTotalDebt = (
+    customerId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const custPendingRecs = receivables.filter((r) => r.customerId === customerId && r.balanceUSD > 0.001);
+    const totalDebt = custPendingRecs.reduce((sum, r) => sum + r.balanceUSD, 0);
+    if (totalDebt <= 0) return;
+    registerGlobalCustomerPayment(customerId, totalDebt, {
+      ...details,
+      notes: details?.notes || 'Liquidación TOTAL de deuda del cliente',
+    });
   };
 
   // Accounts Payable payment registration (Pago a Proveedores)
@@ -2024,6 +2363,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCustomerCredit,
         approveCustomerCreditRequest,
         rejectCustomerCreditRequest,
+        approveCustomerVerification,
+        rejectCustomerVerification,
         registerReceivablePayment,
         registerPayablePayment,
         addSupplier,

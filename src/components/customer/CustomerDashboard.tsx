@@ -294,8 +294,29 @@ export const CustomerDashboard: React.FC = () => {
       </header>
 
       {/* Main Content Area based on customerPortalTab */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+        {/* Verification Status Banner if pending */}
+        {currentCustomer.verificationStatus === 'pending' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3 shadow-xs">
+            <div className="p-2 bg-amber-100 text-amber-700 rounded-xl shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div className="flex-1 text-xs">
+              <h4 className="font-bold text-slate-900 text-sm">
+                Cuenta en Proceso de Verificación Inicial
+              </h4>
+              <p className="text-slate-600 mt-0.5">
+                Tu registro ha sido recibido exitosamente por la administración. Mientras se completa la validación de tus datos comerciales y asignación de crédito, puedes explorar el catálogo y realizar compras de contado.
+              </p>
+              {currentCustomer.creditRequestedLimitUSD && currentCustomer.creditRequestedLimitUSD > 0 && (
+                <div className="mt-2 text-amber-900 font-semibold bg-amber-100/60 px-3 py-1.5 rounded-lg inline-block">
+                  Solicitud de Crédito en revisión: <strong>${currentCustomer.creditRequestedLimitUSD} USD</strong> ({currentCustomer.creditRequestedDays || 15} días)
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* TAB 1: CATÁLOGO DE PRODUCTOS */}
         {customerPortalTab === 'catalogo' && (
           <div>

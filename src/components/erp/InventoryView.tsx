@@ -2,6 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { ProductModal } from './ProductModal';
+import { BarcodeLabelsModal } from './BarcodeLabelsModal';
+import { SkuAuditModal } from './SkuAuditModal';
+import { InventoryExecutiveReportModal } from './InventoryExecutiveReportModal';
 import {
   Boxes,
   Search,
@@ -17,7 +20,13 @@ import {
   Layers,
   Truck,
   ShieldCheck,
+  Barcode,
+  Printer,
+  FileDown,
+  Wand2,
+  Sparkles,
 } from 'lucide-react';
+import { auditInventorySKUs } from '../../utils/skuGenerator';
 import { exportToCSV } from '../../utils/exportUtils';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
@@ -35,6 +44,22 @@ export const InventoryView: React.FC = () => {
   const [adjustQuantity, setAdjustQuantity] = useState<number>(10);
   const [adjustReason, setAdjustReason] = useState<string>('Entrada por compra a proveedor');
   const [adjustType, setAdjustType] = useState<'in' | 'out'>('in');
+
+  // Barcode Labels Modal state
+  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [barcodeSelectedProduct, setBarcodeSelectedProduct] = useState<Product | null>(null);
+
+  // SKU Auditor & Generator Modal state
+  const [isSkuAuditModalOpen, setIsSkuAuditModalOpen] = useState(false);
+
+  // Executive Inventory PDF Report Modal state
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportFilter, setReportFilter] = useState<'all' | 'low_stock' | 'out_of_stock'>('all');
+
+  // SKU health audit
+  const skuAudit = useMemo(() => {
+    return auditInventorySKUs(products);
+  }, [products]);
 
   const categories = useMemo(() => {
     const cats = ['Todos'];
@@ -130,6 +155,48 @@ export const InventoryView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setReportFilter('all');
+              setIsReportModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl transition cursor-pointer shadow-2xs"
+            title="Generar reporte gerencial en PDF con valorización multimoneda y niveles de stock"
+          >
+            <FileDown className="w-3.5 h-3.5" />
+            <span>Reporte PDF Gerencial</span>
+          </button>
+
+          <button
+            onClick={() => setIsSkuAuditModalOpen(true)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl transition cursor-pointer shadow-2xs border ${
+              skuAudit.duplicateClusters.length > 0
+                ? 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
+                : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+            }`}
+            title="Auditor y generador masivo de códigos SKU únicos para el catálogo"
+          >
+            <Wand2 className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Auditor SKUs</span>
+            {skuAudit.duplicateClusters.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-rose-600 text-white">
+                {skuAudit.duplicateClusters.length} repetidos
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => {
+              setBarcodeSelectedProduct(null);
+              setIsBarcodeModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer shadow-2xs"
+            title="Generar etiquetas adhesivas de código de barras para imprimir o descargar en PDF"
+          >
+            <Barcode className="w-3.5 h-3.5 text-indigo-600" />
+            Etiquetas Barcode PDF
+          </button>
+
           <button
             onClick={handleExportCSV}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-xl transition cursor-pointer shadow-2xs"
@@ -342,11 +409,21 @@ export const InventoryView: React.FC = () => {
                       <div className="flex items-center justify-center gap-1">
                         <button
                           onClick={() => {
+                            setBarcodeSelectedProduct(p);
+                            setIsBarcodeModalOpen(true);
+                          }}
+                          className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 transition cursor-pointer"
+                          title="Imprimir etiquetas de código de barras para este producto"
+                        >
+                          <Barcode className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
                             setAdjustingProduct(p);
                             setAdjustQuantity(10);
                             setAdjustType('in');
                           }}
-                          className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
+                          className="p-1.5 rounded text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer"
                           title="Ajuste rápido de Stock (Entrada/Salida)"
                         >
                           <ArrowUpDown className="w-4 h-4" />
@@ -478,6 +555,33 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal: Barcode Labels Generator & PDF Export */}
+      <BarcodeLabelsModal
+        isOpen={isBarcodeModalOpen}
+        onClose={() => {
+          setIsBarcodeModalOpen(false);
+          setBarcodeSelectedProduct(null);
+        }}
+        products={products}
+        initialSelectedProduct={barcodeSelectedProduct}
+        settings={settings}
+      />
+
+      {/* Modal: SKU Catalog Audit & Bulk Generator */}
+      <SkuAuditModal
+        isOpen={isSkuAuditModalOpen}
+        onClose={() => setIsSkuAuditModalOpen(false)}
+        products={products}
+        onUpdateProduct={updateProduct}
+      />
+
+      {/* Modal: Executive Inventory PDF Report Generator */}
+      <InventoryExecutiveReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        initialFilter={reportFilter}
+      />
 
     </div>
   );
