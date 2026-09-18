@@ -44,6 +44,7 @@ import {
 } from '../data/initialData';
 import { tursoService, TursoSyncState } from '../services/tursoService';
 import { offlineSyncService } from '../services/offlineSyncService';
+import { terminalIdentity } from '../services/terminalIdentity';
 import { fetchBcvRateFromApi, fetchBcvOfficialHistory } from '../services/bcvService';
 import { scanAndGenerateReminders, AutomatedReminderRecord } from '../services/reminderService';
 
@@ -1305,8 +1306,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     notes?: string;
     customCreditDays?: number;
   }) => {
-    const orderNum = `PED-${new Date().getFullYear()}-${String(orders.length + 104).padStart(4, '0')}`;
-    const invoiceNum = `FACT-${String(invoices.length + 453).padStart(6, '0')}`;
+    const orderNum = terminalIdentity.nextOrderNumber();
+    const invoiceNum = terminalIdentity.nextInvoiceNumber();
     const now = new Date();
 
     const orderItems = orderInput.items.map((item) => {
@@ -1361,7 +1362,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : undefined;
 
     const newOrder: Order = {
-      id: `ord-${Date.now()}`,
+      id: `ord-${crypto.randomUUID()}`,
       orderNumber: orderNum,
       customerId: orderInput.customerId,
       customerName: orderInput.customerName,
@@ -1391,7 +1392,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     const newInvoice: Invoice = {
-      id: `inv-${Date.now()}`,
+      id: `inv-${crypto.randomUUID()}`,
       invoiceNumber: invoiceNum,
       orderId: newOrder.id,
       customerId: orderInput.customerId,
