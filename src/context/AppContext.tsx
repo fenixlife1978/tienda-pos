@@ -1310,6 +1310,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }) => {
     const orderNum = terminalIdentity.nextOrderNumber();
     const invoiceNum = terminalIdentity.nextInvoiceNumber();
+    const terminalId = terminalIdentity.getId();
+    const documentSeries = terminalId;
+    const orderDocumentSequence = Number(orderNum.match(/(\d+)$/)?.[1] || '0');
+    const invoiceDocumentSequence = Number(invoiceNum.match(/(\d+)$/)?.[1] || '0');
     const now = new Date();
     // Una venta POS queda vinculada a la sesión de caja exacta que estaba abierta
     // en ese terminal. Las ventas de tienda online no tienen sesión de caja.
@@ -1423,6 +1427,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       channel: orderInput.channel,
       createdAt: now.toISOString(),
       cashSessionId,
+      documentSeries,
+      documentSequence: orderDocumentSequence,
       creditDays: isCredit ? creditDays : undefined,
       creditDueDate: dueDate,
       estimatedDelivery: 'Tiempo estimado: 2 a 4 horas hábiles',
@@ -1451,6 +1457,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dueDate,
       isCredit,
       cashSessionId,
+      documentSeries,
+      documentSequence: invoiceDocumentSequence,
       creditDays: isCredit ? creditDays : undefined,
     };
 
@@ -1726,6 +1734,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders((prev) => prev.map((o) => o.id === orderId ? {
       ...o,
       isReturned: true,
+      returnNumber,
       returnedAt: now,
       returnedBy: currentUser.name,
       returnReason: reason.trim(),
@@ -1811,6 +1820,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         id: crypto.randomUUID(),
         orderId,
         orderNumber: order.orderNumber,
+        returnNumber,
+        terminalId: terminalIdentity.getId(),
+        cashSessionId: order.cashSessionId,
         createdAt: now,
         createdBy: currentUser.name,
         reason: reason.trim(),
@@ -1845,6 +1857,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!reason.trim()) return { success: false, message: 'Debe indicar el motivo de la anulación.' };
 
     const now = new Date().toISOString();
+    const voidNumber = terminalIdentity.nextVoidNumber();
 
     const inventoryMovements: Array<{ productId: string; quantityDelta: number; movementType: 'return' }> = [];
     setProducts((prev) => prev.map((product) => {
@@ -1865,6 +1878,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders((prev) => prev.map((o) => o.id === orderId ? {
       ...o,
       isVoided: true,
+      voidNumber,
       voidedAt: now,
       voidedBy: currentUser.name,
       voidReason: reason.trim(),
@@ -1911,8 +1925,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? customers.find((customer) => customer.id === order.customerId)
         : undefined;
       offlineSyncService.enqueueSaleReversal({
-        order: { ...order, isVoided: true, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
-        invoice: { ...voidInvoice, isVoided: true, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
+        order: { ...order, isVoided: true, voidNumber, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
+        invoice: { ...voidInvoice, isVoided: true, voidNumber, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
         inventoryMovements,
         receivable: voidReceivable ? {
           ...voidReceivable, amountPaidUSD: voidReceivable.totalAmountUSD, balanceUSD: 0,
@@ -1932,7 +1946,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const audit = JSON.parse(localStorage.getItem('omni_sale_voids_v1') || '[]');
-      audit.unshift({ id: crypto.randomUUID(), orderId, orderNumber: order.orderNumber, createdAt: now, createdBy: currentUser.name, reason: reason.trim() });
+      audit.unshift({ id: crypto.randomUUID(), orderId, orderNumber: order.orderNumber, voidNumber, terminalId: terminalIdentity.getId(), cashSessionId: order.cashSessionId, createdAt: now, createdBy: currentUser.name, reason: reason.trim() });
       localStorage.setItem('omni_sale_voids_v1', JSON.stringify(audit.slice(0, 500)));
     } catch {}
 
