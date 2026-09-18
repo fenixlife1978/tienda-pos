@@ -444,6 +444,7 @@ export interface ReceivablePaymentRecord {
   amountBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PayablePaymentSplit[];
   reference?: string;
   notes?: string;
   registeredBy?: string;
@@ -522,6 +523,10 @@ export interface PurchaseEntry {
   notes?: string;
   registeredBy?: string;
   createdAt: string;
+}
+
+export export interface PayablePaymentSplit extends PaymentSplit {
+  currency: 'Bs' | 'USD';
 }
 
 export interface PayablePaymentRecord {
