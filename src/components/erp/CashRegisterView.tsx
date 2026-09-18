@@ -5,7 +5,8 @@ import { formatPaymentMethod } from '../../types';
 import { terminalIdentity } from '../../services/terminalIdentity';
 import { tursoService } from '../../services/tursoService';
 import { printElement } from '../../utils/exportUtils';
-import { CashReportPreview, CashReportData } from './CashReportPreview';
+import { CashReportPreview } from './CashReportPreview';
+import type { CashReportData } from './CashReportPreview';
 import {
   WalletCards,
   LockKeyhole,
