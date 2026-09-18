@@ -33,6 +33,14 @@ export interface TursoConfig {
   authToken: string;
 }
 
+export interface SyncOperationRecord {
+  operationId: string;
+  terminalId: string;
+  operationType: string;
+  entityId: string;
+  payload?: unknown;
+}
+
 export interface TursoSyncState {
   isConnected: boolean;
   isSyncing: boolean;
@@ -352,7 +360,23 @@ class TursoService {
       `);
       tablesCreated.push('purchase_entries');
 
-      // 12. system_users
+      // 12. sync_operations — idempotencia para operaciones offline
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS sync_operations (
+          operation_id TEXT PRIMARY KEY,
+          terminal_id TEXT NOT NULL,
+          operation_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          payload TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL,
+          processed_at TEXT,
+          error TEXT
+        );
+      `);
+      tablesCreated.push('sync_operations');
+
+      // 13. system_users
       await client.execute(`
         CREATE TABLE IF NOT EXISTS system_users (
           id TEXT PRIMARY KEY,
@@ -368,7 +392,7 @@ class TursoService {
       `);
       tablesCreated.push('system_users');
 
-      // 13. bcv_history
+      // 14. bcv_history
       await client.execute(`
         CREATE TABLE IF NOT EXISTS bcv_history (
           id TEXT PRIMARY KEY,
@@ -1061,6 +1085,51 @@ class TursoService {
         p.status,
         new Date().toISOString(),
       ],
+    });
+  }
+
+  public async beginSyncOperation(operation: SyncOperationRecord): Promise<'new' | 'processed'> {
+    const client = this.getClient();
+    if (!client) throw new Error('Cliente Turso no configurado');
+
+    await client.execute({
+      sql: `INSERT OR IGNORE INTO sync_operations
+        (operation_id, terminal_id, operation_type, entity_id, payload, status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+      args: [
+        operation.operationId,
+        operation.terminalId,
+        operation.operationType,
+        operation.entityId,
+        operation.payload === undefined ? null : JSON.stringify(operation.payload),
+        new Date().toISOString(),
+      ],
+    });
+
+    const result = await client.execute({
+      sql: 'SELECT status FROM sync_operations WHERE operation_id = ?',
+      args: [operation.operationId],
+    });
+    return String(result.rows[0]?.status || 'pending') === 'processed' ? 'processed' : 'new';
+  }
+
+  public async completeSyncOperation(operationId: string) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({
+      sql: `UPDATE sync_operations
+        SET status = 'processed', processed_at = ?, error = NULL
+        WHERE operation_id = ?`,
+      args: [new Date().toISOString(), operationId],
+    });
+  }
+
+  public async failSyncOperation(operationId: string, error: unknown) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({
+      sql: `UPDATE sync_operations SET status = 'pending', error = ? WHERE operation_id = ?`,
+      args: [String(error instanceof Error ? error.message : error), operationId],
     });
   }
 
