@@ -14,6 +14,7 @@ import {
   PaymentStatus,
   PayableItem,
   PayablePaymentRecord,
+  PayablePaymentSplit,
   Product,
   ProductCategory,
   ProductPresentation,
@@ -205,6 +206,7 @@ interface AppContextType {
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -215,6 +217,7 @@ interface AppContextType {
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -2746,15 +2749,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
     }
   ) => {
     const rate = details?.bcvRate || settings.bcvRate;
-    const method = details?.paymentMethod || 'transferencia_usd';
     const ref = details?.reference || '';
     const customNotes = details?.notes || 'Abono / Pago a Proveedor';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0 || normalizedTotal + 0.0001 < amountUSD) return;
 
     let supplierName = '';
     let invoiceNumber = '';
@@ -2762,51 +2784,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setPayables((prev) =>
       prev.map((pay) => {
-        if (pay.id === payableId) {
-          supplierName = pay.supplierName;
-          invoiceNumber = pay.invoiceNumber;
-          const newPaid = pay.amountPaidUSD + amountUSD;
-          const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
-          isSettled = newBalance <= 0.01;
+        if (pay.id !== payableId) return pay;
+        supplierName = pay.supplierName;
+        invoiceNumber = pay.invoiceNumber;
+        const appliedAmount = Math.min(amountUSD, pay.balanceUSD);
+        const newPaid = pay.amountPaidUSD + appliedAmount;
+        const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+        isSettled = newBalance <= 0.01;
 
-          const record: PayablePaymentRecord = {
-            id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            date: new Date().toISOString(),
-            amountUSD,
-            amountBs: amountUSD * rate,
-            bcvRate: rate,
-            paymentMethod: method,
-            reference: ref,
-            notes: customNotes,
-            registeredBy: currentUser.name,
-            balanceAfterUSD: newBalance,
-            isFullSettlement: isSettled,
-          };
-
-          return {
-            ...pay,
-            amountPaidUSD: newPaid,
-            balanceUSD: newBalance,
-            status: isSettled ? 'pagado' : pay.status,
-            paymentHistory: [record, ...(pay.paymentHistory || [])],
-          };
-        }
-        return pay;
+        const record: PayablePaymentRecord = {
+          id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          date: new Date().toISOString(),
+          amountUSD: appliedAmount,
+          amountBs: appliedAmount * rate,
+          bcvRate: rate,
+          paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+          paymentSplits: normalizedSplits,
+          reference: ref,
+          notes: customNotes,
+          registeredBy: currentUser.name,
+          balanceAfterUSD: newBalance,
+          isFullSettlement: isSettled,
+        };
+        return {
+          ...pay,
+          amountPaidUSD: newPaid,
+          balanceUSD: newBalance,
+          status: isSettled ? 'pagado' : pay.status,
+          paymentHistory: [record, ...(pay.paymentHistory || [])],
+        };
       })
     );
 
     triggerPushNotification({
       title: isSettled ? '🎉 Compra a Proveedor Liquidada (CxP)' : '💵 Pago Registrado a Proveedor (CxP)',
-      message: `${
-        isSettled
-          ? `Factura de compra ${invoiceNumber} (${supplierName}) liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).`
-          : `Abono de $${amountUSD.toFixed(2)} USD pagado a ${supplierName} (Factura ${invoiceNumber}).`
-      }`,
+      message: `${isSettled ? `Factura de compra ${invoiceNumber} (${supplierName}) liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).` : `Abono de $${amountUSD.toFixed(2)} USD pagado a ${supplierName} (Factura ${invoiceNumber}).`}`,
       type: 'credit_alert',
       badge: isSettled ? 'CxP Liquidada' : 'Pago CxP',
     });
   };
-
   // Liquidate a specific payable purchase invoice completely in one action
   const liquidateSupplierInvoice = (
     payableId: string,
@@ -2831,14 +2847,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
     }
   ) => {
     const rate = details?.bcvRate || settings.bcvRate;
-    const method = details?.paymentMethod || 'transferencia_usd';
     const ref = details?.reference || '';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (normalizedTotal + 0.0001 < amountUSD) return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
     const customNotes = details?.notes || 'Pago Global Distribuido a Proveedor (FIFO)';
 
     if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
@@ -2900,7 +2934,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         amountUSD: toPay,
         amountBs: toPay * rate,
         bcvRate: rate,
-        paymentMethod: method,
+        paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+        paymentSplits: normalizedSplits,
         reference: ref,
         notes: isSettled
           ? `${customNotes} - Factura ${pay.invoiceNumber} liquidada totalmente`
