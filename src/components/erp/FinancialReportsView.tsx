@@ -29,7 +29,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { exportToCSV, exportElementToPDF } from '../../utils/exportUtils';
+import { exportToCSV, exportFinancialReportPDF } from '../../utils/exportUtils';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 import { InventoryExecutiveReportModal } from './InventoryExecutiveReportModal';
 
@@ -122,16 +122,32 @@ export const FinancialReportsView: React.FC = () => {
     if (isExportingPDF) return;
     setIsExportingPDF(true);
     try {
-      await exportElementToPDF(
-        'financial-sales-report-printable',
+      const ok = exportFinancialReportPDF(
         `Reporte_Ventas_Financiero_${new Date().toISOString().split('T')[0]}`,
         {
-          format: 'a4',
-          orientation: 'portrait',
-          margin: 8,
-          scale: 2.2,
+          companyName: settings.companyName || 'Distribuidora La Gran Bodega M&S',
+          rif: settings.companyRif,
+          phone: settings.companyPhone,
+          bcvRate: settings.bcvRate,
+          generatedAt: new Date().toISOString(),
+          periodLabel: dateRange === 'semana' ? 'Período: última semana' : dateRange === 'mes' ? 'Período: mes actual' : 'Período: histórico',
+          rows: [
+            { label: 'Ventas brutas totales', usd: totalSalesUSD, bs: totalSalesBs },
+            { label: 'Costo directo de mercancía vendida', usd: totalCostUSD, bs: totalCostUSD * settings.bcvRate },
+            { label: 'Utilidad bruta estimada', usd: grossProfitUSD, bs: grossProfitUSD * settings.bcvRate },
+            { label: 'Ticket promedio por venta', usd: averageTicketUSD, bs: averageTicketUSD * settings.bcvRate },
+            { label: 'Cuentas por cobrar pendientes (CxC)', usd: totalReceivablesUSD, bs: totalReceivablesUSD * settings.bcvRate },
+            { label: 'Cuentas por pagar a proveedores (CxP)', usd: totalPayablesUSD, bs: totalPayablesUSD * settings.bcvRate },
+            { label: 'Inventario valorizado al costo', usd: totalInventoryUSD, bs: totalInventoryUSD * settings.bcvRate },
+          ],
+          categoryRows: categoryChartData.map((c) => ({
+            name: c.name,
+            usd: c.value,
+            percentage: totalSalesUSD > 0 ? (c.value / totalSalesUSD) * 100 : 0,
+          })),
         }
       );
+      if (!ok) throw new Error('No fue posible generar el PDF profesional.');
     } catch (err) {
       console.error('Error al exportar reporte PDF:', err);
     } finally {
