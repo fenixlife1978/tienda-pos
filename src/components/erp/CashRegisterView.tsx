@@ -402,6 +402,32 @@ export const CashRegisterView: React.FC = () => {
       status: 'closed',
     };
 
+    const zReport: CashReportData = {
+      kind: 'Z',
+      terminalId: closed.terminalId,
+      generatedAt: closedAt,
+      openedAt: closed.openedAt,
+      openedBy: closed.openedBy,
+      closedAt: closed.closedAt,
+      closedBy: closed.closedBy,
+      openingBs: closed.openingBs,
+      openingUSD: closed.openingUSD,
+      salesUSD: totalSalesUSD,
+      salesByMethod,
+      cxcByMethod,
+      cxcCashSalesBs,
+      cxcCashSalesUSD,
+      expectedBs: closed.expectedBs || 0,
+      expectedUSD: closed.expectedUSD || 0,
+      closingBs: closed.closingBs,
+      closingUSD: closed.closingUSD,
+      differenceBs: closed.differenceBs,
+      differenceUSD: closed.differenceUSD,
+      movementBs: movementCashBs,
+      movementUSD: movementCashUSD,
+    };
+    localStorage.setItem('omni_last_cash_report_v2', JSON.stringify(zReport));
+    localStorage.setItem('omni_last_cash_report', JSON.stringify(zReport));
     persistHistory([closed, ...history]);
     if (tursoService.isConfigured()) tursoService.saveCashSession(closed).catch(console.warn);
     persistSession(null);
