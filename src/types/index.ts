@@ -347,6 +347,14 @@ export interface Order {
   creditDays?: number;
   isCreditApproved?: boolean; // When credit order is received and approved by admin
   notes?: string;
+  isVoided?: boolean;
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
+  isReturned?: boolean;
+  returnedAt?: string;
+  returnedBy?: string;
+  returnReason?: string;
 }
 
 export interface Invoice {
@@ -372,6 +380,14 @@ export interface Invoice {
   isCredit: boolean;
   creditDays?: number;
   isCreditApproved?: boolean; // When credit order is received and approved by admin to release fiscal invoice
+  isVoided?: boolean;
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
+  isReturned?: boolean;
+  returnedAt?: string;
+  returnedBy?: string;
+  returnReason?: string;
 }
 
 export interface ReceivablePaymentRecord {
@@ -403,6 +419,9 @@ export interface ReceivableItem {
   creditDays: number;
   status: 'al_dia' | 'por_vencer' | 'vencido' | 'pagado';
   paymentHistory?: ReceivablePaymentRecord[];
+  isVoided?: boolean;
+  voidedAt?: string;
+  voidReason?: string;
 }
 
 export interface Supplier {
