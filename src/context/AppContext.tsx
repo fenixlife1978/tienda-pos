@@ -1765,11 +1765,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('omni_sale_refunds_v1', JSON.stringify(refunds.slice(0, 500)));
     } catch {}
 
-    broadcastStockUpdate(products, {
-      productIds: inventoryMovements.map((m) => m.productId),
-      source: 'adjustment',
-      summary: `Devolución total de ${order.orderNumber}: stock reintegrado`,
+    // Broadcast the post-return inventory, not the stale pre-return snapshot.
+    setProducts((current) => {
+      broadcastStockUpdate(current, {
+        productIds: inventoryMovements.map((m) => m.productId),
+        source: 'adjustment',
+        summary: `Devolución total de ${order.orderNumber}: stock reintegrado`,
+      });
+      return current;
     });
+
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => {
+        console.warn('Return sync queued for retry:', error);
+      });
+    }
 
     return {
       success: true,
@@ -1846,6 +1856,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - order.totalUSD) }
           : customer
       ));
+    }
+
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => {
+        console.warn('Void sync queued for retry:', error);
+      });
     }
 
     try {
