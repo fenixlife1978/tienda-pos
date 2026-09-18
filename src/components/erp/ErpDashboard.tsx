@@ -14,6 +14,7 @@ import { AccountsPayableView } from './AccountsPayableView';
 import { FinancialReportsView } from './FinancialReportsView';
 import { SettingsAndUsersView } from './SettingsAndUsersView';
 import { CashRegisterView } from './CashRegisterView';
+import { InventoryTransfersView } from './InventoryTransfersView';
 
 export const ErpDashboard: React.FC = () => {
   const { orders, products, receivables, customers } = useApp();
@@ -50,6 +51,7 @@ export const ErpDashboard: React.FC = () => {
         {activeTab === 'pedidos' && <OrdersManagementView />}
         {activeTab === 'solicitudes' && <CustomerRequestsManagementView />}
         {activeTab === 'inventario' && <InventoryView />}
+        {activeTab === 'almacenes' && <InventoryTransfersView />}
         {activeTab === 'entradas_compras' && <PurchasesEntryView />}
         {activeTab === 'rentabilidad' && <ProfitabilityMarginView />}
         {activeTab === 'promociones' && <PromotionsManagementView />}
