@@ -246,7 +246,7 @@ export const offlineSyncService = {
               break;
             case 'products':
               for (const item of operation.data as Product[]) {
-                await tursoService.saveProduct(item, { preserveStock: true });
+                await tursoService.saveProductMaster(item);
               }
               break;
             case 'customers':
