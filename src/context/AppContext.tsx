@@ -1438,6 +1438,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       creditDays: isCredit ? creditDays : undefined,
     };
 
+    // Validate stock before mutating state. Never clamp an oversale to zero:
+    // concurrent/offline terminals must fail the sale instead of silently selling
+    // more inventory than the terminal's current stock snapshot contains.
+    const stockDeductions = new Map<string, number>();
+    for (const bought of orderInput.items) {
+      const units = bought.selectedPresentation
+        ? bought.quantity * bought.selectedPresentation.factor
+        : bought.saleMode === 'weight' && bought.weightKg
+        ? bought.weightKg
+        : bought.quantity;
+      stockDeductions.set(
+        bought.product.id,
+        Number(((stockDeductions.get(bought.product.id) || 0) + units).toFixed(3))
+      );
+    }
+    for (const [productId, deduction] of stockDeductions.entries()) {
+      const liveProduct = products.find((p) => p.id === productId);
+      if (!liveProduct) {
+        throw new Error(`Producto no encontrado en inventario: ${productId}`);
+      }
+      if (deduction > Number(liveProduct.stock) + 0.000001) {
+        throw new Error(
+          `Stock insuficiente para ${liveProduct.name}. Disponible: ${liveProduct.stock} ${liveProduct.unit}; solicitado: ${deduction}.`
+        );
+      }
+    }
+
     // Deduct stock in real-time accurately by presentation factor / weight / fractional
     const boughtProductIds: string[] = [];
     const updatedProducts = products.map((p) => {
@@ -1454,7 +1481,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             totalStockDeduction += bought.quantity;
           }
         }
-        const remaining = Math.max(0, Number((p.stock - totalStockDeduction).toFixed(3)));
+        const remaining = Number((p.stock - totalStockDeduction).toFixed(3));
         if (remaining <= p.minStock) {
           pushNotification(
             'Alerta de Inventario',
