@@ -1,5 +1,5 @@
 import { tursoService } from './tursoService';
-import { Customer, Invoice, Order, Product, ReceivableItem, PayableItem, Supplier, User, ProductCategory, ProductUnit, SystemSettings } from '../types';
+import { Customer, Invoice, Order, Product, ReceivableItem, PayableItem, Supplier, User, ProductCategory, ProductUnit, SystemSettings, PurchaseEntry } from '../types';
 
 const QUEUE_KEY = 'omni_offline_sync_queue_v1';
 
@@ -16,7 +16,7 @@ export interface OfflineSaleOperation {
 
 export type OfflineSnapshotEntity =
   | 'settings' | 'products' | 'customers' | 'suppliers' | 'orders' | 'invoices'
-  | 'receivables' | 'payables' | 'users' | 'categories' | 'units';
+  | 'receivables' | 'payables' | 'purchaseEntries' | 'users' | 'categories' | 'units';
 
 export interface OfflineSnapshotOperation {
   id: string;
@@ -123,6 +123,9 @@ export const offlineSyncService = {
               break;
             case 'payables':
               for (const item of operation.data as PayableItem[]) await tursoService.savePayable(item);
+              break;
+            case 'purchaseEntries':
+              for (const item of operation.data as PurchaseEntry[]) await tursoService.savePurchaseEntry(item);
               break;
             case 'users':
               for (const item of operation.data as User[]) await tursoService.saveUser(item);
