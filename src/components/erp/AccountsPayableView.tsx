@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { PayableItem, Supplier, PaymentMethod } from '../../types';
+import { PayableItem, Supplier, PaymentMethod, PayablePaymentSplit } from '../../types';
 import {
   Receipt,
   Search,
@@ -66,6 +66,7 @@ export const AccountsPayableView: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('transferencia_usd');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [paymentSplits, setPaymentSplits] = useState<PayablePaymentSplit[]>([]);
 
   // Supplier Add Modal
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
@@ -234,13 +235,30 @@ export const AccountsPayableView: React.FC = () => {
     setPaymentReference('');
     setPaymentNotes('');
     setPaymentMethod('transferencia_usd');
+    setPaymentSplits([{
+      id: crypto.randomUUID(),
+      method: 'transferencia_usd',
+      currency: 'USD',
+      amountUSD: pay.balanceUSD,
+      amountBs: pay.balanceUSD * settings.bcvRate,
+      reference: '',
+      createdAt: new Date().toISOString(),
+    }]);
   };
 
   const handleProcessPayment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPayableForPay || paymentAmount <= 0) return;
+    const normalizedTotal = paymentSplits.reduce(
+      (sum, split) => sum + (split.currency === 'Bs' ? split.amountBs / settings.bcvRate : split.amountUSD),
+      0
+    );
+    if (paymentSplits.length > 0 && Math.abs(normalizedTotal - paymentAmount) > 0.02) {
+      return;
+    }
     registerPayablePayment(selectedPayableForPay.id, paymentAmount, {
       paymentMethod,
+      paymentSplits,
       reference: paymentReference,
       notes: paymentNotes,
       bcvRate: settings.bcvRate,
@@ -1000,6 +1018,83 @@ export const AccountsPayableView: React.FC = () => {
                   <option value="pago_movil">Pago Móvil</option>
                   <option value="divisas_efectivo">Efectivo Divisas</option>
                 </select>
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 uppercase block">Distribución del pago</label>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentSplits((prev) => [...prev, {
+                      id: crypto.randomUUID(),
+                      method: 'transferencia_usd',
+                      currency: 'USD',
+                      amountUSD: 0,
+                      amountBs: 0,
+                      reference: '',
+                      createdAt: new Date().toISOString(),
+                    }])}
+                    className="px-2 py-1 text-[10px] font-bold rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200"
+                  >
+                    + Método
+                  </button>
+                </div>
+                {paymentSplits.map((split, index) => (
+                  <div key={split.id} className="grid grid-cols-12 gap-2 items-end">
+                    <select
+                      value={split.method}
+                      onChange={(e) => setPaymentSplits((prev) => prev.map((s, i) => i === index ? { ...s, method: e.target.value as Exclude<PaymentMethod, 'mixto'> } : s))}
+                      className="col-span-5 px-2 py-2 text-[11px] border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="efectivo_usd">Efectivo USD</option>
+                      <option value="efectivo_bs">Efectivo Bs.</option>
+                      <option value="zelle">Zelle</option>
+                      <option value="transferencia_usd">Transferencia USD</option>
+                      <option value="transferencia_bs">Transferencia Bs.</option>
+                      <option value="pago_movil">Pago Móvil</option>
+                      <option value="biopago">Biopago</option>
+                      <option value="tarjeta">Tarjeta</option>
+                    </select>
+                    <select
+                      value={split.currency}
+                      onChange={(e) => setPaymentSplits((prev) => prev.map((s, i) => i === index ? { ...s, currency: e.target.value as 'Bs' | 'USD', amountUSD: 0, amountBs: 0 } : s))}
+                      className="col-span-2 px-2 py-2 text-[11px] border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="USD">USD</option>
+                      <option value="Bs">Bs.</option>
+                    </select>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={split.currency === 'Bs' ? (split.amountBs || '') : (split.amountUSD || '')}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        setPaymentSplits((prev) => prev.map((s, i) => i === index
+                          ? { ...s, amountUSD: s.currency === 'Bs' ? value / settings.bcvRate : value, amountBs: s.currency === 'Bs' ? value : value * settings.bcvRate }
+                          : s));
+                      }}
+                      className="col-span-4 px-2 py-2 text-[11px] font-mono border border-slate-300 rounded-lg"
+                      placeholder="Monto"
+                    />
+                    {paymentSplits.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setPaymentSplits((prev) => prev.filter((_, i) => i !== index))}
+                        className="col-span-1 p-2 text-rose-600 hover:bg-rose-50 rounded-lg"
+                        title="Eliminar método"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex justify-between text-[10px] font-bold">
+                  <span className="text-slate-500">Aplicado: {formatUSD(paymentSplits.reduce((s, p) => s + (p.currency === 'Bs' ? p.amountBs / settings.bcvRate : p.amountUSD), 0))} USD</span>
+                  <span className={Math.abs(paymentSplits.reduce((s, p) => s + (p.currency === 'Bs' ? p.amountBs / settings.bcvRate : p.amountUSD), 0) - paymentAmount) <= 0.02 ? 'text-emerald-600' : 'text-rose-600'}>
+                    Objetivo: {formatUSD(paymentAmount)}
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-1">
