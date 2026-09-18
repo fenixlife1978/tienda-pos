@@ -364,6 +364,7 @@ export interface Invoice {
   totalBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
   createdAt: string;
   dueDate?: string;
