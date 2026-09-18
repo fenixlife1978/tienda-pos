@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 import { playNotificationSound } from '../../utils/notificationSound';
+import { CameraBarcodeScanner } from './CameraBarcodeScanner';
 
 interface PosTicketItem {
   id: string;
@@ -106,6 +107,7 @@ export const PosView: React.FC = () => {
     productImage?: string;
   } | null>(null);
   const [isScannerTestOpen, setIsScannerTestOpen] = useState(false);
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [testBarcodeInput, setTestBarcodeInput] = useState('');
   const [manualBarcodeInput, setManualBarcodeInput] = useState('');
 
@@ -613,6 +615,16 @@ export const PosView: React.FC = () => {
                   </span>
                 )}
                 
+                <button
+                  type="button"
+                  onClick={() => setIsCameraScannerOpen(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-2.5 py-1 rounded-lg transition cursor-pointer shadow-xs"
+                  title="Abrir cámara trasera para escanear código de barras"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Escanear con Cámara</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setIsScannerTestOpen(true)}
@@ -1315,6 +1327,16 @@ export const PosView: React.FC = () => {
         </div>
 
       </div>
+
+      {isCameraScannerOpen && (
+        <CameraBarcodeScanner
+          onScan={(code) => {
+            handleBarcodeScanned(code);
+            setIsCameraScannerOpen(false);
+          }}
+          onClose={() => setIsCameraScannerOpen(false)}
+        />
+      )}
 
       {/* Barcode Scanner Test & Diagnostic Modal */}
       {isScannerTestOpen && (
