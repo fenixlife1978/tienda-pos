@@ -199,6 +199,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [isBarcodeCameraOpen, setIsBarcodeCameraOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1126,9 +1127,19 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           <Barcode className="w-3.5 h-3.5 text-indigo-600" />
                           <span>Código de Barras Físico / EAN-13</span>
                         </label>
-                        <button
-                          type="button"
-                          onClick={() => {
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsBarcodeCameraOpen(true)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100"
+                            title="Leer el código usando la cámara trasera del dispositivo"
+                          >
+                            <Camera className="w-3 h-3" />
+                            Escanear cámara
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
                             const random12 = '759' + Math.floor(100000000 + Math.random() * 900000000).toString();
                             let sum = 0;
                             for (let i = 0; i < 12; i++) {
@@ -2702,6 +2713,19 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 </div>
               )}
             </div>
+          )}
+
+          {isBarcodeCameraOpen && (
+            <CameraBarcodeScanner
+              onScan={(scannedCode) => {
+                const cleanCode = scannedCode.trim();
+                if (!cleanCode) return;
+                setBarcode(cleanCode);
+                setEan(cleanCode);
+                setIsBarcodeCameraOpen(false);
+              }}
+              onClose={() => setIsBarcodeCameraOpen(false)}
+            />
           )}
 
           {/* Footer Actions */}
