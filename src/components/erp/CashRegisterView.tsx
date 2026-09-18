@@ -158,6 +158,24 @@ export const CashRegisterView: React.FC = () => {
     return { cashSalesUSD: Number(usd.toFixed(2)), cashSalesBs: Number(bs.toFixed(2)) };
   }, [posOrders]);
 
+  const refundCash = useMemo(() => {
+    if (!session) return { usd: 0, bs: 0 };
+    const refunds = readJson<Array<{ createdAt: string; refundSplits?: Array<{ method: string; amountUSD: number; amountBs: number }> }>>(
+      'omni_sale_refunds_v1',
+      []
+    );
+    let usd = 0;
+    let bs = 0;
+    for (const refund of refunds) {
+      if (refund.createdAt < session.openedAt) continue;
+      for (const split of refund.refundSplits || []) {
+        if (split.method === 'efectivo_usd' || split.method === 'divisas_efectivo') usd += split.amountUSD;
+        if (split.method === 'efectivo_bs') bs += split.amountBs;
+      }
+    }
+    return { usd: Number(usd.toFixed(2)), bs: Number(bs.toFixed(2)) };
+  }, [session, orders]);
+
   const movementCashUSD = sessionMovements
     .filter((m) => m.currency === 'USD')
     .reduce((sum, m) => sum + (m.type === 'ingreso' || m.type === 'deposito' ? m.amount : -m.amount), 0);
@@ -167,13 +185,13 @@ export const CashRegisterView: React.FC = () => {
     .reduce((sum, m) => sum + (m.type === 'ingreso' || m.type === 'deposito' ? m.amount : -m.amount), 0);
 
   const expectedUSD = useMemo(
-    () => (session?.openingUSD || 0) + cashSalesUSD + movementCashUSD,
-    [session, cashSalesUSD, movementCashUSD]
+    () => (session?.openingUSD || 0) + cashSalesUSD + movementCashUSD + refundCash.usd,
+    [session, cashSalesUSD, movementCashUSD, refundCash.usd]
   );
 
   const expectedBs = useMemo(
     () => (session?.openingBs || 0) + cashSalesBs * settings.bcvRate + movementCashBs,
-    [session, cashSalesBs, movementCashBs, settings.bcvRate]
+    [session, cashSalesBs, movementCashBs, refundCash.bs, settings.bcvRate]
   );
 
   const totalSalesUSD = posOrders.reduce((sum, order) => sum + order.totalUSD, 0);
