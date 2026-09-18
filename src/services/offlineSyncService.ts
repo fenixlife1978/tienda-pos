@@ -221,29 +221,11 @@ export const offlineSyncService = {
 
     for (const operation of queue) {
       try {
-        const opStatus = await tursoService.beginSyncOperation({
-          operationId: operation.id,
-          terminalId: operation.terminalId,
-          operationType: operation.type,
-          entityId:
-            operation.type === 'sale' || operation.type === 'sale_reversal'
-              ? operation.invoice.id
-              : operation.type === 'inventory_movement'
-              ? operation.movement.movementId
-              : operation.entity,
-          payload:
-            operation.type === 'sale' || operation.type === 'sale_reversal'
-              ? {
-                  orderId: operation.order.id,
-                  invoiceId: operation.invoice.id,
-                  inventoryMovements: operation.inventoryMovements.length,
-                }
-              : operation.type === 'inventory_movement'
-              ? operation.movement
-              : undefined,
-        });
-
-        if (opStatus === 'processed') {
+        // Ventas y reversos se aplican en una única transacción central.
+        // Esto hace que la cantidad de terminales concurrentes sea irrelevante:
+        // Turso serializa la escritura y valida el stock contra el valor actual.
+        if (operation.type === 'sale') {
+          await tursoService.applyOfflineSale(operation);
           writeQueue(readQueue().filter((item) => item.id !== operation.id));
           processed++;
           continue;
@@ -251,20 +233,23 @@ export const offlineSyncService = {
 
         if (operation.type === 'sale_reversal') {
           await tursoService.applySaleReversal(operation);
+          writeQueue(readQueue().filter((item) => item.id !== operation.id));
+          processed++;
+          continue;
         }
 
-        if (operation.type === 'sale') {
-          for (const movement of operation.inventoryMovements) {
-            await tursoService.applyInventoryMovement(movement);
-          }
-          if (operation.customer) {
-            await tursoService.saveCustomer(operation.customer);
-          }
-          await tursoService.saveOrder(operation.order);
-          await tursoService.saveInvoice(operation.invoice);
-          if (operation.receivable) {
-            await tursoService.saveReceivable(operation.receivable);
-          }
+        const opStatus = await tursoService.beginSyncOperation({
+          operationId: operation.id,
+          terminalId: operation.terminalId,
+          operationType: operation.type,
+          entityId: operation.type === 'inventory_movement' ? operation.movement.movementId : operation.entity,
+          payload: operation.type === 'inventory_movement' ? operation.movement : undefined,
+        });
+
+        if (opStatus === 'processed') {
+          writeQueue(readQueue().filter((item) => item.id !== operation.id));
+          processed++;
+          continue;
         }
 
         if (operation.type === 'inventory_movement') {
@@ -277,59 +262,37 @@ export const offlineSyncService = {
               await tursoService.saveSettings(operation.data as SystemSettings);
               break;
             case 'products':
-              for (const item of operation.data as Product[]) {
-                await tursoService.saveProductMaster(item);
-              }
+              for (const item of operation.data as Product[]) await tursoService.saveProductMaster(item);
               break;
             case 'customers':
-              for (const item of operation.data as Customer[]) {
-                await tursoService.saveCustomer(item);
-              }
+              for (const item of operation.data as Customer[]) await tursoService.saveCustomer(item);
               break;
             case 'suppliers':
-              for (const item of operation.data as Supplier[]) {
-                await tursoService.saveSupplier(item);
-              }
+              for (const item of operation.data as Supplier[]) await tursoService.saveSupplier(item);
               break;
             case 'orders':
-              for (const item of operation.data as Order[]) {
-                await tursoService.saveOrder(item);
-              }
+              for (const item of operation.data as Order[]) await tursoService.saveOrder(item);
               break;
             case 'invoices':
-              for (const item of operation.data as Invoice[]) {
-                await tursoService.saveInvoice(item);
-              }
+              for (const item of operation.data as Invoice[]) await tursoService.saveInvoice(item);
               break;
             case 'receivables':
-              for (const item of operation.data as ReceivableItem[]) {
-                await tursoService.saveReceivable(item);
-              }
+              for (const item of operation.data as ReceivableItem[]) await tursoService.saveReceivable(item);
               break;
             case 'payables':
-              for (const item of operation.data as PayableItem[]) {
-                await tursoService.savePayable(item);
-              }
+              for (const item of operation.data as PayableItem[]) await tursoService.savePayable(item);
               break;
             case 'purchaseEntries':
-              for (const item of operation.data as PurchaseEntry[]) {
-                await tursoService.savePurchaseEntry(item);
-              }
+              for (const item of operation.data as PurchaseEntry[]) await tursoService.savePurchaseEntry(item);
               break;
             case 'users':
-              for (const item of operation.data as User[]) {
-                await tursoService.saveUser(item);
-              }
+              for (const item of operation.data as User[]) await tursoService.saveUser(item);
               break;
             case 'categories':
-              for (const item of operation.data as ProductCategory[]) {
-                await tursoService.saveCategory(item);
-              }
+              for (const item of operation.data as ProductCategory[]) await tursoService.saveCategory(item);
               break;
             case 'units':
-              for (const item of operation.data as ProductUnit[]) {
-                await tursoService.saveUnit(item);
-              }
+              for (const item of operation.data as ProductUnit[]) await tursoService.saveUnit(item);
               break;
           }
         }
