@@ -428,7 +428,13 @@ export interface SaleVoidRecord {
   reason: string;
 }
 
+export interface ReceivablePaymentSplit extends PaymentSplit {
+  /** Importe original recibido en la moneda del método. */
+  currency: 'Bs' | 'USD';
+}
+
 export interface ReceivablePaymentRecord {
+  paymentSplits?: ReceivablePaymentSplit[];
   id: string;
   date: string;
   amountUSD: number;
