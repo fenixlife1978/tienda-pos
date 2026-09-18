@@ -43,6 +43,7 @@ import {
   INITIAL_USERS,
 } from '../data/initialData';
 import { tursoService, TursoSyncState } from '../services/tursoService';
+import { offlineSyncService } from '../services/offlineSyncService';
 import { fetchBcvRateFromApi, fetchBcvOfficialHistory } from '../services/bcvService';
 import { scanAndGenerateReminders, AutomatedReminderRecord } from '../services/reminderService';
 
@@ -745,6 +746,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tursoService.isConfigured()) return;
     setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
     try {
+      // Flush durable local POS transactions before pulling cloud state.
+      // This prevents an offline sale from being overwritten by a stale cloud snapshot.
+      const flushed = await offlineSyncService.flush();
       const cloudData = await tursoService.loadAllData();
       if (cloudData.products.length > 0) setProducts(cloudData.products);
       if (cloudData.categories.length > 0) setCategories(cloudData.categories);
@@ -771,6 +775,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ],
         totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
       });
+      if (flushed.pending > 0) {
+        console.info('POS offline: ' + flushed.pending + ' operación(es) quedan pendientes de sincronización.');
+      }
     } catch (err: any) {
       console.error('Error syncing with Turso:', err);
       setTursoState((prev) => ({
@@ -800,6 +807,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
     initTursoOnMount();
+  }, []);
+
+  // Automatic recovery: when Internet returns, replay every durable POS sale.
+  // No visual/layout changes are made; this only restores cloud persistence.
+  useEffect(() => {
+    const handleOnline = () => {
+      offlineSyncService.flush().then(({ pending }) => {
+        if (pending === 0 && tursoService.isConfigured()) {
+          syncWithTurso().catch((error) => console.warn('Automatic Turso sync failed:', error));
+        }
+      });
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
   }, []);
 
   // Active push notification toasts floating on screen
@@ -1399,6 +1421,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setOrders((prev) => [newOrder, ...prev]);
     setInvoices((prev) => [newInvoice, ...prev]);
+
+    // Persist the complete sale locally before relying on the network.
+    // The queue survives app restarts and is replayed automatically when Internet returns.
+    const affectedProducts = updatedProducts.filter((p) => boughtProductIds.includes(p.id));
+    const receivable = isCredit
+      ? {
+          id: 'rec-' + newInvoice.id,
+          invoiceId: newInvoice.id,
+          invoiceNumber: newInvoice.invoiceNumber,
+          customerId: orderInput.customerId,
+          customerName: orderInput.customerName,
+          customerPhone: orderInput.customerPhone,
+          totalAmountUSD: totalUSD,
+          amountPaidUSD: 0,
+          balanceUSD: totalUSD,
+          issuedDate: now.toISOString().split('T')[0],
+          dueDate: dueDate!,
+          creditDays,
+          status: 'al_dia' as const,
+        }
+      : undefined;
+    const syncedCustomer = isCredit
+      ? customers.find((c) => c.id === orderInput.customerId)
+      : undefined;
+
+    offlineSyncService.enqueueSale({
+      order: newOrder,
+      invoice: newInvoice,
+      products: affectedProducts,
+      receivable,
+      customer: syncedCustomer,
+    });
+
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => {
+        console.warn('Sale queued for retry after Turso failure:', error);
+      });
+    }
+
     clearCart();
 
     pushNotification(
