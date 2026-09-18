@@ -200,7 +200,8 @@ export interface Product {
   minStock: number; // Stock mínimo
   maxStock?: number; // Stock máximo
   reorderPoint?: number; // Punto de reorden
-  warehouse?: 'Principal' | 'Secundario' | 'Depósito' | string; // Almacén
+  warehouse?: 'Principal' | 'Secundario' | 'Depósito' | string; // Almacén principal / compatibilidad
+  warehouseStocks?: Record<string, number>; // Existencias por almacén; la suma debe coincidir con stock
   location?: string; // Ubicación física (pasillo/estante)
 
   // Pestaña Presentaciones y Unidades de Venta
