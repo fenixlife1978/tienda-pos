@@ -2,7 +2,7 @@ name: Compilar y Generar Instalador Windows .EXE
 
 on:
   push:
-    branches: [ main, master, feature/offline-first-pos ]
+    branches: [ main, master, feature/offline-first-pos, feat/finalizacion-operativa-lgb ]
     tags:
       - 'v*'
   pull_request:
