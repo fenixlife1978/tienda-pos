@@ -4,6 +4,8 @@ import { formatBs, formatUSD } from '../../utils/formatUtils';
 import { formatPaymentMethod } from '../../types';
 import { terminalIdentity } from '../../services/terminalIdentity';
 import { tursoService } from '../../services/tursoService';
+import { printElement } from '../../utils/exportUtils';
+import { CashReportPreview, CashReportData } from './CashReportPreview';
 import {
   WalletCards,
   LockKeyhole,
@@ -85,6 +87,7 @@ export const CashRegisterView: React.FC = () => {
   const [movementCurrency, setMovementCurrency] = useState<'Bs' | 'USD'>('Bs');
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
+  const [cashReportPreview, setCashReportPreview] = useState<CashReportData | null>(() => readJson<CashReportData | null>('omni_last_cash_report_v2', null));
 
   useEffect(() => {
     if (!tursoService.isConfigured() || !navigator.onLine) return;
@@ -406,28 +409,46 @@ export const CashRegisterView: React.FC = () => {
     setClosingUSD('');
   };
 
+  const buildCashReport = (kind: 'X' | 'Z'): CashReportData | null => {
+    const stored = readJson<CashReportData | null>('omni_last_cash_report_v2', null);
+    if (!session && kind === 'Z' && stored?.kind === 'Z') return stored;
+    const base = session || (kind === 'Z' ? lastClosed : null);
+    if (!base) {
+      alert(`No hay una sesión de caja abierta para generar el Reporte ${kind}.`);
+      return null;
+    }
+    return {
+      kind,
+      terminalId: base.terminalId,
+      generatedAt: new Date().toISOString(),
+      openedAt: base.openedAt,
+      openedBy: base.openedBy,
+      closedAt: kind === 'Z' ? base.closedAt : undefined,
+      closedBy: kind === 'Z' ? base.closedBy : undefined,
+      openingBs: base.openingBs || 0,
+      openingUSD: base.openingUSD || 0,
+      salesUSD: totalSalesUSD,
+      salesByMethod,
+      cxcByMethod,
+      cxcCashSalesBs,
+      cxcCashSalesUSD,
+      expectedBs,
+      expectedUSD,
+      closingBs: kind === 'Z' ? base.closingBs : undefined,
+      closingUSD: kind === 'Z' ? base.closingUSD : undefined,
+      differenceBs: kind === 'Z' ? base.differenceBs : undefined,
+      differenceUSD: kind === 'Z' ? base.differenceUSD : undefined,
+      movementBs: movementCashBs,
+      movementUSD: movementCashUSD,
+    };
+  };
+
   const printReport = (kind: 'X' | 'Z') => {
-    localStorage.setItem(
-      'omni_last_cash_report',
-      JSON.stringify({
-        kind,
-        terminalId,
-        generatedAt: new Date().toISOString(),
-        session,
-        salesUSD: totalSalesUSD,
-        salesByMethod,
-        salesByMethodCurrency: salesByMethod,
-        cxcByMethod,
-        cxcCashSalesBs,
-        cxcCashSalesUSD,
-        openingBs: session?.openingBs || 0,
-        openingUSD: session?.openingUSD || 0,
-        expectedBs,
-        expectedUSD,
-        printerMode,
-      })
-    );
-    window.print();
+    const report = buildCashReport(kind);
+    if (!report) return;
+    localStorage.setItem('omni_last_cash_report_v2', JSON.stringify(report));
+    localStorage.setItem('omni_last_cash_report', JSON.stringify(report));
+    setCashReportPreview(report);
   };
 
   const lastClosed = history[0];
@@ -551,8 +572,11 @@ export const CashRegisterView: React.FC = () => {
             </button>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => printReport('X')} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1"><Printer className="w-3.5 h-3.5" />Reporte X</button>
-            <button onClick={() => printReport('Z')} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1"><FileText className="w-3.5 h-3.5" />Reporte Z</button>
+            <button onClick={() => printReport('X')} disabled={!session} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1 disabled:opacity-40"><Printer className="w-3.5 h-3.5" />Vista previa X</button>
+            <button onClick={() => printReport('Z')} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1"><FileText className="w-3.5 h-3.5" />Vista previa Z</button>
+          </div>
+          <div className="text-[10px] text-slate-500">
+            Ambos reportes se preparan en ancho real de 80 mm para impresión térmica.
           </div>
         </div>
       </div>
@@ -606,6 +630,13 @@ export const CashRegisterView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <CashReportPreview
+        data={cashReportPreview}
+        open={!!cashReportPreview}
+        onClose={() => setCashReportPreview(null)}
+        onPrint={() => printElement('cash-report-thermal-preview', { format: 'thermal80', title: `Reporte ${cashReportPreview?.kind || ''} - Caja` })}
+      />
 
       <div className="text-[10px] text-slate-400">
         El modo térmico funciona sin impresora fiscal. El modo fiscal queda preparado para una integración de controlador fiscal; no se asume hardware fiscal instalado.
