@@ -130,8 +130,30 @@ export const CashRegisterView: React.FC = () => {
     [movements, session]
   );
 
-  const cashSalesUSD = salesByMethod.efectivo_usd || salesByMethod.divisas_efectivo || 0;
-  const cashSalesBs = salesByMethod.efectivo_bs || 0;
+  const { cashSalesUSD, cashSalesBs } = useMemo(() => {
+    let usd = 0;
+    let bs = 0;
+
+    for (const order of posOrders) {
+      if (order.paymentSplits?.length) {
+        for (const split of order.paymentSplits) {
+          if (split.method === 'efectivo_usd' || split.method === 'divisas_efectivo') {
+            usd += split.amountUSD;
+          }
+          if (split.method === 'efectivo_bs') {
+            // amountBs is the actual cash received in bolívares.
+            bs += split.amountBs || split.amountUSD * order.bcvRate;
+          }
+        }
+      } else if (order.paymentMethod === 'efectivo_usd' || order.paymentMethod === 'divisas_efectivo') {
+        usd += order.totalUSD;
+      } else if (order.paymentMethod === 'efectivo_bs') {
+        bs += order.totalBs;
+      }
+    }
+
+    return { cashSalesUSD: Number(usd.toFixed(2)), cashSalesBs: Number(bs.toFixed(2)) };
+  }, [posOrders]);
 
   const movementCashUSD = sessionMovements
     .filter((m) => m.currency === 'USD')
