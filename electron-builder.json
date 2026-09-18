@@ -9,7 +9,6 @@
     "electron/**/*",
     "package.json"
   ],
-  "main": "electron/main.cjs",
   "win": {
     "target": [
       {
