@@ -359,7 +359,7 @@ export const OrdersManagementView: React.FC = () => {
                                   const reason = window.prompt('Motivo de la devolución total:');
                                   if (!reason) return;
                                   const result = processSaleReturn(order.id, reason);
-                                  alert(result.message);
+                                  alert(`${result.message}\n\nN° Devolución: ${order.returnNumber || 'generado localmente y sincronizable'}`);
                                 }}
                                 className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-bold text-[10px] transition cursor-pointer"
                                 title="Registrar devolución total y reintegrar mercancía"
@@ -373,7 +373,7 @@ export const OrdersManagementView: React.FC = () => {
                                   const reason = window.prompt('Motivo de la anulación:');
                                   if (!reason) return;
                                   const result = voidSale(order.id, reason);
-                                  alert(result.message);
+                                  alert(`${result.message}\n\nN° Anulación: ${order.voidNumber || 'generado localmente y sincronizable'}`);
                                 }}
                                 className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-lg font-bold text-[10px] transition cursor-pointer"
                                 title="Anular venta y reintegrar mercancía"
@@ -385,7 +385,7 @@ export const OrdersManagementView: React.FC = () => {
 
                           {(order.isReturned || order.isVoided) && (
                             <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 font-bold text-[10px]">
-                              {order.isReturned ? 'DEVUELTA' : 'ANULADA'}
+                              {order.isReturned ? `DEVUELTA · ${order.returnNumber || ''}` : `ANULADA · ${order.voidNumber || ''}`}
                             </span>
                           )}
 
