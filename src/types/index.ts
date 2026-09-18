@@ -435,6 +435,9 @@ export interface ReceivablePaymentSplit extends PaymentSplit {
 
 export interface ReceivablePaymentRecord {
   paymentSplits?: ReceivablePaymentSplit[];
+  terminalId?: string;
+  cashSessionId?: string;
+  receiptNumber?: string;
   id: string;
   date: string;
   amountUSD: number;
