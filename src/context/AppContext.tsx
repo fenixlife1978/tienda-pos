@@ -2973,3 +2973,130 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fullyPaidTotalUSD: fullyPaidTotal,
     };
   };
+
+  // Liquidate all pending debt with a specific supplier
+  const liquidateSupplierTotalDebt = (supplierId: string, details?: { paymentMethod?: PaymentMethod; reference?: string; notes?: string; bcvRate?: number }) => {
+    const supPending = payables.filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001);
+    const totalDebt = supPending.reduce((sum, p) => sum + p.balanceUSD, 0);
+    if (totalDebt <= 0) return;
+    registerGlobalSupplierPayment(supplierId, totalDebt, { ...details, notes: details?.notes || 'Liquidación TOTAL de compras con el proveedor' });
+  };
+
+  const updateSupplierCredit = (supplierId: string, creditDays: number, creditLimitUSD?: number, notes?: string) => {
+    setSuppliers((prev) => prev.map((s) => s.id === supplierId ? { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD } : s));
+    triggerPushNotification({ title: 'Condiciones de Proveedor Actualizadas', message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`, type: 'credit_alert', badge: 'Condiciones CxP' });
+  };
+
+  const addPayableInvoice = (payable: Omit<PayableItem, 'id'>) => {
+    const newPayable: PayableItem = { ...payable, id: `pay-${Date.now()}`, paymentHistory: payable.paymentHistory || [] };
+    setPayables((prev) => [newPayable, ...prev]);
+  };
+
+  const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
+    const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}` };
+    setSuppliers((prev) => [newSup, ...prev]);
+  };
+
+  const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
+    const entryId = `ent-${Date.now()}`;
+    const seq = purchaseEntries.length + 1;
+    const entryNumber = `ENT-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
+    const nowIso = new Date().toISOString();
+    const newEntry: PurchaseEntry = { ...entryData, id: entryId, entryNumber, createdAt: nowIso };
+    const updatedProducts = products.map((prod) => {
+      const match = entryData.items.find((it) => it.productId === prod.id);
+      if (!match) return prod;
+      return { ...prod, stock: Math.max(0, (prod.stock || 0) + match.quantity), lastCostUSD: prod.costUSD > 0 ? prod.costUSD : match.currentBaseCostUSD, costUSD: match.currentBaseCostUSD, realCostUSD: match.realCostUSD };
+    });
+    setProducts(updatedProducts);
+    broadcastStockUpdate(updatedProducts, { productIds: entryData.items.map((it) => it.productId), source: 'adjustment', summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario` });
+    for (const item of entryData.items) offlineSyncService.enqueueInventoryMovement({ productId: item.productId, quantityDelta: item.quantity, movementType: 'purchase' });
+    if (navigator.onLine && tursoService.isConfigured()) offlineSyncService.flush().catch((error) => console.warn('Entrada de inventario en cola:', error));
+    if (entryData.balanceUSD > 0.001) {
+      const initialHistory: PayablePaymentRecord[] = [];
+      if (entryData.amountPaidUSD > 0) initialHistory.push({
+        id: `pay-rec-${Date.now()}`, date: nowIso, amountUSD: entryData.amountPaidUSD, amountBs: entryData.amountPaidBs, bcvRate: entryData.bcvRate,
+        paymentMethod: 'transferencia_usd', reference: 'PAGO-INICIAL-ENTRADA', notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
+        registeredBy: currentUser.name || 'Admin', balanceAfterUSD: entryData.balanceUSD, isFullSettlement: false,
+      });
+      const newPayable: PayableItem = {
+        id: `pay-${Date.now()}`, supplierId: entryData.supplierId, supplierName: entryData.supplierName,
+        invoiceNumber: entryData.invoiceNumber || entryNumber, description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
+        totalAmountUSD: entryData.totalInvoiceUSD, amountPaidUSD: entryData.amountPaidUSD, balanceUSD: entryData.balanceUSD,
+        issuedDate: entryData.date, dueDate: entryData.creditDueDate || entryData.date, creditDays: entryData.creditDays || 15,
+        status: entryData.balanceUSD <= 0.01 ? 'pagado' : 'al_dia',
+        items: entryData.items.map((it) => ({ productName: it.productName, quantity: it.quantity, unitPriceUSD: it.realCostUSD, subtotalUSD: it.subtotalUSD })),
+        paymentHistory: initialHistory,
+      };
+      setPayables((prev) => [newPayable, ...prev]);
+    }
+    setPurchaseEntries((prev) => [newEntry, ...prev]);
+    triggerPushNotification({ title: `Entrada ${entryNumber} Registrada con Éxito`, message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`, type: 'inventory_alert', badge: 'Entrada por Compra', sound: true });
+    return { success: true, purchaseEntry: newEntry };
+  };
+
+  const updateSupplier = (supplier: Supplier) => setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
+
+  const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
+    const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
+    setUsers((prev) => [...prev, newUser]);
+    triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
+  };
+
+  const updateUser = (user: User) => {
+    setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
+    if (currentUser.id === user.id) setCurrentUser(user);
+  };
+
+  const deleteUser = (userId: string): { success: boolean; message: string } => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return { success: false, message: 'Usuario no encontrado' };
+    if (target.role === 'admin') {
+      const activeAdmins = users.filter((u) => u.role === 'admin' && u.active);
+      if (activeAdmins.length <= 1) return { success: false, message: 'No se puede eliminar el único Administrador.' };
+    }
+    if (currentUser.id === userId) {
+      const remainingAdmin = users.find((u) => u.id !== userId && u.role === 'admin' && u.active);
+      if (remainingAdmin) setCurrentUser(remainingAdmin);
+    }
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
+    return { success: true, message: 'Usuario eliminado exitosamente' };
+  };
+
+  const resetSystemToFactory = () => {
+    localStorage.removeItem('omni_users'); localStorage.removeItem('omni_settings'); localStorage.removeItem('omni_customers'); localStorage.removeItem('omni_products'); localStorage.removeItem('omni_cart'); localStorage.removeItem('omni_orders'); localStorage.removeItem('omni_invoices'); localStorage.removeItem('omni_receivables'); localStorage.removeItem('omni_payables'); localStorage.removeItem('omni_suppliers'); localStorage.removeItem('omni_notifications'); localStorage.removeItem('omni_active_customer_id');
+    setUsers(INITIAL_USERS); setCurrentUser(INITIAL_GENERIC_ADMIN); setSettings(INITIAL_SETTINGS); setCustomers(INITIAL_CUSTOMERS); setProducts(INITIAL_PRODUCTS); setCart([]); setOrders(INITIAL_ORDERS); setInvoices(INITIAL_INVOICES); setReceivables(INITIAL_RECEIVABLES); setPayables(INITIAL_PAYABLES); setSuppliers(INITIAL_SUPPLIERS); setCurrentCustomer(null);
+    triggerPushNotification({ title: 'Sistema Reiniciado desde Cero', message: 'Valores restablecidos a fábrica. El Administrador Inicial (Genérico) ha sido restaurado.', type: 'custom_broadcast', badge: 'Reset de Fábrica' });
+  };
+
+  const updateSettings = (newSettings: Partial<SystemSettings>) => setSettings((prev) => ({ ...prev, ...newSettings }));
+  const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  const clearAllNotifications = () => setNotifications([]);
+
+  return (
+    <AppContext.Provider value={{
+      mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
+      cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
+      addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
+      updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
+      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
+      registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, processPurchaseEntry,
+      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
+      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, updateCustomerPreferences,
+      storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
+      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
+      isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
+      isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, lastSuccessfulOrder, setLastSuccessfulOrder,
+      automatedReminders, runManualReminderScan, lastStockUpdateEvent, broadcastStockUpdate, tursoState, bootstrapTursoSchema, syncWithTurso,
+    }}>
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) throw new Error('useApp must be used within an AppProvider');
+  return context;
+};
