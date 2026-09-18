@@ -1902,6 +1902,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateProduct = (product: Product) => {
+    const previous = products.find((p) => p.id === product.id);
+    const stockDelta = previous ? Number((product.stock - previous.stock).toFixed(3)) : 0;
     const updated = products.map((p) => (p.id === product.id ? product : p));
     setProducts(updated);
     broadcastStockUpdate(updated, {
@@ -1909,6 +1911,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       source: 'adjustment',
       summary: `Producto actualizado: ${product.name}`,
     });
+
+    // If the product editor changes stock directly, convert that change into
+    // an inventory movement instead of syncing the whole stock snapshot.
+    if (stockDelta !== 0) {
+      offlineSyncService.enqueueInventoryMovement({
+        productId: product.id,
+        quantityDelta: stockDelta,
+        movementType: 'adjustment',
+      });
+      if (navigator.onLine && tursoService.isConfigured()) {
+        offlineSyncService.flush().catch((error) => console.warn('Cambio de stock en cola:', error));
+      }
+    }
   };
 
   const deleteProduct = (productId: string) => {
