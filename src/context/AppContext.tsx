@@ -2600,30 +2600,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ref = details?.reference || '';
     const customNotes = details?.notes || 'Abono Global Distribuido (FIFO)';
 
-    // Get pending receivables for customer sorted chronologically (oldest issuedDate first)
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    // FIFO real: la aplicación se calcula sobre la cola cronológica y luego
+    // se proyecta por ID. Nunca dependemos del orden físico del array.
     const customerPendingRecs = receivables
-      .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001)
-      .sort((a, b) => new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime());
+      .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001 && !r.isVoided)
+      .sort((a, b) => {
+        const byDate = new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime();
+        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+      });
 
     let remainingPayment = amountUSD;
     let liquidatedCount = 0;
     let fullyPaidTotal = 0;
     let partialAbono = 0;
+    let appliedTotal = 0;
     const settledInvoiceNumbers = new Set<string>();
+    const allocations = new Map<string, number>();
 
-    const updatedReceivables = receivables.map((rec) => {
-      if (rec.customerId !== customerId || rec.balanceUSD <= 0.001 || remainingPayment <= 0.0001) {
-        return rec;
-      }
-
-      // Is this item in the pending queue?
-      const inQueue = customerPendingRecs.some((cr) => cr.id === rec.id);
-      if (!inQueue) return rec;
+    for (const rec of customerPendingRecs) {
+      if (remainingPayment <= 0.0001) break;
 
       const toPay = Math.min(rec.balanceUSD, remainingPayment);
+      if (toPay <= 0.0001) continue;
+
+      allocations.set(rec.id, toPay);
       remainingPayment -= toPay;
-      const newPaid = rec.amountPaidUSD + toPay;
-      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      appliedTotal += toPay;
+
+      const newBalance = Math.max(0, rec.balanceUSD - toPay);
       const isSettled = newBalance <= 0.01;
 
       if (isSettled) {
@@ -2633,10 +2641,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         partialAbono += toPay;
       }
+    }
+
+    if (appliedTotal <= 0.0001) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    const paymentDate = new Date().toISOString();
+    const updatedReceivables = receivables.map((rec) => {
+      const toPay = allocations.get(rec.id);
+      if (!toPay) return rec;
+
+      const newPaid = rec.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
 
       const record: ReceivablePaymentRecord = {
-        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        date: new Date().toISOString(),
+        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${rec.id}`,
+        date: paymentDate,
         amountUSD: toPay,
         amountBs: toPay * rate,
         bcvRate: rate,
@@ -2644,7 +2666,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reference: ref,
         notes: isSettled
           ? `${customNotes} - Factura ${rec.invoiceNumber} liquidada totalmente`
-          : `${customNotes} - Abono parcial computado`,
+          : `${customNotes} - Abono parcial a factura ${rec.invoiceNumber}`,
         registeredBy: currentUser.name,
         balanceAfterUSD: newBalance,
         isFullSettlement: isSettled,
@@ -2661,16 +2683,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setReceivables(updatedReceivables);
 
-    // Update customer debt
+    // Solo descuenta lo realmente aplicado. Si el pago supera toda la deuda,
+    // el sobrante queda sin aplicar y no reduce la deuda por debajo de cero.
     setCustomers((custs) =>
       custs.map((c) =>
         c.id === customerId
-          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - amountUSD) }
+          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - appliedTotal) }
           : c
       )
     );
 
-    // Update matching invoices in state
     if (settledInvoiceNumbers.size > 0) {
       setInvoices((prev) =>
         prev.map((inv) =>
@@ -2683,12 +2705,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const customerObj = customers.find((c) => c.id === customerId);
     const custName = customerObj ? customerObj.name : 'Cliente';
+    const remainder = Math.max(0, remainingPayment);
 
     triggerPushNotification({
       title: '💳 Abono Global Distribuido (CxC)',
-      message: `Pago global de $${amountUSD.toFixed(2)} procesado para ${custName}. Se liquidaron ${liquidatedCount} factura(s)${
-        partialAbono > 0 ? ` y se aplicó un abono de $${partialAbono.toFixed(2)} a la factura más antigua.` : '.'
-      }`,
+      message: `Pago de $${amountUSD.toFixed(2)} para ${custName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
       type: 'credit_alert',
       targetCustomerId: customerId,
       badge: 'Pago Global CxC',
@@ -2700,7 +2721,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fullyPaidTotalUSD: fullyPaidTotal,
     };
   };
-
   // Liquidate all debt for a customer
   const liquidateCustomerTotalDebt = (
     customerId: string,
