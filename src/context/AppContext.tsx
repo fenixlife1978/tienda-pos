@@ -627,6 +627,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('payables', payables);
   }, [payables]);
   useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('purchaseEntries', purchaseEntries);
+  }, [purchaseEntries]);
+  useEffect(() => {
     if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('users', users);
   }, [users]);
   useEffect(() => {
