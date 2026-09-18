@@ -1300,6 +1300,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customNote?: string;
     }[];
     paymentMethod: PaymentMethod;
+    paymentSplits?: PaymentSplit[];
     paymentReference?: string;
     channel: 'online' | 'pos';
     notes?: string;
