@@ -200,7 +200,8 @@ export interface Product {
   minStock: number; // Stock mínimo
   maxStock?: number; // Stock máximo
   reorderPoint?: number; // Punto de reorden
-  warehouse?: 'Principal' | 'Secundario' | 'Depósito' | string; // Almacén
+  warehouse?: 'Principal' | 'Secundario' | 'Depósito' | string; // Almacén principal / compatibilidad
+  warehouseStocks?: Record<string, number>; // Existencias por almacén; la suma debe coincidir con stock
   location?: string; // Ubicación física (pasillo/estante)
 
   // Pestaña Presentaciones y Unidades de Venta
@@ -264,7 +265,18 @@ export type PaymentMethod =
   | 'pago_movil'
   | 'efectivo_usd'
   | 'divisas_efectivo'
-  | 'credito';
+  | 'tarjeta'
+  | 'credito'
+  | 'mixto';
+
+export interface PaymentSplit {
+  id: string;
+  method: Exclude<PaymentMethod, 'mixto'>;
+  amountUSD: number;
+  amountBs: number;
+  reference?: string;
+  createdAt?: string;
+}
 
 export const formatPaymentMethod = (method: PaymentMethod | string): string => {
   switch (method) {
@@ -283,6 +295,10 @@ export const formatPaymentMethod = (method: PaymentMethod | string): string => {
       return 'Efectivo Divisas USD';
     case 'pago_movil':
       return 'Pago Móvil';
+    case 'tarjeta':
+      return 'Tarjeta';
+    case 'mixto':
+      return 'Cobro Mixto';
     case 'credito':
       return 'Crédito Comercial';
     default:
@@ -296,6 +312,8 @@ export interface OrderItem {
   quantity: number;
   unitPriceUSD: number;
   subtotalUSD: number;
+  taxUSD?: number;
+  ivaRate?: number;
   presentationName?: string;
   saleMode?: string;
   weightKg?: number;
@@ -318,16 +336,31 @@ export interface Order {
   totalBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
   paymentReference?: string;
   channel: 'online' | 'pos';
   createdAt: string;
+  /** Caja/terminal POS que originó la venta; permite arqueo exacto multi-caja. */
+  cashSessionId?: string;
+  documentSeries?: string;
+  documentSequence?: number;
+  returnNumber?: string;
+  voidNumber?: string;
   estimatedDelivery?: string;
   creditDueDate?: string;
   creditDays?: number;
   isCreditApproved?: boolean; // When credit order is received and approved by admin
   notes?: string;
+  isVoided?: boolean;
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
+  isReturned?: boolean;
+  returnedAt?: string;
+  returnedBy?: string;
+  returnReason?: string;
 }
 
 export interface Invoice {
@@ -346,12 +379,58 @@ export interface Invoice {
   totalBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
   createdAt: string;
+  /** Sesión de caja POS asociada al documento, cuando aplica. */
+  cashSessionId?: string;
+  documentSeries?: string;
+  documentSequence?: number;
+  returnNumber?: string;
+  voidNumber?: string;
   dueDate?: string;
   isCredit: boolean;
   creditDays?: number;
   isCreditApproved?: boolean; // When credit order is received and approved by admin to release fiscal invoice
+  isVoided?: boolean;
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
+  isReturned?: boolean;
+  returnedAt?: string;
+  returnedBy?: string;
+  returnReason?: string;
+}
+
+export interface SaleReturnRecord {
+  id: string;
+  returnNumber: string;
+  orderId: string;
+  orderNumber: string;
+  terminalId: string;
+  cashSessionId?: string;
+  createdAt: string;
+  createdBy: string;
+  reason: string;
+  refundUSD: number;
+  refundSplits: PaymentSplit[];
+}
+
+export interface SaleVoidRecord {
+  id: string;
+  voidNumber: string;
+  orderId: string;
+  orderNumber: string;
+  terminalId: string;
+  cashSessionId?: string;
+  createdAt: string;
+  createdBy: string;
+  reason: string;
+}
+
+export interface ReceivablePaymentSplit extends PaymentSplit {
+  /** Importe original recibido en la moneda del método. */
+  currency: 'Bs' | 'USD';
 }
 
 export interface ReceivablePaymentRecord {
@@ -361,9 +440,13 @@ export interface ReceivablePaymentRecord {
   amountBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: ReceivablePaymentSplit[];
   reference?: string;
   notes?: string;
   registeredBy?: string;
+  terminalId?: string;
+  cashSessionId?: string;
+  receiptNumber?: string;
   balanceAfterUSD: number;
   isFullSettlement?: boolean;
 }
@@ -383,6 +466,9 @@ export interface ReceivableItem {
   creditDays: number;
   status: 'al_dia' | 'por_vencer' | 'vencido' | 'pagado';
   paymentHistory?: ReceivablePaymentRecord[];
+  isVoided?: boolean;
+  voidedAt?: string;
+  voidReason?: string;
 }
 
 export interface Supplier {
@@ -438,6 +524,10 @@ export interface PurchaseEntry {
   createdAt: string;
 }
 
+export interface PayablePaymentSplit extends PaymentSplit {
+  currency: 'Bs' | 'USD';
+}
+
 export interface PayablePaymentRecord {
   id: string;
   date: string;
@@ -445,6 +535,7 @@ export interface PayablePaymentRecord {
   amountBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PayablePaymentSplit[];
   reference?: string;
   notes?: string;
   registeredBy?: string;
@@ -500,6 +591,8 @@ export interface AcceptedPaymentMethodsConfig {
   efectivo_usd?: boolean;
   efectivo_bs?: boolean;
   biopago?: boolean;
+  tarjeta?: boolean;
+  mixto?: boolean;
 }
 
 export interface SystemSettings {
@@ -521,6 +614,8 @@ export interface SystemSettings {
   ivaPercentage: number;
   // Métodos de Pago Aceptados
   acceptedPaymentMethods: AcceptedPaymentMethodsConfig;
+  printerMode?: 'thermal' | 'fiscal';
+  thermalPaperWidth?: 58 | 80;
   // Datos Pago Móvil
   pagoMovilBank: string;
   pagoMovilPhone: string;

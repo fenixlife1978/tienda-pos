@@ -10,9 +10,11 @@ import {
   Order,
   OrderStatus,
   PaymentMethod,
+  PaymentSplit,
   PaymentStatus,
   PayableItem,
   PayablePaymentRecord,
+  PayablePaymentSplit,
   Product,
   ProductCategory,
   ProductPresentation,
@@ -22,6 +24,7 @@ import {
   PurchasePaymentCondition,
   ReceivableItem,
   ReceivablePaymentRecord,
+  ReceivablePaymentSplit,
   Supplier,
   SystemSettings,
   User,
@@ -43,6 +46,8 @@ import {
   INITIAL_USERS,
 } from '../data/initialData';
 import { tursoService, TursoSyncState } from '../services/tursoService';
+import { offlineSyncService } from '../services/offlineSyncService';
+import { terminalIdentity } from '../services/terminalIdentity';
 import { fetchBcvRateFromApi, fetchBcvOfficialHistory } from '../services/bcvService';
 import { scanAndGenerateReminders, AutomatedReminderRecord } from '../services/reminderService';
 
@@ -109,6 +114,7 @@ interface AppContextType {
       customNote?: string;
     }[];
     paymentMethod: PaymentMethod;
+    paymentSplits?: PaymentSplit[];
     paymentReference?: string;
     channel: 'online' | 'pos';
     notes?: string;
@@ -117,6 +123,8 @@ interface AppContextType {
   reorder: (orderId: string) => boolean;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   updatePaymentStatus: (orderId: string, paymentStatus: PaymentStatus) => void;
+  processSaleReturn: (orderId: string, reason: string) => { success: boolean; message: string; refundUSD: number; returnNumber?: string };
+  voidSale: (orderId: string, reason: string) => { success: boolean; message: string; voidNumber?: string };
   updateBcvRate: (
     newRate: number,
     updatedBy?: string,
@@ -159,6 +167,7 @@ interface AppContextType {
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: ReceivablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -197,6 +206,7 @@ interface AppContextType {
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -207,6 +217,7 @@ interface AppContextType {
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -593,6 +604,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
   }, [suppliers]);
 
+  // Once the initial local snapshot has been persisted, subsequent business
+  // state changes are also marked dirty for cloud replay. This keeps the
+  // existing UI untouched while making the ERP resilient to network outages.
+  const offlineSyncReadyRef = useRef(false);
+  useEffect(() => {
+    offlineSyncReadyRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('settings', settings);
+  }, [settings]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('products', products);
+  }, [products]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('customers', customers);
+  }, [customers]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('suppliers', suppliers);
+  }, [suppliers]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('orders', orders);
+  }, [orders]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('invoices', invoices);
+  }, [invoices]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('receivables', receivables);
+  }, [receivables]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('payables', payables);
+  }, [payables]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('purchaseEntries', purchaseEntries);
+  }, [purchaseEntries]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('users', users);
+  }, [users]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('categories', categories);
+  }, [categories]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('units', units);
+  }, [units]);
+
   // --- Real-time multi-client / cross-tab stock synchronization ---
   const [lastStockUpdateEvent, setLastStockUpdateEvent] = useState<{
     productIds: string[];
@@ -745,6 +801,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tursoService.isConfigured()) return;
     setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
     try {
+      // Flush durable local POS transactions before pulling cloud state.
+      // This prevents an offline sale from being overwritten by a stale cloud snapshot.
+      const flushed = await offlineSyncService.flush();
+      if (flushed.pending > 0) {
+        // Never replace the local POS state with an older cloud snapshot while
+        // an offline sale is still waiting to be uploaded.
+        setTursoState((prev) => ({
+          ...prev,
+          isConnected: false,
+          isSyncing: false,
+          statusText: 'Ventas locales pendientes de sincronización',
+          errorMessage: 'Hay operaciones POS pendientes. Se reintentará automáticamente.',
+        }));
+        return;
+      }
       const cloudData = await tursoService.loadAllData();
       if (cloudData.products.length > 0) setProducts(cloudData.products);
       if (cloudData.categories.length > 0) setCategories(cloudData.categories);
@@ -755,6 +826,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (cloudData.invoices.length > 0) setInvoices(cloudData.invoices);
       if (cloudData.receivables.length > 0) setReceivables(cloudData.receivables);
       if (cloudData.payables.length > 0) setPayables(cloudData.payables);
+      if (cloudData.purchaseEntries.length > 0) setPurchaseEntries(cloudData.purchaseEntries);
       if (cloudData.users.length > 0) setUsers(cloudData.users);
       if (cloudData.settings) setSettings(cloudData.settings);
 
@@ -766,8 +838,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         errorMessage: null,
         tablesCreated: [
           'products', 'categories', 'units', 'customers', 'suppliers',
-          'orders', 'invoices', 'accounts_receivable', 'accounts_payable',
-          'system_users', 'system_settings', 'bcv_history'
+          'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
+          'inventory_movements', 'sync_operations', 'system_users', 'system_settings', 'bcv_history'
         ],
         totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
       });
@@ -800,6 +872,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
     initTursoOnMount();
+  }, []);
+
+  // Automatic recovery: when Internet returns, replay every durable POS sale.
+  // No visual/layout changes are made; this only restores cloud persistence.
+  useEffect(() => {
+    const handleOnline = () => {
+      offlineSyncService.flush().then(({ pending }) => {
+        if (pending === 0 && tursoService.isConfigured()) {
+          syncWithTurso().catch((error) => console.warn('Automatic Turso sync failed:', error));
+        }
+      });
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
   }, []);
 
   // Active push notification toasts floating on screen
@@ -1220,14 +1307,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customNote?: string;
     }[];
     paymentMethod: PaymentMethod;
+    paymentSplits?: PaymentSplit[];
     paymentReference?: string;
     channel: 'online' | 'pos';
     notes?: string;
     customCreditDays?: number;
   }) => {
-    const orderNum = `PED-${new Date().getFullYear()}-${String(orders.length + 104).padStart(4, '0')}`;
-    const invoiceNum = `FACT-${String(invoices.length + 453).padStart(6, '0')}`;
+    const orderNum = terminalIdentity.nextOrderNumber();
+    const invoiceNum = terminalIdentity.nextInvoiceNumber();
+    const terminalId = terminalIdentity.getId();
+    const documentSeries = terminalId;
+    const orderDocumentSequence = Number(orderNum.match(/(\d+)$/)?.[1] || '0');
+    const invoiceDocumentSequence = Number(invoiceNum.match(/(\d+)$/)?.[1] || '0');
     const now = new Date();
+    // Una venta POS queda vinculada a la sesión de caja exacta que estaba abierta
+    // en ese terminal. Las ventas de tienda online no tienen sesión de caja.
+    let cashSessionId: string | undefined;
+    if (orderInput.channel === 'pos') {
+      try {
+        const rawSession = localStorage.getItem('omni_cash_session_v2');
+        const localSession = rawSession ? JSON.parse(rawSession) : null;
+        if (localSession?.terminalId === terminalIdentity.getId() && localSession?.status === 'open') {
+          cashSessionId = String(localSession.id);
+        }
+      } catch {
+        // Si el cache local está corrupto, la venta conserva el comportamiento anterior.
+      }
+    }
 
     const orderItems = orderInput.items.map((item) => {
       let unitPriceUSD: number;
@@ -1265,15 +1371,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saleMode: item.saleMode,
         weightKg: item.weightKg,
         customAmountBs: item.customAmountBs,
+        customNote: item.customNote,
+        taxUSD: Number((
+          subtotalUSD * (
+            item.product.appliesIva === false
+              ? 0
+              : ((item.product.ivaRate ?? settings.ivaPercentage) / 100)
+          )
+        ).toFixed(2)),
+        ivaRate: item.product.appliesIva === false ? 0 : (item.product.ivaRate ?? settings.ivaPercentage),
       };
     });
 
     const subtotalUSD = orderItems.reduce((acc, curr) => acc + curr.subtotalUSD, 0);
-    const taxUSD = subtotalUSD * (settings.ivaPercentage / 100);
-    const totalUSD = subtotalUSD + taxUSD;
-    const totalBs = totalUSD * settings.bcvRate;
+    const taxUSD = orderItems.reduce((acc, curr) => acc + (curr.taxUSD || 0), 0);
+    const totalUSD = Number((subtotalUSD + taxUSD).toFixed(2));
+    const totalBs = Number((totalUSD * settings.bcvRate).toFixed(2));
 
-    const isCredit = orderInput.paymentMethod === 'credito';
+    const paymentSplits = (orderInput.paymentSplits || []).map((split) => ({
+      ...split,
+      amountUSD: Number(split.amountUSD.toFixed(2)),
+      amountBs: Number((split.amountBs || split.amountUSD * settings.bcvRate).toFixed(2)),
+    }));
+    const splitTotalUSD = Number(paymentSplits.reduce((sum, split) => sum + split.amountUSD, 0).toFixed(2));
+    if (paymentSplits.length > 0 && orderInput.paymentMethod !== 'credito' && splitTotalUSD + 0.01 < totalUSD) {
+      throw new Error(`El cobro mixto está incompleto. Faltan ${(totalUSD - splitTotalUSD).toFixed(2)} USD equivalentes.`);
+    }
+    const effectivePaymentMethod: PaymentMethod =
+      paymentSplits.length > 1 ? 'mixto' : (paymentSplits[0]?.method || orderInput.paymentMethod);
+    const isCredit = effectivePaymentMethod === 'credito';
     const customer = customers.find((c) => c.id === orderInput.customerId);
     const creditDays = orderInput.customCreditDays || customer?.creditDays || settings.defaultCreditDays;
     const dueDate = isCredit
@@ -1281,7 +1407,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : undefined;
 
     const newOrder: Order = {
-      id: `ord-${Date.now()}`,
+      id: `ord-${crypto.randomUUID()}`,
       orderNumber: orderNum,
       customerId: orderInput.customerId,
       customerName: orderInput.customerName,
@@ -1294,16 +1420,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalUSD,
       totalBs,
       bcvRate: settings.bcvRate,
-      paymentMethod: orderInput.paymentMethod,
+      paymentMethod: effectivePaymentMethod,
+      paymentSplits: paymentSplits.length ? paymentSplits : undefined,
       paymentStatus: isCredit
         ? 'a_credito'
-        : ['efectivo_usd', 'efectivo_bs', 'biopago'].includes(orderInput.paymentMethod) && orderInput.channel === 'pos'
+        : (orderInput.channel === 'pos' && (paymentSplits.length === 0 || splitTotalUSD + 0.01 >= totalUSD))
         ? 'pagado'
         : 'pendiente',
       orderStatus: 'en_tramite',
       paymentReference: orderInput.paymentReference,
       channel: orderInput.channel,
       createdAt: now.toISOString(),
+      cashSessionId,
+      documentSeries,
+      documentSequence: orderDocumentSequence,
       creditDays: isCredit ? creditDays : undefined,
       creditDueDate: dueDate,
       estimatedDelivery: 'Tiempo estimado: 2 a 4 horas hábiles',
@@ -1311,7 +1441,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     const newInvoice: Invoice = {
-      id: `inv-${Date.now()}`,
+      id: `inv-${crypto.randomUUID()}`,
       invoiceNumber: invoiceNum,
       orderId: newOrder.id,
       customerId: orderInput.customerId,
@@ -1325,13 +1455,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalUSD,
       totalBs,
       bcvRate: settings.bcvRate,
-      paymentMethod: orderInput.paymentMethod,
+      paymentMethod: effectivePaymentMethod,
+      paymentSplits: paymentSplits.length ? paymentSplits : undefined,
       paymentStatus: newOrder.paymentStatus,
       createdAt: now.toISOString(),
       dueDate,
       isCredit,
+      cashSessionId,
+      documentSeries,
+      documentSequence: invoiceDocumentSequence,
       creditDays: isCredit ? creditDays : undefined,
     };
+
+    // Validate stock before mutating state. Never clamp an oversale to zero:
+    // concurrent/offline terminals must fail the sale instead of silently selling
+    // more inventory than the terminal's current stock snapshot contains.
+    const stockDeductions = new Map<string, number>();
+    for (const bought of orderInput.items) {
+      const units = bought.selectedPresentation
+        ? bought.quantity * bought.selectedPresentation.factor
+        : bought.saleMode === 'weight' && bought.weightKg
+        ? bought.weightKg
+        : bought.quantity;
+      stockDeductions.set(
+        bought.product.id,
+        Number(((stockDeductions.get(bought.product.id) || 0) + units).toFixed(3))
+      );
+    }
+    for (const [productId, deduction] of stockDeductions.entries()) {
+      const liveProduct = products.find((p) => p.id === productId);
+      if (!liveProduct) {
+        throw new Error(`Producto no encontrado en inventario: ${productId}`);
+      }
+      if (deduction > Number(liveProduct.stock) + 0.000001) {
+        throw new Error(
+          `Stock insuficiente para ${liveProduct.name}. Disponible: ${liveProduct.stock} ${liveProduct.unit}; solicitado: ${deduction}.`
+        );
+      }
+    }
 
     // Deduct stock in real-time accurately by presentation factor / weight / fractional
     const boughtProductIds: string[] = [];
@@ -1349,7 +1510,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             totalStockDeduction += bought.quantity;
           }
         }
-        const remaining = Math.max(0, Number((p.stock - totalStockDeduction).toFixed(3)));
+        const remaining = Number((p.stock - totalStockDeduction).toFixed(3));
         if (remaining <= p.minStock) {
           pushNotification(
             'Alerta de Inventario',
@@ -1372,7 +1533,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // If credit, add to Cuentas por Cobrar (CxC) and increase customer debt
     if (isCredit && dueDate) {
       const newRec: ReceivableItem = {
-        id: `rec-${Date.now()}`,
+        id: `rec-${newInvoice.id}`,
         invoiceId: newInvoice.id,
         invoiceNumber: newInvoice.invoiceNumber,
         customerId: orderInput.customerId,
@@ -1399,6 +1560,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setOrders((prev) => [newOrder, ...prev]);
     setInvoices((prev) => [newInvoice, ...prev]);
+
+    // Persist the sale locally as an immutable document plus inventory DELTAS.
+    // Stock is never uploaded as a snapshot: every terminal contributes its movement
+    // to the single global inventory when it reconnects.
+    const inventoryByProduct = new Map<string, number>();
+    for (const bought of orderInput.items) {
+      const units = bought.selectedPresentation
+        ? bought.quantity * bought.selectedPresentation.factor
+        : bought.saleMode === 'weight' && bought.weightKg
+        ? bought.weightKg
+        : bought.quantity;
+      inventoryByProduct.set(
+        bought.product.id,
+        Number(((inventoryByProduct.get(bought.product.id) || 0) - units).toFixed(3))
+      );
+    }
+    const inventoryMovements = Array.from(inventoryByProduct.entries()).map(([productId, quantityDelta]) => ({
+      productId,
+      quantityDelta,
+      movementType: 'sale' as const,
+    }));
+    const receivable = isCredit
+      ? {
+          id: 'rec-' + newInvoice.id,
+          invoiceId: newInvoice.id,
+          invoiceNumber: newInvoice.invoiceNumber,
+          customerId: orderInput.customerId,
+          customerName: orderInput.customerName,
+          customerPhone: orderInput.customerPhone,
+          totalAmountUSD: totalUSD,
+          amountPaidUSD: 0,
+          balanceUSD: totalUSD,
+          issuedDate: now.toISOString().split('T')[0],
+          dueDate: dueDate!,
+          creditDays,
+          status: 'al_dia' as const,
+        }
+      : undefined;
+    const syncedCustomer = isCredit
+      ? customers.find((c) => c.id === orderInput.customerId)
+      : undefined;
+
+    offlineSyncService.enqueueSale({
+      order: newOrder,
+      invoice: newInvoice,
+      inventoryMovements,
+      receivable,
+      customer: syncedCustomer,
+    });
+
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => {
+        console.warn('Sale queued for retry after Turso failure:', error);
+      });
+    }
+
     clearCart();
 
     pushNotification(
@@ -1484,6 +1701,263 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setInvoices((prev) =>
       prev.map((inv) => (inv.orderId === orderId ? { ...inv, paymentStatus } : inv))
     );
+  };
+
+
+  const processSaleReturn = (orderId: string, reason: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'Venta no encontrada.', refundUSD: 0 };
+    if (order.isVoided) return { success: false, message: 'La venta ya está anulada.', refundUSD: 0 };
+    if (order.isReturned) return { success: false, message: 'La venta ya tiene una devolución registrada.', refundUSD: 0 };
+    if (!reason.trim()) return { success: false, message: 'Debe indicar el motivo de la devolución.', refundUSD: 0 };
+
+    const now = new Date().toISOString();
+    const returnNumber = terminalIdentity.nextReturnNumber();
+    const inventoryMovements: Array<{ productId: string; quantityDelta: number; movementType: 'return' }> = [];
+
+    setProducts((prev) => prev.map((product) => {
+      const itemRows = order.items.filter((item) => item.productId === product.id);
+      if (!itemRows.length) return product;
+
+      const restored = itemRows.reduce((sum, item) => {
+        if (item.presentationName) {
+          const presentation = product.presentations?.find((p) => p.name === item.presentationName);
+          return sum + item.quantity * (presentation?.factor || 1);
+        }
+        if (item.saleMode === 'weight' && item.weightKg) return sum + item.weightKg;
+        return sum + item.quantity;
+      }, 0);
+
+      inventoryMovements.push({
+        productId: product.id,
+        quantityDelta: Number(restored.toFixed(3)),
+        movementType: 'return',
+      });
+
+      return { ...product, stock: Number((product.stock + restored).toFixed(3)) };
+    }));
+
+    setOrders((prev) => prev.map((o) => o.id === orderId ? {
+      ...o,
+      isReturned: true,
+      returnNumber,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    } : o));
+
+    setInvoices((prev) => prev.map((inv) => inv.orderId === orderId ? {
+      ...inv,
+      isReturned: true,
+      returnNumber,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    } : inv));
+
+    if (order.paymentStatus === 'a_credito') {
+      setReceivables((prev) => prev.map((rec) =>
+        rec.invoiceId === (invoices.find((i) => i.orderId === orderId)?.id || '')
+          ? { ...rec, balanceUSD: 0, amountPaidUSD: rec.totalAmountUSD, status: 'pagado', isVoided: true, voidedAt: now, voidReason: 'Devolución total de venta' }
+          : rec
+      ));
+      setCustomers((prev) => prev.map((customer) =>
+        customer.id === order.customerId
+          ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - order.totalUSD) }
+          : customer
+      ));
+    }
+
+    const reversalInvoice = invoices.find((inv) => inv.orderId === orderId);
+    const returnedOrder: Order = {
+      ...order,
+      isReturned: true,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    };
+    const returnedInvoice: Invoice | undefined = reversalInvoice ? {
+      ...reversalInvoice,
+      isReturned: true,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    } : undefined;
+    const returnedReceivable = order.paymentStatus === 'a_credito'
+      ? receivables.find((rec) => rec.invoiceId === reversalInvoice?.id)
+      : undefined;
+    const returnedCustomer = order.paymentStatus === 'a_credito'
+      ? customers.find((customer) => customer.id === order.customerId)
+      : undefined;
+
+    if (returnedInvoice) {
+      offlineSyncService.enqueueSaleReversal({
+        order: returnedOrder,
+        invoice: returnedInvoice,
+        inventoryMovements,
+        receivable: returnedReceivable ? {
+          ...returnedReceivable,
+          balanceUSD: 0,
+          amountPaidUSD: returnedReceivable.totalAmountUSD,
+          status: 'pagado',
+          isVoided: true,
+          voidedAt: now,
+          voidReason: 'Devolución total de venta',
+        } : undefined,
+        customer: returnedCustomer ? {
+          ...returnedCustomer,
+          currentDebtUSD: Math.max(0, returnedCustomer.currentDebtUSD - order.totalUSD),
+        } : undefined,
+      });
+    }
+
+    const refundSplits = order.paymentSplits?.length
+      ? order.paymentSplits.map((split) => ({ ...split, amountUSD: -split.amountUSD, amountBs: -(split.amountBs || 0) }))
+      : [{
+          id: crypto.randomUUID(),
+          method: order.paymentMethod === 'mixto' ? 'efectivo_usd' : order.paymentMethod,
+          amountUSD: -order.totalUSD,
+          amountBs: -order.totalBs,
+          createdAt: now,
+        }];
+
+    try {
+      const refunds = JSON.parse(localStorage.getItem('omni_sale_refunds_v1') || '[]');
+      refunds.unshift({
+        id: crypto.randomUUID(),
+        orderId,
+        orderNumber: order.orderNumber,
+        returnNumber,
+        terminalId: terminalIdentity.getId(),
+        cashSessionId: order.cashSessionId,
+        createdAt: now,
+        createdBy: currentUser.name,
+        reason: reason.trim(),
+        refundUSD: order.paymentStatus === 'a_credito' ? 0 : order.totalUSD,
+        refundSplits: order.paymentStatus === 'a_credito' ? [] : refundSplits,
+      });
+      localStorage.setItem('omni_sale_refunds_v1', JSON.stringify(refunds.slice(0, 500)));
+    } catch {}
+
+    // El inventario ya se actualizó localmente; el broadcast se realizará desde el flujo normal de sincronización.
+
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => {
+        console.warn('Return sync queued for retry:', error);
+      });
+    }
+
+    return {
+      success: true,
+      message: order.paymentStatus === 'a_credito'
+        ? 'Devolución registrada y crédito revertido.'
+        : 'Devolución registrada. El reintegro queda registrado según el medio de pago original.',
+      refundUSD: order.paymentStatus === 'a_credito' ? 0 : order.totalUSD,
+    };
+  };
+
+  const voidSale = (orderId: string, reason: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'Venta no encontrada.' };
+    if (order.isVoided) return { success: false, message: 'La venta ya está anulada.' };
+    if (order.isReturned) return { success: false, message: 'No se puede anular una venta ya devuelta.' };
+    if (!reason.trim()) return { success: false, message: 'Debe indicar el motivo de la anulación.' };
+
+    const now = new Date().toISOString();
+    const voidNumber = terminalIdentity.nextVoidNumber();
+
+    const inventoryMovements: Array<{ productId: string; quantityDelta: number; movementType: 'return' }> = [];
+    setProducts((prev) => prev.map((product) => {
+      const rows = order.items.filter((item) => item.productId === product.id);
+      if (!rows.length) return product;
+      const restored = rows.reduce((sum, item) => {
+        if (item.presentationName) {
+          const presentation = product.presentations?.find((p) => p.name === item.presentationName);
+          return sum + item.quantity * (presentation?.factor || 1);
+        }
+        if (item.saleMode === 'weight' && item.weightKg) return sum + item.weightKg;
+        return sum + item.quantity;
+      }, 0);
+      inventoryMovements.push({ productId: product.id, quantityDelta: Number(restored.toFixed(3)), movementType: 'return' });
+      return { ...product, stock: Number((product.stock + restored).toFixed(3)) };
+    }));
+
+    setOrders((prev) => prev.map((o) => o.id === orderId ? {
+      ...o,
+      isVoided: true,
+      voidNumber,
+      voidedAt: now,
+      voidedBy: currentUser.name,
+      voidReason: reason.trim(),
+    } : o));
+
+    setInvoices((prev) => prev.map((inv) => inv.orderId === orderId ? {
+      ...inv,
+      isVoided: true,
+      voidedAt: now,
+      voidedBy: currentUser.name,
+      voidReason: reason.trim(),
+    } : inv));
+
+    if (order.paymentStatus === 'a_credito') {
+      const invoiceId = invoices.find((inv) => inv.orderId === orderId)?.id;
+      if (invoiceId) {
+        setReceivables((prev) => prev.map((rec) =>
+          rec.invoiceId === invoiceId
+            ? {
+                ...rec,
+                amountPaidUSD: rec.totalAmountUSD,
+                balanceUSD: 0,
+                status: 'pagado',
+                isVoided: true,
+                voidedAt: now,
+                voidReason: 'Anulación de venta',
+              }
+            : rec
+        ));
+      }
+      setCustomers((prev) => prev.map((customer) =>
+        customer.id === order.customerId
+          ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - order.totalUSD) }
+          : customer
+      ));
+    }
+
+    const voidInvoice = invoices.find((inv) => inv.orderId === orderId);
+    if (voidInvoice) {
+      const voidReceivable = order.paymentStatus === 'a_credito'
+        ? receivables.find((rec) => rec.invoiceId === voidInvoice.id)
+        : undefined;
+      const voidCustomer = order.paymentStatus === 'a_credito'
+        ? customers.find((customer) => customer.id === order.customerId)
+        : undefined;
+      offlineSyncService.enqueueSaleReversal({
+        order: { ...order, isVoided: true, voidNumber, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
+        invoice: { ...voidInvoice, isVoided: true, voidNumber, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
+        inventoryMovements,
+        receivable: voidReceivable ? {
+          ...voidReceivable, amountPaidUSD: voidReceivable.totalAmountUSD, balanceUSD: 0,
+          status: 'pagado', isVoided: true, voidedAt: now, voidReason: 'Anulación de venta',
+        } : undefined,
+        customer: voidCustomer ? {
+          ...voidCustomer, currentDebtUSD: Math.max(0, voidCustomer.currentDebtUSD - order.totalUSD),
+        } : undefined,
+      });
+    }
+
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => {
+        console.warn('Void sync queued for retry:', error);
+      });
+    }
+
+    try {
+      const audit = JSON.parse(localStorage.getItem('omni_sale_voids_v1') || '[]');
+      audit.unshift({ id: crypto.randomUUID(), orderId, orderNumber: order.orderNumber, voidNumber, terminalId: terminalIdentity.getId(), cashSessionId: order.cashSessionId, createdAt: now, createdBy: currentUser.name, reason: reason.trim() });
+      localStorage.setItem('omni_sale_voids_v1', JSON.stringify(audit.slice(0, 500)));
+    } catch {}
+
+    return { success: true, voidNumber, message: `Venta anulada y mercancía reintegrada al inventario.` };
   };
 
   // BCV Rate management with history tracking
@@ -1768,6 +2242,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateProduct = (product: Product) => {
+    const previous = products.find((p) => p.id === product.id);
+    const stockDelta = previous ? Number((product.stock - previous.stock).toFixed(3)) : 0;
     const updated = products.map((p) => (p.id === product.id ? product : p));
     setProducts(updated);
     broadcastStockUpdate(updated, {
@@ -1775,6 +2251,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       source: 'adjustment',
       summary: `Producto actualizado: ${product.name}`,
     });
+
+    // If the product editor changes stock directly, convert that change into
+    // an inventory movement instead of syncing the whole stock snapshot.
+    if (stockDelta !== 0) {
+      offlineSyncService.enqueueInventoryMovement({
+        productId: product.id,
+        quantityDelta: stockDelta,
+        movementType: 'adjustment',
+      });
+      if (navigator.onLine && tursoService.isConfigured()) {
+        offlineSyncService.flush().catch((error) => console.warn('Cambio de stock en cola:', error));
+      }
+    }
   };
 
   const deleteProduct = (productId: string) => {
@@ -1802,6 +2291,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       source: 'adjustment',
       summary: `Stock ajustado (${delta > 0 ? '+' : ''}${delta}) en ${target?.name || 'producto'}: ${reason}`,
     });
+    offlineSyncService.enqueueInventoryMovement({
+      productId,
+      quantityDelta: delta,
+      movementType: 'adjustment',
+    });
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => console.warn('Ajuste de inventario en cola:', error));
+    }
     pushNotification('Ajuste de Stock', `Inventario ajustado (${delta > 0 ? '+' : ''}${delta}). Motivo: ${reason}`, 'inventory_alert');
   };
 
@@ -1991,6 +2488,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: ReceivablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -2000,74 +2498,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const method = details?.paymentMethod || 'transferencia_usd';
     const ref = details?.reference || '';
     const notes = details?.notes || '';
+    const terminalId = terminalIdentity.getId();
+    let cashSessionId: string | undefined;
+    try {
+      const active = JSON.parse(localStorage.getItem('omni_cash_session_v2') || 'null');
+      if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
+    } catch {}
 
+    const suppliedSplits = details?.paymentSplits?.filter(s => Number(s.amountUSD) > 0 || Number(s.amountBs) > 0) || [];
+    const splits: ReceivablePaymentSplit[] = suppliedSplits.length
+      ? suppliedSplits.map(s => ({ ...s, amountUSD: Number((s.amountUSD || 0).toFixed(6)), amountBs: Number((s.amountBs || 0).toFixed(2)), currency: s.currency }))
+      : [{
+          id: 'cxc-split-' + Date.now(),
+          method: method as Exclude<PaymentMethod,'mixto'>,
+          amountUSD: Number(amountUSD.toFixed(6)),
+          amountBs: Number((amountUSD * rate).toFixed(2)),
+          currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(method) ? 'Bs' : 'USD',
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+
+    const normalizedAmountUSD = Number(splits.reduce((sum, s) => sum + (s.currency === 'USD' ? s.amountUSD : (s.amountBs / rate)), 0).toFixed(6));
+    if (!Number.isFinite(normalizedAmountUSD) || normalizedAmountUSD <= 0) return;
+
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
     let customerId = '';
     let invoiceNumber = '';
     let isSettled = false;
 
-    setReceivables((prev) =>
-      prev.map((rec) => {
-        if (rec.id === receivableId) {
-          customerId = rec.customerId;
-          invoiceNumber = rec.invoiceNumber;
-          const actualAmountToPay = Math.min(rec.balanceUSD, amountUSD);
-          const newPaid = rec.amountPaidUSD + actualAmountToPay;
-          const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
-          isSettled = newBalance <= 0.01;
+    setReceivables(prev => prev.map(rec => {
+      if (rec.id !== receivableId) return rec;
+      customerId = rec.customerId;
+      invoiceNumber = rec.invoiceNumber;
+      const actualAmountToPay = Math.min(rec.balanceUSD, normalizedAmountUSD);
+      const newPaid = rec.amountPaidUSD + actualAmountToPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      isSettled = newBalance <= 0.01;
+      const factor = normalizedAmountUSD > 0 ? actualAmountToPay / normalizedAmountUSD : 0;
+      const appliedSplits = splits.map(s => ({ ...s, amountUSD: Number((s.amountUSD * factor).toFixed(6)), amountBs: Number((s.amountBs * factor).toFixed(2)) }));
+      const paymentRecord: ReceivablePaymentRecord = {
+        id: 'pay-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        date: new Date().toISOString(),
+        amountUSD: actualAmountToPay,
+        amountBs: Number((actualAmountToPay * rate).toFixed(2)),
+        bcvRate: rate,
+        paymentMethod: appliedSplits.length > 1 ? 'mixto' : appliedSplits[0].method,
+        paymentSplits: appliedSplits,
+        reference: ref,
+        notes: notes || (isSettled ? 'Liquidación total de factura' : 'Abono a factura'),
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+        terminalId,
+        cashSessionId,
+        receiptNumber,
+      };
+      return { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+    }));
 
-          const paymentRecord: ReceivablePaymentRecord = {
-            id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            date: new Date().toISOString(),
-            amountUSD: actualAmountToPay,
-            amountBs: actualAmountToPay * rate,
-            bcvRate: rate,
-            paymentMethod: method,
-            reference: ref,
-            notes: notes || (isSettled ? 'Liquidación total de factura' : 'Abono a factura'),
-            registeredBy: currentUser.name,
-            balanceAfterUSD: newBalance,
-            isFullSettlement: isSettled,
-          };
-
-          return {
-            ...rec,
-            amountPaidUSD: newPaid,
-            balanceUSD: newBalance,
-            status: isSettled ? 'pagado' : rec.status,
-            paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])],
-          };
-        }
-        return rec;
-      })
-    );
-
-    // Update customer debt
     if (customerId) {
-      setCustomers((custs) =>
-        custs.map((c) =>
-          c.id === customerId
-            ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - amountUSD) }
-            : c
-        )
-      );
+      setCustomers(custs => custs.map(c => c.id === customerId ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - Math.min(c.currentDebtUSD, normalizedAmountUSD)) } : c));
     }
-
-    // Update invoice if fully paid
-    if (invoiceNumber && isSettled) {
-      setInvoices((prev) =>
-        prev.map((inv) =>
-          inv.invoiceNumber === invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv
-        )
-      );
-    }
-
+    if (invoiceNumber && isSettled) setInvoices(prev => prev.map(inv => inv.invoiceNumber === invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv));
     triggerPushNotification({
       title: isSettled ? '🎉 Factura Liquidada en CxC' : '💵 Abono Registrado en CxC',
-      message: `${
-        isSettled
-          ? `Factura ${invoiceNumber} liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).`
-          : `Abono de $${amountUSD.toFixed(2)} USD registrado a factura ${invoiceNumber}.`
-      }`,
+      message: (isSettled ? 'Factura ' + invoiceNumber + ' liquidada' : 'Abono a factura ' + invoiceNumber) + ' por $' + normalizedAmountUSD.toFixed(2) + ' USD. Recibo ' + receiptNumber + '.',
       type: 'credit_alert',
       targetCustomerId: customerId,
       badge: isSettled ? 'Factura Pagada' : 'Abono CxC',
@@ -2108,30 +2603,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ref = details?.reference || '';
     const customNotes = details?.notes || 'Abono Global Distribuido (FIFO)';
 
-    // Get pending receivables for customer sorted chronologically (oldest issuedDate first)
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    // FIFO real: la aplicación se calcula sobre la cola cronológica y luego
+    // se proyecta por ID. Nunca dependemos del orden físico del array.
     const customerPendingRecs = receivables
-      .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001)
-      .sort((a, b) => new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime());
+      .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001 && !r.isVoided)
+      .sort((a, b) => {
+        const byDate = new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime();
+        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+      });
 
     let remainingPayment = amountUSD;
     let liquidatedCount = 0;
     let fullyPaidTotal = 0;
     let partialAbono = 0;
+    let appliedTotal = 0;
     const settledInvoiceNumbers = new Set<string>();
+    const allocations = new Map<string, number>();
 
-    const updatedReceivables = receivables.map((rec) => {
-      if (rec.customerId !== customerId || rec.balanceUSD <= 0.001 || remainingPayment <= 0.0001) {
-        return rec;
-      }
-
-      // Is this item in the pending queue?
-      const inQueue = customerPendingRecs.some((cr) => cr.id === rec.id);
-      if (!inQueue) return rec;
+    for (const rec of customerPendingRecs) {
+      if (remainingPayment <= 0.0001) break;
 
       const toPay = Math.min(rec.balanceUSD, remainingPayment);
+      if (toPay <= 0.0001) continue;
+
+      allocations.set(rec.id, toPay);
       remainingPayment -= toPay;
-      const newPaid = rec.amountPaidUSD + toPay;
-      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      appliedTotal += toPay;
+
+      const newBalance = Math.max(0, rec.balanceUSD - toPay);
       const isSettled = newBalance <= 0.01;
 
       if (isSettled) {
@@ -2141,10 +2644,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         partialAbono += toPay;
       }
+    }
+
+    if (appliedTotal <= 0.0001) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    const paymentDate = new Date().toISOString();
+    const updatedReceivables = receivables.map((rec) => {
+      const toPay = allocations.get(rec.id);
+      if (!toPay) return rec;
+
+      const newPaid = rec.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
 
       const record: ReceivablePaymentRecord = {
-        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        date: new Date().toISOString(),
+        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${rec.id}`,
+        date: paymentDate,
         amountUSD: toPay,
         amountBs: toPay * rate,
         bcvRate: rate,
@@ -2152,7 +2669,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reference: ref,
         notes: isSettled
           ? `${customNotes} - Factura ${rec.invoiceNumber} liquidada totalmente`
-          : `${customNotes} - Abono parcial computado`,
+          : `${customNotes} - Abono parcial a factura ${rec.invoiceNumber}`,
         registeredBy: currentUser.name,
         balanceAfterUSD: newBalance,
         isFullSettlement: isSettled,
@@ -2169,16 +2686,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setReceivables(updatedReceivables);
 
-    // Update customer debt
+    // Solo descuenta lo realmente aplicado. Si el pago supera toda la deuda,
+    // el sobrante queda sin aplicar y no reduce la deuda por debajo de cero.
     setCustomers((custs) =>
       custs.map((c) =>
         c.id === customerId
-          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - amountUSD) }
+          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - appliedTotal) }
           : c
       )
     );
 
-    // Update matching invoices in state
     if (settledInvoiceNumbers.size > 0) {
       setInvoices((prev) =>
         prev.map((inv) =>
@@ -2191,12 +2708,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const customerObj = customers.find((c) => c.id === customerId);
     const custName = customerObj ? customerObj.name : 'Cliente';
+    const remainder = Math.max(0, remainingPayment);
 
     triggerPushNotification({
       title: '💳 Abono Global Distribuido (CxC)',
-      message: `Pago global de $${amountUSD.toFixed(2)} procesado para ${custName}. Se liquidaron ${liquidatedCount} factura(s)${
-        partialAbono > 0 ? ` y se aplicó un abono de $${partialAbono.toFixed(2)} a la factura más antigua.` : '.'
-      }`,
+      message: `Pago de $${amountUSD.toFixed(2)} para ${custName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
       type: 'credit_alert',
       targetCustomerId: customerId,
       badge: 'Pago Global CxC',
@@ -2208,7 +2724,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fullyPaidTotalUSD: fullyPaidTotal,
     };
   };
-
   // Liquidate all debt for a customer
   const liquidateCustomerTotalDebt = (
     customerId: string,
@@ -2234,15 +2749,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
     }
   ) => {
     const rate = details?.bcvRate || settings.bcvRate;
-    const method = details?.paymentMethod || 'transferencia_usd';
     const ref = details?.reference || '';
     const customNotes = details?.notes || 'Abono / Pago a Proveedor';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0 || normalizedTotal + 0.0001 < amountUSD) return;
 
     let supplierName = '';
     let invoiceNumber = '';
@@ -2250,51 +2784,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setPayables((prev) =>
       prev.map((pay) => {
-        if (pay.id === payableId) {
-          supplierName = pay.supplierName;
-          invoiceNumber = pay.invoiceNumber;
-          const newPaid = pay.amountPaidUSD + amountUSD;
-          const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
-          isSettled = newBalance <= 0.01;
+        if (pay.id !== payableId) return pay;
+        supplierName = pay.supplierName;
+        invoiceNumber = pay.invoiceNumber;
+        const appliedAmount = Math.min(amountUSD, pay.balanceUSD);
+        const newPaid = pay.amountPaidUSD + appliedAmount;
+        const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+        isSettled = newBalance <= 0.01;
 
-          const record: PayablePaymentRecord = {
-            id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            date: new Date().toISOString(),
-            amountUSD,
-            amountBs: amountUSD * rate,
-            bcvRate: rate,
-            paymentMethod: method,
-            reference: ref,
-            notes: customNotes,
-            registeredBy: currentUser.name,
-            balanceAfterUSD: newBalance,
-            isFullSettlement: isSettled,
-          };
-
-          return {
-            ...pay,
-            amountPaidUSD: newPaid,
-            balanceUSD: newBalance,
-            status: isSettled ? 'pagado' : pay.status,
-            paymentHistory: [record, ...(pay.paymentHistory || [])],
-          };
-        }
-        return pay;
+        const record: PayablePaymentRecord = {
+          id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          date: new Date().toISOString(),
+          amountUSD: appliedAmount,
+          amountBs: appliedAmount * rate,
+          bcvRate: rate,
+          paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+          paymentSplits: normalizedSplits,
+          reference: ref,
+          notes: customNotes,
+          registeredBy: currentUser.name,
+          balanceAfterUSD: newBalance,
+          isFullSettlement: isSettled,
+        };
+        return {
+          ...pay,
+          amountPaidUSD: newPaid,
+          balanceUSD: newBalance,
+          status: isSettled ? 'pagado' : pay.status,
+          paymentHistory: [record, ...(pay.paymentHistory || [])],
+        };
       })
     );
 
     triggerPushNotification({
       title: isSettled ? '🎉 Compra a Proveedor Liquidada (CxP)' : '💵 Pago Registrado a Proveedor (CxP)',
-      message: `${
-        isSettled
-          ? `Factura de compra ${invoiceNumber} (${supplierName}) liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).`
-          : `Abono de $${amountUSD.toFixed(2)} USD pagado a ${supplierName} (Factura ${invoiceNumber}).`
-      }`,
+      message: `${isSettled ? `Factura de compra ${invoiceNumber} (${supplierName}) liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).` : `Abono de $${amountUSD.toFixed(2)} USD pagado a ${supplierName} (Factura ${invoiceNumber}).`}`,
       type: 'credit_alert',
       badge: isSettled ? 'CxP Liquidada' : 'Pago CxP',
     });
   };
-
   // Liquidate a specific payable purchase invoice completely in one action
   const liquidateSupplierInvoice = (
     payableId: string,
@@ -2319,38 +2847,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amountUSD: number,
     details?: {
       paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
       reference?: string;
       notes?: string;
       bcvRate?: number;
     }
   ) => {
     const rate = details?.bcvRate || settings.bcvRate;
-    const method = details?.paymentMethod || 'transferencia_usd';
     const ref = details?.reference || '';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (normalizedTotal + 0.0001 < amountUSD) return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
     const customNotes = details?.notes || 'Pago Global Distribuido a Proveedor (FIFO)';
 
-    // Get pending payables for supplier sorted chronologically (oldest issuedDate first)
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    // FIFO real: proveedor -> factura más antigua -> factura siguiente -> ... 
     const supplierPendingPays = payables
       .filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001)
-      .sort((a, b) => new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime());
+      .sort((a, b) => {
+        const byDate = new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime();
+        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+      });
 
     let remainingPayment = amountUSD;
     let liquidatedCount = 0;
     let fullyPaidTotal = 0;
     let partialAbono = 0;
+    let appliedTotal = 0;
+    const allocations = new Map<string, number>();
 
-    const updatedPayables = payables.map((pay) => {
-      if (pay.supplierId !== supplierId || pay.balanceUSD <= 0.001 || remainingPayment <= 0.0001) {
-        return pay;
-      }
-
-      const inQueue = supplierPendingPays.some((sp) => sp.id === pay.id);
-      if (!inQueue) return pay;
+    for (const pay of supplierPendingPays) {
+      if (remainingPayment <= 0.0001) break;
 
       const toPay = Math.min(pay.balanceUSD, remainingPayment);
+      if (toPay <= 0.0001) continue;
+
+      allocations.set(pay.id, toPay);
       remainingPayment -= toPay;
-      const newPaid = pay.amountPaidUSD + toPay;
-      const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+      appliedTotal += toPay;
+
+      const newBalance = Math.max(0, pay.balanceUSD - toPay);
       const isSettled = newBalance <= 0.01;
 
       if (isSettled) {
@@ -2359,18 +2913,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         partialAbono += toPay;
       }
+    }
+
+    if (appliedTotal <= 0.0001) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    const paymentDate = new Date().toISOString();
+    const updatedPayables = payables.map((pay) => {
+      const toPay = allocations.get(pay.id);
+      if (!toPay) return pay;
+
+      const newPaid = pay.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
 
       const record: PayablePaymentRecord = {
-        id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        date: new Date().toISOString(),
+        id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${pay.id}`,
+        date: paymentDate,
         amountUSD: toPay,
         amountBs: toPay * rate,
         bcvRate: rate,
-        paymentMethod: method,
+        paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+        paymentSplits: normalizedSplits,
         reference: ref,
         notes: isSettled
           ? `${customNotes} - Factura ${pay.invoiceNumber} liquidada totalmente`
-          : `${customNotes} - Abono parcial computado`,
+          : `${customNotes} - Abono parcial a factura ${pay.invoiceNumber}`,
         registeredBy: currentUser.name,
         balanceAfterUSD: newBalance,
         isFullSettlement: isSettled,
@@ -2389,12 +2958,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const supObj = suppliers.find((s) => s.id === supplierId);
     const supName = supObj ? supObj.name : 'Proveedor';
+    const remainder = Math.max(0, remainingPayment);
 
     triggerPushNotification({
       title: '💳 Pago Global Distribuido (CxP)',
-      message: `Egreso de $${amountUSD.toFixed(2)} USD procesado a favor de ${supName}. Se liquidaron ${liquidatedCount} factura(s)${
-        partialAbono > 0 ? ` y se aplicó un abono de $${partialAbono.toFixed(2)} a la compra más antigua.` : '.'
-      }`,
+      message: `Pago de $${amountUSD.toFixed(2)} para ${supName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
       type: 'credit_alert',
       badge: 'Pago Global CxP',
     });
@@ -2407,415 +2975,121 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Liquidate all pending debt with a specific supplier
-  const liquidateSupplierTotalDebt = (
-    supplierId: string,
-    details?: {
-      paymentMethod?: PaymentMethod;
-      reference?: string;
-      notes?: string;
-      bcvRate?: number;
-    }
-  ) => {
+  const liquidateSupplierTotalDebt = (supplierId: string, details?: { paymentMethod?: PaymentMethod; reference?: string; notes?: string; bcvRate?: number }) => {
     const supPending = payables.filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001);
     const totalDebt = supPending.reduce((sum, p) => sum + p.balanceUSD, 0);
     if (totalDebt <= 0) return;
-    registerGlobalSupplierPayment(supplierId, totalDebt, {
-      ...details,
-      notes: details?.notes || 'Liquidación TOTAL de compras con el proveedor',
-    });
+    registerGlobalSupplierPayment(supplierId, totalDebt, { ...details, notes: details?.notes || 'Liquidación TOTAL de compras con el proveedor' });
   };
 
-  const updateSupplierCredit = (
-    supplierId: string,
-    creditDays: number,
-    creditLimitUSD?: number,
-    notes?: string
-  ) => {
-    setSuppliers((prev) =>
-      prev.map((s) =>
-        s.id === supplierId
-          ? {
-              ...s,
-              creditDays,
-              creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD,
-            }
-          : s
-      )
-    );
-    triggerPushNotification({
-      title: 'Condiciones de Proveedor Actualizadas',
-      message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`,
-      type: 'credit_alert',
-      badge: 'Condiciones CxP',
-    });
+  const updateSupplierCredit = (supplierId: string, creditDays: number, creditLimitUSD?: number, notes?: string) => {
+    setSuppliers((prev) => prev.map((s) => s.id === supplierId ? { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD } : s));
+    triggerPushNotification({ title: 'Condiciones de Proveedor Actualizadas', message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`, type: 'credit_alert', badge: 'Condiciones CxP' });
   };
 
   const addPayableInvoice = (payable: Omit<PayableItem, 'id'>) => {
-    const newPayable: PayableItem = {
-      ...payable,
-      id: `pay-${Date.now()}`,
-      paymentHistory: payable.paymentHistory || [],
-    };
+    const newPayable: PayableItem = { ...payable, id: `pay-${Date.now()}`, paymentHistory: payable.paymentHistory || [] };
     setPayables((prev) => [newPayable, ...prev]);
   };
 
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
-    const newSup: Supplier = {
-      ...supplier,
-      id: `sup-${Date.now()}`,
-    };
+    const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}` };
     setSuppliers((prev) => [newSup, ...prev]);
   };
 
-  const processPurchaseEntry = (
-    entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>
-  ): { success: boolean; purchaseEntry: PurchaseEntry } => {
+  const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
     const entryId = `ent-${Date.now()}`;
     const seq = purchaseEntries.length + 1;
     const entryNumber = `ENT-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
     const nowIso = new Date().toISOString();
-
-    const newEntry: PurchaseEntry = {
-      ...entryData,
-      id: entryId,
-      entryNumber,
-      createdAt: nowIso,
-    };
-
-    // 1. Update products stock and cost prices
+    const newEntry: PurchaseEntry = { ...entryData, id: entryId, entryNumber, createdAt: nowIso };
     const updatedProducts = products.map((prod) => {
       const match = entryData.items.find((it) => it.productId === prod.id);
       if (!match) return prod;
-
-      const newStock = Math.max(0, (prod.stock || 0) + match.quantity);
-      const prevCost = prod.costUSD;
-      const newCost = match.currentBaseCostUSD;
-      const newRealCost = match.realCostUSD;
-
-      return {
-        ...prod,
-        stock: newStock,
-        lastCostUSD: prevCost > 0 ? prevCost : newCost,
-        costUSD: newCost,
-        realCostUSD: newRealCost,
-      };
+      return { ...prod, stock: Math.max(0, (prod.stock || 0) + match.quantity), lastCostUSD: prod.costUSD > 0 ? prod.costUSD : match.currentBaseCostUSD, costUSD: match.currentBaseCostUSD, realCostUSD: match.realCostUSD };
     });
-
     setProducts(updatedProducts);
-    broadcastStockUpdate(updatedProducts, {
-      productIds: entryData.items.map((it) => it.productId),
-      source: 'adjustment',
-      summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario`,
-    });
-
-    // 2. If there is an outstanding balance (credito or mixto), record into payables (CxP)
+    broadcastStockUpdate(updatedProducts, { productIds: entryData.items.map((it) => it.productId), source: 'adjustment', summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario` });
+    for (const item of entryData.items) offlineSyncService.enqueueInventoryMovement({ productId: item.productId, quantityDelta: item.quantity, movementType: 'purchase' });
+    if (navigator.onLine && tursoService.isConfigured()) offlineSyncService.flush().catch((error) => console.warn('Entrada de inventario en cola:', error));
     if (entryData.balanceUSD > 0.001) {
-      const isSettled = entryData.balanceUSD <= 0.01;
       const initialHistory: PayablePaymentRecord[] = [];
-      if (entryData.amountPaidUSD > 0) {
-        initialHistory.push({
-          id: `pay-rec-${Date.now()}`,
-          date: nowIso,
-          amountUSD: entryData.amountPaidUSD,
-          amountBs: entryData.amountPaidBs,
-          bcvRate: entryData.bcvRate,
-          paymentMethod: 'transferencia_usd',
-          reference: 'PAGO-INICIAL-ENTRADA',
-          notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
-          registeredBy: currentUser.name || 'Admin',
-          balanceAfterUSD: entryData.balanceUSD,
-          isFullSettlement: false,
-        });
-      }
-
+      if (entryData.amountPaidUSD > 0) initialHistory.push({
+        id: `pay-rec-${Date.now()}`, date: nowIso, amountUSD: entryData.amountPaidUSD, amountBs: entryData.amountPaidBs, bcvRate: entryData.bcvRate,
+        paymentMethod: 'transferencia_usd', reference: 'PAGO-INICIAL-ENTRADA', notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
+        registeredBy: currentUser.name || 'Admin', balanceAfterUSD: entryData.balanceUSD, isFullSettlement: false,
+      });
       const newPayable: PayableItem = {
-        id: `pay-${Date.now()}`,
-        supplierId: entryData.supplierId,
-        supplierName: entryData.supplierName,
-        invoiceNumber: entryData.invoiceNumber || entryNumber,
-        description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
-        totalAmountUSD: entryData.totalInvoiceUSD,
-        amountPaidUSD: entryData.amountPaidUSD,
-        balanceUSD: entryData.balanceUSD,
-        issuedDate: entryData.date,
-        dueDate: entryData.creditDueDate || entryData.date,
-        creditDays: entryData.creditDays || 15,
-        status: isSettled ? 'pagado' : 'al_dia',
-        items: entryData.items.map((it) => ({
-          productName: it.productName,
-          quantity: it.quantity,
-          unitPriceUSD: it.realCostUSD,
-          subtotalUSD: it.subtotalUSD,
-        })),
+        id: `pay-${Date.now()}`, supplierId: entryData.supplierId, supplierName: entryData.supplierName,
+        invoiceNumber: entryData.invoiceNumber || entryNumber, description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
+        totalAmountUSD: entryData.totalInvoiceUSD, amountPaidUSD: entryData.amountPaidUSD, balanceUSD: entryData.balanceUSD,
+        issuedDate: entryData.date, dueDate: entryData.creditDueDate || entryData.date, creditDays: entryData.creditDays || 15,
+        status: entryData.balanceUSD <= 0.01 ? 'pagado' : 'al_dia',
+        items: entryData.items.map((it) => ({ productName: it.productName, quantity: it.quantity, unitPriceUSD: it.realCostUSD, subtotalUSD: it.subtotalUSD })),
         paymentHistory: initialHistory,
       };
-
       setPayables((prev) => [newPayable, ...prev]);
     }
-
-    // 3. Save purchase entry
     setPurchaseEntries((prev) => [newEntry, ...prev]);
-
-    // 4. Notifications & Feedback
-    triggerPushNotification({
-      title: `Entrada ${entryNumber} Registrada con Éxito`,
-      message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`,
-      type: 'inventory_alert',
-      badge: 'Entrada por Compra',
-      sound: true,
-    });
-
+    triggerPushNotification({ title: `Entrada ${entryNumber} Registrada con Éxito`, message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`, type: 'inventory_alert', badge: 'Entrada por Compra', sound: true });
     return { success: true, purchaseEntry: newEntry };
   };
 
-  const updateSupplier = (supplier: Supplier) => {
-    setSuppliers((prev) => prev.map((s) => (s.id === supplier.id ? supplier : s)));
-  };
+  const updateSupplier = (supplier: Supplier) => setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
 
   const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
-    const newUser: User = {
-      ...user,
-      id: `usr-${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0],
-      active: user.active ?? true,
-      password: user.password || 'admin123',
-      isInitialGeneric: false,
-    };
+    const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
     setUsers((prev) => [...prev, newUser]);
-    triggerPushNotification({
-      title: 'Colaborador Registrado',
-      message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`,
-      type: 'inventory_alert',
-      badge: 'Usuarios ERP',
-    });
+    triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
   };
 
   const updateUser = (user: User) => {
-    setUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)));
-    if (currentUser.id === user.id) {
-      setCurrentUser(user);
-    }
+    setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
+    if (currentUser.id === user.id) setCurrentUser(user);
   };
 
   const deleteUser = (userId: string): { success: boolean; message: string } => {
     const target = users.find((u) => u.id === userId);
     if (!target) return { success: false, message: 'Usuario no encontrado' };
-
     if (target.role === 'admin') {
       const activeAdmins = users.filter((u) => u.role === 'admin' && u.active);
-      if (activeAdmins.length <= 1) {
-        alert(
-          'No se puede eliminar el único Administrador del sistema. Crea un nuevo Administrador primero.'
-        );
-        return {
-          success: false,
-          message: 'No se puede eliminar el único Administrador.',
-        };
-      }
+      if (activeAdmins.length <= 1) return { success: false, message: 'No se puede eliminar el único Administrador.' };
     }
-
     if (currentUser.id === userId) {
-      const remainingAdmin = users.find(
-        (u) => u.id !== userId && u.role === 'admin' && u.active
-      );
-      if (remainingAdmin) {
-        setCurrentUser(remainingAdmin);
-      }
+      const remainingAdmin = users.find((u) => u.id !== userId && u.role === 'admin' && u.active);
+      if (remainingAdmin) setCurrentUser(remainingAdmin);
     }
-
     setUsers((prev) => prev.filter((u) => u.id !== userId));
-
-    triggerPushNotification({
-      title: 'Usuario Eliminado',
-      message: `El usuario "${target.name}" ha sido eliminado del sistema.`,
-      type: 'inventory_alert',
-      badge: 'Control ERP',
-    });
-
+    triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
     return { success: true, message: 'Usuario eliminado exitosamente' };
   };
 
   const resetSystemToFactory = () => {
-    localStorage.removeItem('omni_users');
-    localStorage.removeItem('omni_settings');
-    localStorage.removeItem('omni_customers');
-    localStorage.removeItem('omni_products');
-    localStorage.removeItem('omni_cart');
-    localStorage.removeItem('omni_orders');
-    localStorage.removeItem('omni_invoices');
-    localStorage.removeItem('omni_receivables');
-    localStorage.removeItem('omni_payables');
-    localStorage.removeItem('omni_suppliers');
-    localStorage.removeItem('omni_notifications');
-    localStorage.removeItem('omni_active_customer_id');
-
-    setUsers(INITIAL_USERS);
-    setCurrentUser(INITIAL_GENERIC_ADMIN);
-    setSettings(INITIAL_SETTINGS);
-    setCustomers(INITIAL_CUSTOMERS);
-    setProducts(INITIAL_PRODUCTS);
-    setCart([]);
-    setOrders(INITIAL_ORDERS);
-    setInvoices(INITIAL_INVOICES);
-    setReceivables(INITIAL_RECEIVABLES);
-    setPayables(INITIAL_PAYABLES);
-    setSuppliers(INITIAL_SUPPLIERS);
-    setCurrentCustomer(null);
-
-    triggerPushNotification({
-      title: 'Sistema Reiniciado desde Cero',
-      message: 'Valores restablecidos a fábrica. El Administrador Inicial (Genérico) ha sido restaurado.',
-      type: 'custom_broadcast',
-      badge: 'Reset de Fábrica',
-    });
+    localStorage.removeItem('omni_users'); localStorage.removeItem('omni_settings'); localStorage.removeItem('omni_customers'); localStorage.removeItem('omni_products'); localStorage.removeItem('omni_cart'); localStorage.removeItem('omni_orders'); localStorage.removeItem('omni_invoices'); localStorage.removeItem('omni_receivables'); localStorage.removeItem('omni_payables'); localStorage.removeItem('omni_suppliers'); localStorage.removeItem('omni_notifications'); localStorage.removeItem('omni_active_customer_id');
+    setUsers(INITIAL_USERS); setCurrentUser(INITIAL_GENERIC_ADMIN); setSettings(INITIAL_SETTINGS); setCustomers(INITIAL_CUSTOMERS); setProducts(INITIAL_PRODUCTS); setCart([]); setOrders(INITIAL_ORDERS); setInvoices(INITIAL_INVOICES); setReceivables(INITIAL_RECEIVABLES); setPayables(INITIAL_PAYABLES); setSuppliers(INITIAL_SUPPLIERS); setCurrentCustomer(null);
+    triggerPushNotification({ title: 'Sistema Reiniciado desde Cero', message: 'Valores restablecidos a fábrica. El Administrador Inicial (Genérico) ha sido restaurado.', type: 'custom_broadcast', badge: 'Reset de Fábrica' });
   };
 
-  const updateSettings = (newSettings: Partial<SystemSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
-  };
-
-  const markNotificationAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-  };
-
-  const clearAllNotifications = () => {
-    setNotifications([]);
-  };
+  const updateSettings = (newSettings: Partial<SystemSettings>) => setSettings((prev) => ({ ...prev, ...newSettings }));
+  const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  const clearAllNotifications = () => setNotifications([]);
 
   return (
-    <AppContext.Provider
-      value={{
-        mode,
-        setMode,
-        currentUser,
-        setCurrentUser,
-        currentCustomer,
-        setCurrentCustomer,
-        products,
-        categories,
-        addCategory,
-        deleteCategory,
-        updateCategory,
-        units,
-        addUnit,
-        deleteUnit,
-        updateUnit,
-        cart,
-        orders,
-        invoices,
-        receivables,
-        payables,
-        purchaseEntries,
-        suppliers,
-        customers,
-        users,
-        settings,
-        notifications,
-        addToCart,
-        addToCartWithPresentation,
-        updateCartQuantity,
-        removeFromCart,
-        clearCart,
-        createOrder,
-        reorder,
-        updateOrderStatus,
-        updatePaymentStatus,
-        updateBcvRate,
-        fetchAutomaticBcvRate,
-        syncBcvOfficialHistory,
-        addProduct,
-        updateProduct,
-        deleteProduct,
-        adjustProductStock,
-        addCustomer,
-        updateCustomer,
-        updateCustomerCredit,
-        approveCustomerCreditRequest,
-        rejectCustomerCreditRequest,
-        approveCustomerVerification,
-        rejectCustomerVerification,
-        registerReceivablePayment,
-        registerGlobalCustomerPayment,
-        liquidateCustomerInvoice,
-        liquidateCustomerTotalDebt,
-        registerPayablePayment,
-        registerGlobalSupplierPayment,
-        liquidateSupplierInvoice,
-        liquidateSupplierTotalDebt,
-        updateSupplierCredit,
-        addPayableInvoice,
-        addSupplier,
-        updateSupplier,
-        processPurchaseEntry,
-        addUser,
-        updateUser,
-        deleteUser,
-        resetSystemToFactory,
-        refreshBcvRate: fetchAutomaticBcvRate,
-        updateSettings,
-        markNotificationAsRead,
-        clearAllNotifications,
-        // Push notifications & Toasts
-        activePushToasts,
-        dismissPushToast,
-        triggerPushNotification,
-        broadcastPushNotification,
-        // Customer Auth
-        loginCustomer,
-        registerCustomer,
-        logoutCustomer,
-        updateCustomerPreferences,
-        // Navigation tabs & modals
-        storeTab,
-        setStoreTab,
-        customerPortalTab,
-        setCustomerPortalTab,
-        isAdminActive,
-        setIsAdminActive,
-        authInitialTab,
-        setAuthInitialTab,
-        isAuthModalOpen,
-        setIsAuthModalOpen,
-        isAdminModalOpen,
-        setIsAdminModalOpen,
-        isNotificationSettingsOpen,
-        setIsNotificationSettingsOpen,
-        isSellerAlertsModalOpen,
-        setIsSellerAlertsModalOpen,
-        isBusinessSettingsModalOpen,
-        setIsBusinessSettingsModalOpen,
-        // BCV Panel & Category/Unit Modal & Presentation modal
-        isBcvPanelOpen,
-        setIsBcvPanelOpen,
-        isCategoryUnitModalOpen,
-        setIsCategoryUnitModalOpen,
-        presentationModalProduct,
-        setPresentationModalProduct,
-        presentationCallback,
-        openPresentationModal,
-        // UI states
-        isCartOpen,
-        setIsCartOpen,
-        isOrdersModalOpen,
-        setIsOrdersModalOpen,
-        selectedInvoiceForModal,
-        setSelectedInvoiceForModal,
-        lastSuccessfulOrder,
-        setLastSuccessfulOrder,
-        // Automated Reminders
-        automatedReminders,
-        runManualReminderScan,
-        // Real-Time Stock Synchronization
-        lastStockUpdateEvent,
-        broadcastStockUpdate,
-        // Turso Database Cloud State
-        tursoState,
-        bootstrapTursoSchema,
-        syncWithTurso,
-      }}
-    >
+    <AppContext.Provider value={{
+      mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
+      cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
+      addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
+      updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
+      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
+      registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, processPurchaseEntry,
+      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
+      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, updateCustomerPreferences,
+      storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
+      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
+      isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
+      isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, lastSuccessfulOrder, setLastSuccessfulOrder,
+      automatedReminders, runManualReminderScan, lastStockUpdateEvent, broadcastStockUpdate, tursoState, bootstrapTursoSchema, syncWithTurso,
+    }}>
       {children}
     </AppContext.Provider>
   );
@@ -2823,8 +3097,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
 export const useApp = () => {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
-  }
+  if (!context) throw new Error('useApp must be used within an AppProvider');
   return context;
 };

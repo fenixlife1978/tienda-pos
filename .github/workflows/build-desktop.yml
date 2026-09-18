@@ -2,7 +2,7 @@ name: Compilar y Generar Instalador Windows .EXE
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feature/offline-first-pos, feat/finalizacion-operativa-lgb ]
     tags:
       - 'v*'
   pull_request:
@@ -10,18 +10,17 @@ on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: 'Versión o Etiqueta del Release (ej. v1.0.0)'
+        description: 'Versión o etiqueta del Release (ej. v1.0.0)'
         required: false
-        default: 'v1.0.0'
+        default: ''
       create_release:
         description: '¿Publicar automáticamente en GitHub Releases?'
         type: boolean
         required: false
-        default: true
+        default: false
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   build-windows-exe:
@@ -32,64 +31,62 @@ jobs:
       - name: 📥 Clonar Repositorio
         uses: actions/checkout@v4
 
-      - name: ⚙️ Configurar Entorno Node.js
+      - name: ⚙️ Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      - name: 📦 Instalar Dependencias
-        run: npm ci || npm install
+      - name: 📦 Instalar dependencias del proyecto
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
 
-      - name: 🛠️ Instalar Dependencias de Empaquetado Desktop (Electron)
-        run: npm install --save-dev electron@33.2.1 electron-builder@25.1.8
+      - name: 🛠️ Preparar Electron y electron-builder
+        shell: pwsh
+        run: |
+          npm install --no-save --no-package-lock --no-audit --no-fund electron@33.2.1 electron-builder@25.1.8
 
-      - name: 🚀 Compilar Aplicación Web (Vite + React)
+      - name: 🔎 Verificar toolchain
+        shell: pwsh
+        run: |
+          node --version
+          npm --version
+          npx electron --version
+          npx electron-builder --version
+
+      - name: 🧪 Verificación TypeScript
+        run: npm run lint
+
+      - name: 🚀 Compilar aplicación web (Vite + React)
         run: npm run build
 
-      - name: 📦 Generar Instalador .EXE (NSIS Setup y Portable)
-        run: npx electron-builder --win --x64 --config electron-builder.json
+      - name: 📦 Generar Setup NSIS + Portable x64
+        run: npx electron-builder --win --x64 --config electron-builder.json --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-      - name: 📤 Publicar Artefacto: Instalador Setup (.exe)
+      - name: 📤 Publicar artefactos Windows
         uses: actions/upload-artifact@v4
         with:
-          name: Distribuidora-LaGranBodega-Instalador-Setup-EXE
-          path: release-builds/Distribuidora-Setup-Installer.exe
+          name: Distribuidora-LaGranBodega-Windows-${{ github.sha }}
+          path: |
+            release-builds/*.exe
           if-no-files-found: error
           retention-days: 90
 
-      - name: 📤 Publicar Artefacto: Ejecutable Portable (.exe)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Distribuidora-LaGranBodega-Ejecutable-Portable-EXE
-          path: release-builds/Distribuidora-Demo-Portable.exe
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: 📤 Publicar Paquete Completo de Artefactos
-        uses: actions/upload-artifact@v4
-        with:
-          name: Todos-Los-Ejecutables-Windows-EXE
-          path: release-builds/*.exe
-          if-no-files-found: warn
-          retention-days: 90
-
-      - name: 🏷️ Publicar en GitHub Releases (Opcional si es Tag o Dispatch)
-        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+      - name: 🏷️ Publicar GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true && inputs.version_tag != '')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
-          name: "Distribuidora La Gran Bodega M&S - Release ${{ github.event.inputs.version_tag || github.ref_name }}"
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version_tag }}
+          name: "Distribuidora La Gran Bodega M&S - Release ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version_tag }}"
           body: |
-            ### 📦 Descargas Disponibles para Windows
-            - 💾 **[Distribuidora-Setup-Installer.exe](Distribuidora-Setup-Installer.exe)**: Instalador oficial con acceso directo en Escritorio y Menú Inicio.
-            - ⚡ **[Distribuidora-Demo-Portable.exe](Distribuidora-Demo-Portable.exe)**: Ejecutable portable (no requiere instalación, ideal para pendrive o pruebas rápidas).
-            
-            *Compilado automáticamente mediante GitHub Actions con soporte de facturación, POS, catálogo y panel ERP.*
+            ### 📦 Descargas para Windows
+            - Instalador Setup NSIS (.exe)
+            - Ejecutable Portable (.exe)
+
+            Compilado automáticamente mediante GitHub Actions.
           files: |
-            release-builds/Distribuidora-Setup-Installer.exe
-            release-builds/Distribuidora-Demo-Portable.exe
+            release-builds/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

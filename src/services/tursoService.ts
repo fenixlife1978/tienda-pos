@@ -12,6 +12,7 @@ import {
   Supplier,
   SystemSettings,
   User,
+  PurchaseEntry,
 } from '../types';
 import {
   INITIAL_CATEGORIES,
@@ -30,6 +31,14 @@ import {
 export interface TursoConfig {
   url: string;
   authToken: string;
+}
+
+export interface SyncOperationRecord {
+  operationId: string;
+  terminalId: string;
+  operationType: string;
+  entityId: string;
+  payload?: unknown;
 }
 
 export interface TursoSyncState {
@@ -265,6 +274,10 @@ class TursoService {
           payment_reference TEXT,
           channel TEXT NOT NULL,
           created_at TEXT NOT NULL,
+          document_series TEXT,
+          document_sequence INTEGER,
+          return_number TEXT,
+          void_number TEXT,
           estimated_delivery TEXT,
           credit_due_date TEXT,
           credit_days INTEGER,
@@ -293,12 +306,59 @@ class TursoService {
           payment_method TEXT NOT NULL,
           payment_status TEXT NOT NULL,
           created_at TEXT NOT NULL,
+          document_series TEXT,
+          document_sequence INTEGER,
+          return_number TEXT,
+          void_number TEXT,
           due_date TEXT,
           is_credit INTEGER DEFAULT 0,
           credit_days INTEGER
         );
       `);
       tablesCreated.push('invoices');
+      for (const sql of [
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_invoice_number ON invoices(invoice_number)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_return_number ON orders(return_number)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_void_number ON orders(void_number)'
+      ]) { try { await client.execute(sql); } catch {} }
+
+      // Idempotent migrations for mixed payments, per-warehouse stock and reversal audit fields.
+      for (const sql of [
+        "ALTER TABLE products ADD COLUMN warehouse_stocks TEXT",
+        "ALTER TABLE orders ADD COLUMN payment_splits TEXT",
+        "ALTER TABLE orders ADD COLUMN cash_session_id TEXT",
+        "ALTER TABLE orders ADD COLUMN document_series TEXT",
+        "ALTER TABLE orders ADD COLUMN document_sequence INTEGER",
+        "ALTER TABLE orders ADD COLUMN return_number TEXT",
+        "ALTER TABLE orders ADD COLUMN void_number TEXT",
+
+        "ALTER TABLE orders ADD COLUMN is_voided INTEGER DEFAULT 0",
+        "ALTER TABLE orders ADD COLUMN voided_at TEXT",
+        "ALTER TABLE orders ADD COLUMN voided_by TEXT",
+        "ALTER TABLE orders ADD COLUMN void_reason TEXT",
+        "ALTER TABLE orders ADD COLUMN is_returned INTEGER DEFAULT 0",
+        "ALTER TABLE orders ADD COLUMN returned_at TEXT",
+        "ALTER TABLE orders ADD COLUMN returned_by TEXT",
+        "ALTER TABLE orders ADD COLUMN return_reason TEXT",
+        "ALTER TABLE invoices ADD COLUMN payment_splits TEXT",
+        "ALTER TABLE invoices ADD COLUMN cash_session_id TEXT",
+        "ALTER TABLE invoices ADD COLUMN document_series TEXT",
+        "ALTER TABLE invoices ADD COLUMN document_sequence INTEGER",
+        "ALTER TABLE invoices ADD COLUMN return_number TEXT",
+        "ALTER TABLE invoices ADD COLUMN void_number TEXT",
+
+        "ALTER TABLE invoices ADD COLUMN is_voided INTEGER DEFAULT 0",
+        "ALTER TABLE invoices ADD COLUMN voided_at TEXT",
+        "ALTER TABLE invoices ADD COLUMN voided_by TEXT",
+        "ALTER TABLE invoices ADD COLUMN void_reason TEXT",
+        "ALTER TABLE invoices ADD COLUMN is_returned INTEGER DEFAULT 0",
+        "ALTER TABLE invoices ADD COLUMN returned_at TEXT",
+        "ALTER TABLE invoices ADD COLUMN returned_by TEXT",
+        "ALTER TABLE invoices ADD COLUMN return_reason TEXT"
+      ]) {
+        try { await client.execute(sql); } catch {}
+      }
 
       // 9. accounts_receivable
       await client.execute(`
@@ -320,6 +380,13 @@ class TursoService {
         );
       `);
       tablesCreated.push('accounts_receivable');
+      for (const sql of [
+        "ALTER TABLE accounts_receivable ADD COLUMN is_voided INTEGER DEFAULT 0",
+        "ALTER TABLE accounts_receivable ADD COLUMN voided_at TEXT",
+        "ALTER TABLE accounts_receivable ADD COLUMN void_reason TEXT"
+      ]) {
+        try { await client.execute(sql); } catch {}
+      }
 
       // 10. accounts_payable
       await client.execute(`
@@ -340,7 +407,72 @@ class TursoService {
       `);
       tablesCreated.push('accounts_payable');
 
-      // 11. system_users
+      // 11. purchase_entries
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS purchase_entries (
+          id TEXT PRIMARY KEY,
+          entry_number TEXT NOT NULL,
+          data TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+      tablesCreated.push('purchase_entries');
+
+      // 12. sync_operations — idempotencia para operaciones offline
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS sync_operations (
+          operation_id TEXT PRIMARY KEY,
+          terminal_id TEXT NOT NULL,
+          operation_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          payload TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL,
+          processed_at TEXT,
+          error TEXT
+        );
+      `);
+      tablesCreated.push('sync_operations');
+
+      // 13. inventory_movements — movimientos append-only para inventario multi-caja/offline
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS inventory_movements (
+          movement_id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL,
+          quantity_delta REAL NOT NULL,
+          movement_type TEXT NOT NULL,
+          source_operation_id TEXT NOT NULL,
+          terminal_id TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+      await client.execute(`
+        CREATE INDEX IF NOT EXISTS idx_inventory_movements_product
+        ON inventory_movements(product_id);
+      `);
+      tablesCreated.push('inventory_movements');
+
+      // 14. cash_sessions / cash_movements — caja persistente por terminal
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS cash_sessions (
+          id TEXT PRIMARY KEY, terminal_id TEXT NOT NULL, opened_at TEXT NOT NULL,
+          opened_by TEXT NOT NULL, opening_bs REAL NOT NULL DEFAULT 0, opening_usd REAL NOT NULL DEFAULT 0,
+          closed_at TEXT, closed_by TEXT, closing_bs REAL, closing_usd REAL,
+          expected_bs REAL, expected_usd REAL, difference_bs REAL, difference_usd REAL, status TEXT NOT NULL
+        );
+      `);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_cash_sessions_terminal_status ON cash_sessions(terminal_id,status)`);
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS cash_movements (
+          id TEXT PRIMARY KEY, session_id TEXT NOT NULL, terminal_id TEXT NOT NULL,
+          type TEXT NOT NULL, currency TEXT NOT NULL, amount REAL NOT NULL, reason TEXT NOT NULL,
+          created_at TEXT NOT NULL, created_by TEXT NOT NULL
+        );
+      `);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id)`);
+      tablesCreated.push('cash_sessions','cash_movements');
+
+      // 14. system_users
       await client.execute(`
         CREATE TABLE IF NOT EXISTS system_users (
           id TEXT PRIMARY KEY,
@@ -356,7 +488,7 @@ class TursoService {
       `);
       tablesCreated.push('system_users');
 
-      // 12. bcv_history
+      // 15. bcv_history
       await client.execute(`
         CREATE TABLE IF NOT EXISTS bcv_history (
           id TEXT PRIMARY KEY,
@@ -473,6 +605,7 @@ class TursoService {
     invoices: Invoice[];
     receivables: ReceivableItem[];
     payables: PayableItem[];
+    purchaseEntries: PurchaseEntry[];
     users: User[];
   }> {
     const client = this.getClient();
@@ -538,6 +671,7 @@ class TursoService {
           stock: Number(row.stock),
           minStock: Number(row.min_stock),
           unit: String(row.unit),
+          warehouseStocks: row.warehouse_stocks ? JSON.parse(String(row.warehouse_stocks)) : undefined,
           image: String(row.image || ''),
           isOffer: Boolean(row.is_offer),
           discountPercentage: row.discount_percentage ? Number(row.discount_percentage) : undefined,
@@ -624,6 +758,12 @@ class TursoService {
           totalBs: Number(row.total_bs),
           bcvRate: Number(row.bcv_rate),
           paymentMethod: row.payment_method as any,
+          cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
+          documentSeries: row.document_series ? String(row.document_series) : undefined,
+          documentSequence: row.document_sequence != null ? Number(row.document_sequence) : undefined,
+          returnNumber: row.return_number ? String(row.return_number) : undefined,
+          voidNumber: row.void_number ? String(row.void_number) : undefined,
+          paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
           paymentStatus: row.payment_status as any,
           orderStatus: row.order_status as any,
           paymentReference: row.payment_reference ? String(row.payment_reference) : undefined,
@@ -633,6 +773,14 @@ class TursoService {
           creditDueDate: row.credit_due_date ? String(row.credit_due_date) : undefined,
           creditDays: row.credit_days ? Number(row.credit_days) : undefined,
           notes: row.notes ? String(row.notes) : undefined,
+          isVoided: Boolean(row.is_voided),
+          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+          voidedBy: row.voided_by ? String(row.voided_by) : undefined,
+          voidReason: row.void_reason ? String(row.void_reason) : undefined,
+          isReturned: Boolean(row.is_returned),
+          returnedAt: row.returned_at ? String(row.returned_at) : undefined,
+          returnedBy: row.returned_by ? String(row.returned_by) : undefined,
+          returnReason: row.return_reason ? String(row.return_reason) : undefined,
         });
       }
     } catch (e) {
@@ -660,11 +808,21 @@ class TursoService {
           totalBs: Number(row.total_bs),
           bcvRate: Number(row.bcv_rate),
           paymentMethod: row.payment_method as any,
+          cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
+          paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
           paymentStatus: row.payment_status as any,
           createdAt: String(row.created_at),
           dueDate: row.due_date ? String(row.due_date) : undefined,
           isCredit: Boolean(row.is_credit),
           creditDays: row.credit_days ? Number(row.credit_days) : undefined,
+          isVoided: Boolean(row.is_voided),
+          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+          voidedBy: row.voided_by ? String(row.voided_by) : undefined,
+          voidReason: row.void_reason ? String(row.void_reason) : undefined,
+          isReturned: Boolean(row.is_returned),
+          returnedAt: row.returned_at ? String(row.returned_at) : undefined,
+          returnedBy: row.returned_by ? String(row.returned_by) : undefined,
+          returnReason: row.return_reason ? String(row.return_reason) : undefined,
         });
       }
     } catch (e) {
@@ -690,6 +848,9 @@ class TursoService {
           dueDate: String(row.due_date),
           creditDays: Number(row.credit_days || 15),
           status: row.status as any,
+          isVoided: Boolean(row.is_voided),
+          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+          voidReason: row.void_reason ? String(row.void_reason) : undefined,
         });
       }
     } catch (e) {
@@ -719,7 +880,18 @@ class TursoService {
       console.warn('Error fetching payables from Turso:', e);
     }
 
-    // 11. Users
+    // 11. Purchase entries
+    const purchaseEntries: PurchaseEntry[] = [];
+    try {
+      const res = await client.execute('SELECT data FROM purchase_entries ORDER BY created_at DESC');
+      for (const row of res.rows) {
+        if (row.data) purchaseEntries.push(JSON.parse(String(row.data)));
+      }
+    } catch (e) {
+      console.warn('Error fetching purchase entries from Turso:', e);
+    }
+
+    // 12. Users
     const users: User[] = [];
     try {
       const res = await client.execute('SELECT * FROM system_users ORDER BY name ASC');
@@ -782,6 +954,7 @@ class TursoService {
       invoices,
       receivables,
       payables,
+      purchaseEntries,
       users,
     };
   }
@@ -797,7 +970,7 @@ class TursoService {
     });
   }
 
-  public async saveProduct(p: Product) {
+  public async saveProduct(p: Product, options?: { preserveStock?: boolean }) {
     const client = this.getClient();
     if (!client) return;
     await client.execute({
@@ -805,11 +978,11 @@ class TursoService {
         INSERT OR REPLACE INTO products (
           id, code, name, category, cost_usd, profit_margin_percent, price_usd,
           stock, min_stock, unit, image, is_offer, discount_percentage,
-          description, applies_iva, alternative_prices, presentations,
+          warehouse_stocks, description, applies_iva, alternative_prices, presentations,
           suppliers_info, highest_supplier_cost, is_composite,
           composite_components, composite_virtual_stock, is_weighable,
           price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         p.id,
@@ -819,12 +992,17 @@ class TursoService {
         p.costUSD,
         p.profitMarginPercent ?? null,
         p.priceUSD,
-        p.stock,
+        options?.preserveStock ? (
+          // Preserve the authoritative global stock when replaying a master-data snapshot.
+          // Inventory quantity is changed only through inventory_movements.
+          Number((await client.execute({ sql: 'SELECT stock FROM products WHERE id = ?', args: [p.id] })).rows[0]?.stock ?? p.stock)
+        ) : p.stock,
         p.minStock,
         p.unit,
         p.image || '',
         p.isOffer ? 1 : 0,
         p.discountPercentage ?? 0,
+        p.warehouseStocks ? JSON.stringify(p.warehouseStocks) : null,
         p.description || '',
         p.appliesIva === false ? 0 : 1,
         p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
@@ -840,6 +1018,71 @@ class TursoService {
         p.fractionUnit ?? null,
         new Date().toISOString(),
         new Date().toISOString(),
+      ],
+    });
+  }
+
+  /**
+   * Persiste datos maestros del producto sin tocar stock.
+   * Stock es propiedad exclusiva de inventory_movements para evitar lost updates
+   * cuando varias cajas trabajan offline y reconectan después.
+   */
+  public async saveProductMaster(p: Product) {
+    const client = this.getClient();
+    if (!client) return;
+
+    // If the product is new, create it once with its local initial stock.
+    await client.execute({
+      sql: `
+        INSERT OR IGNORE INTO products (
+          id, code, name, category, cost_usd, profit_margin_percent, price_usd,
+          stock, min_stock, unit, image, is_offer, discount_percentage,
+          description, applies_iva, alternative_prices, presentations,
+          suppliers_info, highest_supplier_cost, is_composite,
+          composite_components, composite_virtual_stock, is_weighable,
+          price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        p.id, p.code, p.name, p.category, p.costUSD, p.profitMarginPercent ?? null,
+        p.priceUSD, p.stock, p.minStock, p.unit, p.image || '', p.isOffer ? 1 : 0,
+        p.discountPercentage ?? 0, p.description || '', p.appliesIva === false ? 0 : 1,
+        p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
+        p.presentations ? JSON.stringify(p.presentations) : null,
+        p.suppliersInfo ? JSON.stringify(p.suppliersInfo) : null,
+        p.highestSupplierCost ?? null, p.isComposite ? 1 : 0,
+        p.compositeComponents ? JSON.stringify(p.compositeComponents) : null,
+        p.compositeVirtualStock ?? null, p.isWeighable ? 1 : 0,
+        p.pricePerKgUSD ?? null, p.isFractionable ? 1 : 0, p.fractionUnit ?? null,
+        new Date().toISOString(), new Date().toISOString(),
+      ],
+    });
+
+    // Update only master/product attributes. Stock is deliberately excluded.
+    await client.execute({
+      sql: `
+        UPDATE products SET
+          code = ?, name = ?, category = ?, cost_usd = ?, profit_margin_percent = ?,
+          price_usd = ?, min_stock = ?, unit = ?, image = ?, is_offer = ?,
+          discount_percentage = ?, description = ?, applies_iva = ?,
+          alternative_prices = ?, presentations = ?, suppliers_info = ?,
+          highest_supplier_cost = ?, is_composite = ?, composite_components = ?,
+          composite_virtual_stock = ?, is_weighable = ?, price_per_kg_usd = ?,
+          is_fractionable = ?, fraction_unit = ?, updated_at = ?
+        WHERE id = ?
+      `,
+      args: [
+        p.code, p.name, p.category, p.costUSD, p.profitMarginPercent ?? null,
+        p.priceUSD, p.minStock, p.unit, p.image || '', p.isOffer ? 1 : 0,
+        p.discountPercentage ?? 0, p.description || '', p.appliesIva === false ? 0 : 1,
+        p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
+        p.presentations ? JSON.stringify(p.presentations) : null,
+        p.suppliersInfo ? JSON.stringify(p.suppliersInfo) : null,
+        p.highestSupplierCost ?? null, p.isComposite ? 1 : 0,
+        p.compositeComponents ? JSON.stringify(p.compositeComponents) : null,
+        p.compositeVirtualStock ?? null, p.isWeighable ? 1 : 0,
+        p.pricePerKgUSD ?? null, p.isFractionable ? 1 : 0, p.fractionUnit ?? null,
+        new Date().toISOString(), p.id,
       ],
     });
   }
@@ -912,9 +1155,10 @@ class TursoService {
         INSERT OR REPLACE INTO orders (
           id, order_number, customer_id, customer_name, customer_rif, customer_phone,
           customer_address, items, subtotal_usd, tax_usd, total_usd, total_bs,
-          bcv_rate, payment_method, payment_status, order_status, payment_reference,
-          channel, created_at, estimated_delivery, credit_due_date, credit_days, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          bcv_rate, payment_method, payment_splits, cash_session_id, document_series, document_sequence, return_number, void_number, payment_status, order_status, payment_reference,
+          channel, created_at, estimated_delivery, credit_due_date, credit_days, notes,
+          is_voided, voided_at, voided_by, void_reason, is_returned, returned_at, returned_by, return_reason
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `,
       args: [
         o.id,
@@ -931,6 +1175,12 @@ class TursoService {
         o.totalBs,
         o.bcvRate,
         o.paymentMethod,
+        o.paymentSplits ? JSON.stringify(o.paymentSplits) : null,
+        o.cashSessionId || null,
+        o.documentSeries || null,
+        o.documentSequence ?? null,
+        o.returnNumber || null,
+        o.voidNumber || null,
         o.paymentStatus,
         o.orderStatus,
         o.paymentReference || null,
@@ -940,6 +1190,14 @@ class TursoService {
         o.creditDueDate || null,
         o.creditDays ?? null,
         o.notes || null,
+        o.isVoided ? 1 : 0,
+        o.voidedAt || null,
+        o.voidedBy || null,
+        o.voidReason || null,
+        o.isReturned ? 1 : 0,
+        o.returnedAt || null,
+        o.returnedBy || null,
+        o.returnReason || null,
       ],
     });
   }
@@ -952,9 +1210,10 @@ class TursoService {
         INSERT OR REPLACE INTO invoices (
           id, invoice_number, order_id, customer_id, customer_name, customer_rif,
           customer_address, customer_phone, items, subtotal_usd, tax_usd, total_usd,
-          total_bs, bcv_rate, payment_method, payment_status, created_at, due_date,
-          is_credit, credit_days
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, document_series, document_sequence, return_number, void_number, payment_status, created_at, due_date,
+          is_credit, credit_days, is_voided, voided_at, voided_by, void_reason,
+          is_returned, returned_at, returned_by, return_reason
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `,
       args: [
         inv.id,
@@ -972,11 +1231,25 @@ class TursoService {
         inv.totalBs,
         inv.bcvRate,
         inv.paymentMethod,
+        inv.paymentSplits ? JSON.stringify(inv.paymentSplits) : null,
+        inv.cashSessionId || null,
+        inv.documentSeries || null,
+        inv.documentSequence ?? null,
+        inv.returnNumber || null,
+        inv.voidNumber || null,
         inv.paymentStatus,
         inv.createdAt,
         inv.dueDate || null,
         inv.isCredit ? 1 : 0,
         inv.creditDays ?? null,
+        inv.isVoided ? 1 : 0,
+        inv.voidedAt || null,
+        inv.voidedBy || null,
+        inv.voidReason || null,
+        inv.isReturned ? 1 : 0,
+        inv.returnedAt || null,
+        inv.returnedBy || null,
+        inv.returnReason || null,
       ],
     });
   }
@@ -989,8 +1262,8 @@ class TursoService {
         INSERT OR REPLACE INTO accounts_receivable (
           id, invoice_id, invoice_number, customer_id, customer_name,
           customer_phone, total_amount_usd, amount_paid_usd, balance_usd,
-          issued_date, due_date, credit_days, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          issued_date, due_date, credit_days, status, created_at, is_voided, voided_at, void_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         r.id,
@@ -1007,6 +1280,9 @@ class TursoService {
         r.creditDays,
         r.status,
         new Date().toISOString(),
+        r.isVoided ? 1 : 0,
+        r.voidedAt || null,
+        r.voidReason || null,
       ],
     });
   }
@@ -1036,6 +1312,261 @@ class TursoService {
         p.status,
         new Date().toISOString(),
       ],
+    });
+  }
+
+  public async applyInventoryMovement(movement: {
+    movementId: string;
+    productId: string;
+    quantityDelta: number;
+    movementType: string;
+    sourceOperationId: string;
+    terminalId: string;
+    createdAt: string;
+  }): Promise<'applied' | 'already_applied'> {
+    const client = this.getClient();
+    if (!client) throw new Error('Cliente Turso no configurado');
+
+    const tx = await client.transaction('write');
+    try {
+      const insert = await tx.execute({
+        sql: `INSERT OR IGNORE INTO inventory_movements
+          (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          movement.movementId,
+          movement.productId,
+          movement.quantityDelta,
+          movement.movementType,
+          movement.sourceOperationId,
+          movement.terminalId,
+          movement.createdAt,
+        ],
+      });
+
+      if (Number(insert.rowsAffected || 0) === 0) {
+        await tx.rollback();
+        return 'already_applied';
+      }
+
+      const updated = await tx.execute({
+        sql: `UPDATE products
+          SET stock = MAX(0, ROUND(stock + ?, 3)), updated_at = ?
+          WHERE id = ?`,
+        args: [movement.quantityDelta, movement.createdAt, movement.productId],
+      });
+
+      if (Number(updated.rowsAffected || 0) === 0) {
+        throw new Error(`Producto no encontrado para movimiento de inventario: ${movement.productId}`);
+      }
+
+      await tx.commit();
+      return 'applied';
+    } catch (error) {
+      try { await tx.rollback(); } catch {}
+      throw error;
+    }
+  }
+
+  /** Aplica una venta offline completa de forma atómica y con control de concurrencia.
+   * Si varias terminales venden el mismo producto offline, la base central valida el stock
+   * dentro de la misma transacción que registra los movimientos y la venta. */
+  public async applyOfflineSale(operation: {
+    operationId: string; terminalId: string; order: Order; invoice: Invoice;
+    inventoryMovements: Array<{ movementId: string; productId: string; quantityDelta: number; movementType: string; sourceOperationId: string; terminalId: string; createdAt: string }>;
+    receivable?: ReceivableItem; customer?: Customer;
+  }): Promise<'applied' | 'already_applied'> {
+    const client = this.getClient();
+    if (!client) throw new Error('Cliente Turso no configurado');
+    const tx = await client.transaction('write');
+    try {
+      await tx.execute({
+        sql: "INSERT OR IGNORE INTO sync_operations (operation_id, terminal_id, operation_type, entity_id, payload, status, created_at) VALUES (?, ?, 'sale', ?, ?, 'pending', ?)",
+        args: [operation.operationId, operation.terminalId, operation.order.id, JSON.stringify({ orderId: operation.order.id, invoiceId: operation.invoice.id, inventoryMovements: operation.inventoryMovements.length }), operation.order.createdAt],
+      });
+      const existing = await tx.execute({ sql: 'SELECT status FROM sync_operations WHERE operation_id = ?', args: [operation.operationId] });
+      if (String(existing.rows[0]?.status || '') === 'processed') {
+        await tx.rollback();
+        return 'already_applied';
+      }
+
+      // Solo los movimientos que aún no fueron aplicados forman parte de este intento.
+      const pendingMovements: typeof operation.inventoryMovements = [];
+      for (const movement of operation.inventoryMovements) {
+        const inserted = await tx.execute({
+          sql: 'INSERT OR IGNORE INTO inventory_movements (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [movement.movementId, movement.productId, movement.quantityDelta, movement.movementType, movement.sourceOperationId, movement.terminalId, movement.createdAt],
+        });
+        if (Number(inserted.rowsAffected || 0) > 0) pendingMovements.push(movement);
+      }
+
+      // Agrupar por producto evita aceptar dos líneas que, en conjunto, exceden el stock.
+      const deltas = new Map<string, number>();
+      for (const movement of pendingMovements) {
+        deltas.set(movement.productId, (deltas.get(movement.productId) || 0) + movement.quantityDelta);
+      }
+      for (const [productId, delta] of deltas) {
+        const product = await tx.execute({ sql: 'SELECT stock FROM products WHERE id = ?', args: [productId] });
+        if (!product.rows.length) throw new Error(`Producto no encontrado para movimiento de inventario: ${productId}`);
+        const stock = Number(product.rows[0].stock || 0);
+        if (delta < 0 && stock + delta < -0.000001) {
+          throw new Error(`Conflicto de stock en venta offline para producto ${productId}: disponible ${stock}, solicitado ${Math.abs(delta)}.`);
+        }
+      }
+      for (const [productId, delta] of deltas) {
+        const updated = await tx.execute({
+          sql: 'UPDATE products SET stock = ROUND(stock + ?, 3), updated_at = ? WHERE id = ?',
+          args: [delta, operation.order.createdAt, productId],
+        });
+        if (!Number(updated.rowsAffected || 0)) throw new Error(`Producto no encontrado para actualización de inventario: ${productId}`);
+      }
+
+      const o = operation.order;
+      await tx.execute({
+        sql: 'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,document_series,document_sequence,return_number,void_number,payment_status,order_status,payment_reference,channel,created_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        args: [o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.cashSessionId||null,o.documentSeries||null,o.documentSequence??null,o.returnNumber||null,o.voidNumber||null,o.paymentStatus,o.orderStatus,o.paymentReference||null,o.channel,o.createdAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null],
+      });
+      const inv = operation.invoice;
+      await tx.execute({
+        sql: 'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,document_series,document_sequence,return_number,void_number,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        args: [inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.cashSessionId||null,inv.documentSeries||null,inv.documentSequence??null,inv.returnNumber||null,inv.voidNumber||null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null],
+      });
+      if (operation.customer) {
+        const x = operation.customer;
+        await tx.execute({
+          sql: 'INSERT OR REPLACE INTO customers (id,name,rif,email,phone,address,has_credit,credit_days,credit_limit_usd,current_debt_usd,password,avatar,notification_preferences,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          args: [x.id,x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.password||null,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,new Date().toISOString()],
+        });
+      }
+      if (operation.receivable) {
+        const r = operation.receivable;
+        await tx.execute({
+          sql: 'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          args: [r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null],
+        });
+      }
+      await tx.execute({ sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?", args:[new Date().toISOString(),operation.operationId] });
+      await tx.commit();
+      return 'applied';
+    } catch (error) {
+      try { await tx.rollback(); } catch {}
+      throw error;
+    }
+  }
+
+  /** Persiste una devolución/anulación y su inventario en una sola transacción. */
+  public async applySaleReversal(operation: {
+    operationId: string; terminalId: string; order: Order; invoice: Invoice;
+    inventoryMovements: Array<{ movementId: string; productId: string; quantityDelta: number; movementType: string; sourceOperationId: string; terminalId: string; createdAt: string }>;
+    receivable?: ReceivableItem; customer?: Customer;
+  }): Promise<'applied' | 'already_applied'> {
+    const client = this.getClient(); if (!client) throw new Error('Cliente Turso no configurado');
+    const tx = await client.transaction('write');
+    try {
+      await tx.execute({ sql: "INSERT OR IGNORE INTO sync_operations (operation_id, terminal_id, operation_type, entity_id, payload, status, created_at) VALUES (?, ?, 'sale_reversal', ?, ?, 'pending', ?)", args: [operation.operationId, operation.terminalId, operation.order.id, JSON.stringify({ orderId: operation.order.id, invoiceId: operation.invoice.id }), operation.order.createdAt] });
+      const existing = await tx.execute({ sql: 'SELECT status FROM sync_operations WHERE operation_id = ?', args: [operation.operationId] });
+      if (String(existing.rows[0]?.status || '') === 'processed') { await tx.rollback(); return 'already_applied'; }
+      for (const m of operation.inventoryMovements) {
+        const ins = await tx.execute({ sql: 'INSERT OR IGNORE INTO inventory_movements (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', args: [m.movementId,m.productId,m.quantityDelta,m.movementType,m.sourceOperationId,m.terminalId,m.createdAt] });
+        if (Number(ins.rowsAffected || 0) > 0) {
+          const up = await tx.execute({ sql: 'UPDATE products SET stock = MAX(0, ROUND(stock + ?, 3)), updated_at = ? WHERE id = ?', args: [m.quantityDelta,m.createdAt,m.productId] });
+          if (!Number(up.rowsAffected || 0)) throw new Error('Producto no encontrado para movimiento de inventario: '+m.productId);
+        }
+      }
+      const o=operation.order;
+      await tx.execute({ sql: 'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,payment_status,order_status,payment_reference,channel,created_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args: [o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.paymentStatus,o.orderStatus,o.paymentReference||null,o.channel,o.createdAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null] });
+      const inv=operation.invoice;
+      await tx.execute({ sql: 'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args: [inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null] });
+      if (operation.customer) { const x=operation.customer; await tx.execute({ sql:'UPDATE customers SET name=?,rif=?,email=?,phone=?,address=?,has_credit=?,credit_days=?,credit_limit_usd=?,current_debt_usd=?,password=?,avatar=?,notification_preferences=? WHERE id=?', args:[x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.password||null,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,x.id] }); }
+      if (operation.receivable) { const r=operation.receivable; await tx.execute({ sql:'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args:[r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null] }); }
+      await tx.execute({ sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?", args:[new Date().toISOString(),operation.operationId] });
+      await tx.commit(); return 'applied';
+    } catch(error) { try { await tx.rollback(); } catch {} throw error; }
+  }
+  public async beginSyncOperation(operation: SyncOperationRecord): Promise<'new' | 'processed'> {
+    const client = this.getClient();
+    if (!client) throw new Error('Cliente Turso no configurado');
+
+    await client.execute({
+      sql: `INSERT OR IGNORE INTO sync_operations
+        (operation_id, terminal_id, operation_type, entity_id, payload, status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+      args: [
+        operation.operationId,
+        operation.terminalId,
+        operation.operationType,
+        operation.entityId,
+        operation.payload === undefined ? null : JSON.stringify(operation.payload),
+        new Date().toISOString(),
+      ],
+    });
+
+    const result = await client.execute({
+      sql: 'SELECT status FROM sync_operations WHERE operation_id = ?',
+      args: [operation.operationId],
+    });
+    return String(result.rows[0]?.status || 'pending') === 'processed' ? 'processed' : 'new';
+  }
+
+  public async completeSyncOperation(operationId: string) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({
+      sql: `UPDATE sync_operations
+        SET status = 'processed', processed_at = ?, error = NULL
+        WHERE operation_id = ?`,
+      args: [new Date().toISOString(), operationId],
+    });
+  }
+
+  public async failSyncOperation(operationId: string, error: unknown) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({
+      sql: `UPDATE sync_operations SET status = 'pending', error = ? WHERE operation_id = ?`,
+      args: [String(error instanceof Error ? error.message : error), operationId],
+    });
+  }
+
+  public async saveCashSession(session: {
+    id: string; terminalId: string; openedAt: string; openedBy: string; openingBs: number; openingUSD: number;
+    closedAt?: string; closedBy?: string; closingBs?: number; closingUSD?: number;
+    expectedBs?: number; expectedUSD?: number; differenceBs?: number; differenceUSD?: number; status: 'open'|'closed';
+  }) {
+    const client=this.getClient(); if(!client) return;
+    await client.execute({sql:`INSERT OR REPLACE INTO cash_sessions
+      (id,terminal_id,opened_at,opened_by,opening_bs,opening_usd,closed_at,closed_by,closing_bs,closing_usd,expected_bs,expected_usd,difference_bs,difference_usd,status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,args:[session.id,session.terminalId,session.openedAt,session.openedBy,session.openingBs,session.openingUSD,session.closedAt||null,session.closedBy||null,session.closingBs??null,session.closingUSD??null,session.expectedBs??null,session.expectedUSD??null,session.differenceBs??null,session.differenceUSD??null,session.status]});
+  }
+  public async saveCashMovement(movement: {
+    id:string; sessionId:string; terminalId:string; type:string; currency:'Bs'|'USD'; amount:number; reason:string; createdAt:string; createdBy:string;
+  }) {
+    const client=this.getClient(); if(!client) return;
+    await client.execute({sql:`INSERT OR REPLACE INTO cash_movements
+      (id,session_id,terminal_id,type,currency,amount,reason,created_at,created_by) VALUES (?,?,?,?,?,?,?,?,?)`,args:[movement.id,movement.sessionId,movement.terminalId,movement.type,movement.currency,movement.amount,movement.reason,movement.createdAt,movement.createdBy]});
+  }
+  public async loadOpenCashSession(terminalId:string) {
+    const client=this.getClient(); if(!client) return null;
+    const r=await client.execute({sql:'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'open\' ORDER BY opened_at DESC LIMIT 1',args:[terminalId]});
+    return r.rows[0] || null;
+  }
+  public async loadCashHistory(terminalId:string, limit=100) {
+    const client=this.getClient(); if(!client) return [];
+    const r=await client.execute({sql:'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'closed\' ORDER BY closed_at DESC LIMIT ?',args:[terminalId,limit]});
+    return r.rows;
+  }
+  public async loadCashMovements(terminalId:string, limit=500) {
+    const client=this.getClient(); if(!client) return [];
+    const r=await client.execute({sql:'SELECT * FROM cash_movements WHERE terminal_id=? ORDER BY created_at DESC LIMIT ?',args:[terminalId,limit]});
+    return r.rows;
+  }
+
+  public async savePurchaseEntry(entry: PurchaseEntry) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO purchase_entries (id, entry_number, data, created_at) VALUES (?, ?, ?, ?)`,
+      args: [entry.id, entry.entryNumber, JSON.stringify(entry), entry.createdAt],
     });
   }
 

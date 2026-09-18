@@ -17,7 +17,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       webSecurity: true,
     },
-    icon: path.join(__dirname, '../public/logo.png'),
+    icon: path.join(app.getAppPath(), 'build/icons/TiendaPOS-256.ico'),
     show: false,
   });
 

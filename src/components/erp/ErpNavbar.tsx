@@ -17,15 +17,19 @@ import {
   UserCheck,
   Truck,
   Tag,
+  WalletCards,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
 export type ErpTab =
   | 'dashboard'
+  | 'caja'
   | 'pos'
   | 'pedidos'
   | 'solicitudes'
   | 'inventario'
+  | 'almacenes'
   | 'entradas_compras'
   | 'rentabilidad'
   | 'promociones'
@@ -70,6 +74,12 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       badge: null,
     },
     {
+      id: 'caja' as ErpTab,
+      label: 'Caja & Arqueo',
+      icon: WalletCards,
+      badge: null,
+    },
+    {
       id: 'pos' as ErpTab,
       label: 'Punto de Venta (POS)',
       icon: Calculator,
@@ -95,6 +105,12 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       icon: Boxes,
       badge: lowStockCount > 0 ? lowStockCount : null,
       badgeColor: 'bg-rose-500 text-white',
+    },
+    {
+      id: 'almacenes' as ErpTab,
+      label: 'Almacenes & Transferencias',
+      icon: ArrowRightLeft,
+      badge: null,
     },
     {
       id: 'entradas_compras' as ErpTab,
