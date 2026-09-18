@@ -2650,6 +2650,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario`,
     });
 
+    // Purchase inventory is also append-only. The product snapshot may update
+    // cost/master data, but never acts as the authoritative stock value.
+    for (const item of entryData.items) {
+      offlineSyncService.enqueueInventoryMovement({
+        productId: item.productId,
+        quantityDelta: item.quantity,
+        movementType: 'purchase',
+      });
+    }
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => console.warn('Entrada de inventario en cola:', error));
+    }
+
     // 2. If there is an outstanding balance (credito or mixto), record into payables (CxP)
     if (entryData.balanceUSD > 0.001) {
       const isSettled = entryData.balanceUSD <= 0.01;
