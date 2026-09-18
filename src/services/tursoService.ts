@@ -313,6 +313,8 @@ class TursoService {
       for (const sql of [
         "ALTER TABLE products ADD COLUMN warehouse_stocks TEXT",
         "ALTER TABLE orders ADD COLUMN payment_splits TEXT",
+        "ALTER TABLE orders ADD COLUMN cash_session_id TEXT",
+
         "ALTER TABLE orders ADD COLUMN is_voided INTEGER DEFAULT 0",
         "ALTER TABLE orders ADD COLUMN voided_at TEXT",
         "ALTER TABLE orders ADD COLUMN voided_by TEXT",
@@ -322,6 +324,8 @@ class TursoService {
         "ALTER TABLE orders ADD COLUMN returned_by TEXT",
         "ALTER TABLE orders ADD COLUMN return_reason TEXT",
         "ALTER TABLE invoices ADD COLUMN payment_splits TEXT",
+        "ALTER TABLE invoices ADD COLUMN cash_session_id TEXT",
+
         "ALTER TABLE invoices ADD COLUMN is_voided INTEGER DEFAULT 0",
         "ALTER TABLE invoices ADD COLUMN voided_at TEXT",
         "ALTER TABLE invoices ADD COLUMN voided_by TEXT",
@@ -732,6 +736,7 @@ class TursoService {
           totalBs: Number(row.total_bs),
           bcvRate: Number(row.bcv_rate),
           paymentMethod: row.payment_method as any,
+          cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
           paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
           paymentStatus: row.payment_status as any,
           orderStatus: row.order_status as any,
@@ -777,6 +782,7 @@ class TursoService {
           totalBs: Number(row.total_bs),
           bcvRate: Number(row.bcv_rate),
           paymentMethod: row.payment_method as any,
+          cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
           paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
           paymentStatus: row.payment_status as any,
           createdAt: String(row.created_at),
@@ -1123,7 +1129,7 @@ class TursoService {
         INSERT OR REPLACE INTO orders (
           id, order_number, customer_id, customer_name, customer_rif, customer_phone,
           customer_address, items, subtotal_usd, tax_usd, total_usd, total_bs,
-          bcv_rate, payment_method, payment_splits, payment_status, order_status, payment_reference,
+          bcv_rate, payment_method, payment_splits, cash_session_id, payment_status, order_status, payment_reference,
           channel, created_at, estimated_delivery, credit_due_date, credit_days, notes,
           is_voided, voided_at, voided_by, void_reason, is_returned, returned_at, returned_by, return_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1144,6 +1150,7 @@ class TursoService {
         o.bcvRate,
         o.paymentMethod,
         o.paymentSplits ? JSON.stringify(o.paymentSplits) : null,
+        o.cashSessionId || null,
         o.paymentStatus,
         o.orderStatus,
         o.paymentReference || null,
@@ -1173,7 +1180,7 @@ class TursoService {
         INSERT OR REPLACE INTO invoices (
           id, invoice_number, order_id, customer_id, customer_name, customer_rif,
           customer_address, customer_phone, items, subtotal_usd, tax_usd, total_usd,
-          total_bs, bcv_rate, payment_method, payment_splits, payment_status, created_at, due_date,
+          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, payment_status, created_at, due_date,
           is_credit, credit_days, is_voided, voided_at, voided_by, void_reason,
           is_returned, returned_at, returned_by, return_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1195,6 +1202,7 @@ class TursoService {
         inv.bcvRate,
         inv.paymentMethod,
         inv.paymentSplits ? JSON.stringify(inv.paymentSplits) : null,
+        inv.cashSessionId || null,
         inv.paymentStatus,
         inv.createdAt,
         inv.dueDate || null,
