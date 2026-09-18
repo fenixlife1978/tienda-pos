@@ -21,7 +21,7 @@
         "arch": ["x64"]
       }
     ],
-    "icon": "build/icons/TiendaPOS.ico"
+    "icon": "build/icons/TiendaPOS-256.ico"
   },
   "portable": {
     "artifactName": "Distribuidora-Demo-Portable.exe"
@@ -33,7 +33,7 @@
     "createStartMenuShortcut": true,
     "shortcutName": "Distribuidora La Gran Bodega ERP",
     "artifactName": "Distribuidora-Setup-Installer.exe",
-    "installerIcon": "build/icons/TiendaPOS.ico",
-    "uninstallerIcon": "build/icons/TiendaPOS.ico"
+    "installerIcon": "build/icons/TiendaPOS-256.ico",
+    "uninstallerIcon": "build/icons/TiendaPOS-256.ico"
   }
 }
