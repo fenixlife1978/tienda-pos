@@ -144,9 +144,13 @@ export const CashRegisterView: React.FC = () => {
         ? orders.filter(
             (o) =>
               o.channel === 'pos' &&
-              o.createdAt >= session.openedAt &&
-              o.createdAt <= (session.closedAt || new Date().toISOString()) &&
-              !(o as any).isVoided
+              !(o as any).isVoided &&
+              // Las ventas nuevas tienen asociación explícita. El fallback por fecha
+              // conserva compatibilidad con ventas históricas sin cashSessionId.
+              (o.cashSessionId
+                ? o.cashSessionId === session.id && o.customerId !== '__online__'
+                : o.createdAt >= session.openedAt &&
+                  o.createdAt <= (session.closedAt || new Date().toISOString()))
           )
         : [],
     [orders, session]
