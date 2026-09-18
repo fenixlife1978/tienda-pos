@@ -340,7 +340,18 @@ class TursoService {
       `);
       tablesCreated.push('accounts_payable');
 
-      // 11. system_users
+      // 11. purchase_entries
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS purchase_entries (
+          id TEXT PRIMARY KEY,
+          entry_number TEXT NOT NULL,
+          data TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+      tablesCreated.push('purchase_entries');
+
+      // 12. system_users
       await client.execute(`
         CREATE TABLE IF NOT EXISTS system_users (
           id TEXT PRIMARY KEY,
@@ -356,7 +367,7 @@ class TursoService {
       `);
       tablesCreated.push('system_users');
 
-      // 12. bcv_history
+      // 13. bcv_history
       await client.execute(`
         CREATE TABLE IF NOT EXISTS bcv_history (
           id TEXT PRIMARY KEY,
@@ -473,6 +484,7 @@ class TursoService {
     invoices: Invoice[];
     receivables: ReceivableItem[];
     payables: PayableItem[];
+    purchaseEntries: PurchaseEntry[];
     users: User[];
   }> {
     const client = this.getClient();
@@ -719,7 +731,18 @@ class TursoService {
       console.warn('Error fetching payables from Turso:', e);
     }
 
-    // 11. Users
+    // 11. Purchase entries
+    const purchaseEntries: PurchaseEntry[] = [];
+    try {
+      const res = await client.execute('SELECT data FROM purchase_entries ORDER BY created_at DESC');
+      for (const row of res.rows) {
+        if (row.data) purchaseEntries.push(JSON.parse(String(row.data)));
+      }
+    } catch (e) {
+      console.warn('Error fetching purchase entries from Turso:', e);
+    }
+
+    // 12. Users
     const users: User[] = [];
     try {
       const res = await client.execute('SELECT * FROM system_users ORDER BY name ASC');
@@ -782,6 +805,7 @@ class TursoService {
       invoices,
       receivables,
       payables,
+      purchaseEntries,
       users,
     };
   }
@@ -1036,6 +1060,15 @@ class TursoService {
         p.status,
         new Date().toISOString(),
       ],
+    });
+  }
+
+  public async savePurchaseEntry(entry: PurchaseEntry) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO purchase_entries (id, entry_number, data, created_at) VALUES (?, ?, ?, ?)`,
+      args: [entry.id, entry.entryNumber, JSON.stringify(entry), entry.createdAt],
     });
   }
 
