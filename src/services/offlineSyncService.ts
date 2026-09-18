@@ -1,10 +1,12 @@
 import { tursoService } from './tursoService';
+import { terminalIdentity } from './terminalIdentity';
 import { Customer, Invoice, Order, Product, ReceivableItem, PayableItem, Supplier, User, ProductCategory, ProductUnit, SystemSettings, PurchaseEntry } from '../types';
 
 const QUEUE_KEY = 'omni_offline_sync_queue_v1';
 
 export interface OfflineSaleOperation {
   id: string;
+  terminalId: string;
   type: 'sale';
   createdAt: string;
   order: Order;
@@ -47,6 +49,7 @@ export const offlineSyncService = {
     queue.push({
       ...operation,
       id: crypto.randomUUID(),
+      terminalId: terminalIdentity.getId(),
       type: 'sale',
       createdAt: new Date().toISOString(),
     });
@@ -83,6 +86,20 @@ export const offlineSyncService = {
 
     for (const operation of queue) {
       try {
+        const opStatus = await tursoService.beginSyncOperation({
+          operationId: operation.id,
+          terminalId: operation.type === 'sale' ? operation.terminalId : terminalIdentity.getId(),
+          operationType: operation.type,
+          entityId: operation.type === 'sale' ? operation.invoice.id : operation.entity,
+          payload: operation.type === 'sale' ? { orderId: operation.order.id, invoiceId: operation.invoice.id } : undefined,
+        });
+        if (opStatus === 'processed') {
+          const remaining = readQueue().filter((item) => item.id !== operation.id);
+          writeQueue(remaining);
+          processed++;
+          continue;
+        }
+
         if (operation.type === 'sale') {
           // Save master/customer state first, then the immutable sale documents.
           for (const product of operation.products) {
@@ -139,11 +156,14 @@ export const offlineSyncService = {
           }
         }
 
+        await tursoService.completeSyncOperation(operation.id);
+
         // Remove only after every write in this operation succeeds.
         const remaining = readQueue().filter((item) => item.id !== operation.id);
         writeQueue(remaining);
         processed++;
       } catch (error) {
+        try { await tursoService.failSyncOperation(operation.id, error); } catch {}
         console.warn('Offline sync paused; operation will be retried:', error);
         break;
       }
