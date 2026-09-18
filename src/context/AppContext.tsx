@@ -813,6 +813,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (cloudData.invoices.length > 0) setInvoices(cloudData.invoices);
       if (cloudData.receivables.length > 0) setReceivables(cloudData.receivables);
       if (cloudData.payables.length > 0) setPayables(cloudData.payables);
+      if (cloudData.purchaseEntries.length > 0) setPurchaseEntries(cloudData.purchaseEntries);
       if (cloudData.users.length > 0) setUsers(cloudData.users);
       if (cloudData.settings) setSettings(cloudData.settings);
 
@@ -824,7 +825,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         errorMessage: null,
         tablesCreated: [
           'products', 'categories', 'units', 'customers', 'suppliers',
-          'orders', 'invoices', 'accounts_receivable', 'accounts_payable',
+          'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
           'system_users', 'system_settings', 'bcv_history'
         ],
         totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
