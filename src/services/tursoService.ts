@@ -12,6 +12,7 @@ import {
   Supplier,
   SystemSettings,
   User,
+  PurchaseEntry,
 } from '../types';
 import {
   INITIAL_CATEGORIES,
