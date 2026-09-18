@@ -30,6 +30,9 @@ export const OrdersManagementView: React.FC = () => {
     invoices,
     updateOrderStatus,
     updatePaymentStatus,
+    processSaleReturn,
+    voidSale,
+    currentUser,
     selectedInvoiceForModal,
     setSelectedInvoiceForModal,
   } = useApp();
@@ -346,6 +349,45 @@ export const OrdersManagementView: React.FC = () => {
                           >
                             <FileText className="w-4 h-4" />
                           </button>
+
+                          {/* Devolución / anulación: operaciones sensibles requieren supervisor */}
+                          {(currentUser.role === 'admin' || currentUser.role === 'gerente') && !order.isReturned && !order.isVoided && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const reason = window.prompt('Motivo de la devolución total:');
+                                  if (!reason) return;
+                                  const result = processSaleReturn(order.id, reason);
+                                  alert(result.message);
+                                }}
+                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-bold text-[10px] transition cursor-pointer"
+                                title="Registrar devolución total y reintegrar mercancía"
+                              >
+                                Devolver
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!window.confirm(`¿Anular definitivamente la venta ${order.orderNumber}?`)) return;
+                                  const reason = window.prompt('Motivo de la anulación:');
+                                  if (!reason) return;
+                                  const result = voidSale(order.id, reason);
+                                  alert(result.message);
+                                }}
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-lg font-bold text-[10px] transition cursor-pointer"
+                                title="Anular venta y reintegrar mercancía"
+                              >
+                                Anular
+                              </button>
+                            </>
+                          )}
+
+                          {(order.isReturned || order.isVoided) && (
+                            <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 font-bold text-[10px]">
+                              {order.isReturned ? 'DEVUELTA' : 'ANULADA'}
+                            </span>
+                          )}
 
                           {/* Pipeline action buttons */}
                           {order.orderStatus === 'en_tramite' && (
