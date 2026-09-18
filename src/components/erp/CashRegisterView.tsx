@@ -177,6 +177,7 @@ export const CashRegisterView: React.FC = () => {
     };
 
     for (const order of posOrders) {
+      if (order.isReturned) continue;
       if (order.paymentSplits?.length) {
         for (const split of order.paymentSplits) {
           const currency = currencyForMethod(split.method);
@@ -233,21 +234,23 @@ export const CashRegisterView: React.FC = () => {
 
   const refundCash = useMemo(() => {
     if (!session) return { usd: 0, bs: 0 };
-    const refunds = readJson<Array<{ createdAt: string; refundSplits?: Array<{ method: string; amountUSD: number; amountBs: number }> }>>(
-      'omni_sale_refunds_v1',
-      []
-    );
     let usd = 0;
     let bs = 0;
-    for (const refund of refunds) {
-      if (refund.createdAt < session.openedAt) continue;
-      for (const split of refund.refundSplits || []) {
-        if (split.method === 'efectivo_usd' || split.method === 'divisas_efectivo') usd += split.amountUSD;
-        if (split.method === 'efectivo_bs') bs += split.amountBs;
+    for (const order of posOrders) {
+      if (!order.isReturned || order.paymentStatus === 'a_credito') continue;
+      if (order.paymentSplits?.length) {
+        for (const split of order.paymentSplits) {
+          if (split.method === 'efectivo_usd' || split.method === 'divisas_efectivo') usd -= split.amountUSD || 0;
+          if (split.method === 'efectivo_bs') bs -= split.amountBs || (split.amountUSD || 0) * order.bcvRate;
+        }
+      } else if (order.paymentMethod === 'efectivo_usd' || order.paymentMethod === 'divisas_efectivo') {
+        usd -= order.totalUSD;
+      } else if (order.paymentMethod === 'efectivo_bs') {
+        bs -= order.totalBs || 0;
       }
     }
     return { usd: Number(usd.toFixed(2)), bs: Number(bs.toFixed(2)) };
-  }, [session, orders]);
+  }, [posOrders, session]);
 
   const movementCashUSD = sessionMovements
     .filter((m) => m.currency === 'USD')
