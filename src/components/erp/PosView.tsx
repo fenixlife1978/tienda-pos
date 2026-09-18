@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
-import { Product, PaymentMethod, PaymentSplit, ProductPresentation, formatPaymentMethod } from '../../types';
+import { Product, PaymentMethod, PaymentSplit, ProductPresentation } from '../../types';
 import {
   Search,
   ShoppingCart,
@@ -118,7 +118,6 @@ export const PosView: React.FC = () => {
   };
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || customers[0];
-  const mixedRemainingUSD = Math.max(0, totalUSD - mixedPaidUSD);
 
   const categories = useMemo(() => {
     const cats = ['Todos'];
@@ -470,13 +469,20 @@ export const PosView: React.FC = () => {
     setCashTenderedUSD('');
     setCashTenderedBs('');
     setPaymentReference('');
+    setMixedPayments([]);
+    setIsMixedPayment(false);
   };
 
   // Ticket totals
   const subtotalUSD = ticketItems.reduce((sum, item) => sum + getItemSubtotalUSD(item), 0);
-  const taxUSD = subtotalUSD * (settings.ivaPercentage / 100);
-  const totalUSD = subtotalUSD + taxUSD;
-  const totalBs = totalUSD * settings.bcvRate;
+  const taxUSD = ticketItems.reduce((sum, item) => {
+    const itemSubtotal = getItemSubtotalUSD(item);
+    const rate = item.product.appliesIva === false ? 0 : (item.product.ivaRate ?? settings.ivaPercentage);
+    return sum + itemSubtotal * (rate / 100);
+  }, 0);
+  const totalUSD = Number((subtotalUSD + taxUSD).toFixed(2));
+  const totalBs = Number((totalUSD * settings.bcvRate).toFixed(2));
+  const mixedRemainingUSD = Math.max(0, totalUSD - mixedPaidUSD);
 
   // Change calculation USD
   const tenderedUSD = parseFloat(cashTenderedUSD) || 0;
@@ -1018,7 +1024,7 @@ export const PosView: React.FC = () => {
                 {/* Efectivo Bs. */}
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('efectivo_bs')}
+                  onClick={() => { setIsMixedPayment(false); setPaymentMethod('efectivo_bs'); }}
                   className={`p-2 rounded-lg border text-center transition cursor-pointer ${
                     paymentMethod === 'efectivo_bs'
                       ? 'bg-emerald-50 border-emerald-600 text-emerald-800 font-bold ring-1 ring-emerald-500'
@@ -1032,7 +1038,7 @@ export const PosView: React.FC = () => {
                 {/* Biopago */}
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('biopago')}
+                  onClick={() => { setIsMixedPayment(false); setPaymentMethod('biopago'); }}
                   className={`p-2 rounded-lg border text-center transition cursor-pointer ${
                     paymentMethod === 'biopago'
                       ? 'bg-indigo-50 border-indigo-600 text-indigo-800 font-bold ring-1 ring-indigo-500'
@@ -1046,7 +1052,7 @@ export const PosView: React.FC = () => {
                 {/* Transferencia */}
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('transferencia_bs')}
+                  onClick={() => { setIsMixedPayment(false); setPaymentMethod('transferencia_bs'); }}
                   className={`p-2 rounded-lg border text-center transition cursor-pointer ${
                     paymentMethod === 'transferencia_bs'
                       ? 'bg-blue-50 border-blue-600 text-blue-800 font-bold ring-1 ring-blue-500'
@@ -1060,7 +1066,7 @@ export const PosView: React.FC = () => {
                 {/* Zelle */}
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('zelle')}
+                  onClick={() => { setIsMixedPayment(false); setPaymentMethod('zelle'); }}
                   className={`p-2 rounded-lg border text-center transition cursor-pointer ${
                     paymentMethod === 'zelle'
                       ? 'bg-purple-50 border-purple-600 text-purple-800 font-bold ring-1 ring-purple-500'
@@ -1074,7 +1080,7 @@ export const PosView: React.FC = () => {
                 {/* Pago Móvil */}
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('pago_movil')}
+                  onClick={() => { setIsMixedPayment(false); setPaymentMethod('pago_movil'); }}
                   className={`p-2 rounded-lg border text-center transition cursor-pointer ${
                     paymentMethod === 'pago_movil'
                       ? 'bg-sky-50 border-sky-600 text-sky-800 font-bold ring-1 ring-sky-500'
@@ -1088,7 +1094,7 @@ export const PosView: React.FC = () => {
                 {/* Efectivo USD */}
                 <button
                   type="button"
-                  onClick={() => setPaymentMethod('efectivo_usd')}
+                  onClick={() => { setIsMixedPayment(false); setPaymentMethod('efectivo_usd'); }}
                   className={`p-2 rounded-lg border text-center transition cursor-pointer ${
                     paymentMethod === 'efectivo_usd'
                       ? 'bg-emerald-50 border-emerald-600 text-emerald-800 font-bold ring-1 ring-emerald-500'
@@ -1112,7 +1118,7 @@ export const PosView: React.FC = () => {
                 <button
                   type="button"
                   disabled={!canUseCredit}
-                  onClick={() => setPaymentMethod('credito')}
+                  onClick={() => { setIsMixedPayment(false); setPaymentMethod('credito'); }}
                   className={`p-2 rounded-lg border text-center transition sm:col-span-2 ${
                     !canUseCredit
                       ? 'opacity-40 bg-slate-100 cursor-not-allowed border-slate-200 text-slate-400'
