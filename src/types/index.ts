@@ -344,6 +344,10 @@ export interface Order {
   createdAt: string;
   /** Caja/terminal POS que originó la venta; permite arqueo exacto multi-caja. */
   cashSessionId?: string;
+  documentSeries?: string;
+  documentSequence?: number;
+  returnNumber?: string;
+  voidNumber?: string;
   estimatedDelivery?: string;
   creditDueDate?: string;
   creditDays?: number;
@@ -380,6 +384,10 @@ export interface Invoice {
   createdAt: string;
   /** Sesión de caja POS asociada al documento, cuando aplica. */
   cashSessionId?: string;
+  documentSeries?: string;
+  documentSequence?: number;
+  returnNumber?: string;
+  voidNumber?: string;
   dueDate?: string;
   isCredit: boolean;
   creditDays?: number;
@@ -392,6 +400,32 @@ export interface Invoice {
   returnedAt?: string;
   returnedBy?: string;
   returnReason?: string;
+}
+
+export interface SaleReturnRecord {
+  id: string;
+  returnNumber: string;
+  orderId: string;
+  orderNumber: string;
+  terminalId: string;
+  cashSessionId?: string;
+  createdAt: string;
+  createdBy: string;
+  reason: string;
+  refundUSD: number;
+  refundSplits: PaymentSplit[];
+}
+
+export interface SaleVoidRecord {
+  id: string;
+  voidNumber: string;
+  orderId: string;
+  orderNumber: string;
+  terminalId: string;
+  cashSessionId?: string;
+  createdAt: string;
+  createdBy: string;
+  reason: string;
 }
 
 export interface ReceivablePaymentRecord {
