@@ -32,6 +32,7 @@ import {
   Volume2,
   X,
   Sparkles,
+  Camera,
 } from 'lucide-react';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 import { playNotificationSound } from '../../utils/notificationSound';
@@ -509,6 +510,10 @@ export const PosView: React.FC = () => {
 
   const handleChargeSale = () => {
     if (ticketItems.length === 0) return;
+
+    // La cámara es opcional y se libera antes de entrar al flujo de cobro.
+    // El lector USB/Bluetooth continúa disponible independientemente de este modo.
+    setIsCameraScannerOpen(false);
 
     if (paymentMethod === 'credito' && !canUseCredit) {
       alert('El cliente no posee suficiente cupo de crédito para esta venta.');
@@ -1330,9 +1335,11 @@ export const PosView: React.FC = () => {
 
       {isCameraScannerOpen && (
         <CameraBarcodeScanner
+          continuous
           onScan={(code) => {
+            // En modo continuo NO cerramos la cámara: cada lectura alimenta
+            // el mismo handler del lector USB y suma el producto al ticket.
             handleBarcodeScanned(code);
-            setIsCameraScannerOpen(false);
           }}
           onClose={() => setIsCameraScannerOpen(false)}
         />
