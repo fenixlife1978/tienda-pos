@@ -225,14 +225,14 @@ export const offlineSyncService = {
         // Esto hace que la cantidad de terminales concurrentes sea irrelevante:
         // Turso serializa la escritura y valida el stock contra el valor actual.
         if (operation.type === 'sale') {
-          await tursoService.applyOfflineSale(operation);
+          await tursoService.applyOfflineSale({ ...operation, operationId: operation.id });
           writeQueue(readQueue().filter((item) => item.id !== operation.id));
           processed++;
           continue;
         }
 
         if (operation.type === 'sale_reversal') {
-          await tursoService.applySaleReversal(operation);
+          await tursoService.applySaleReversal({ ...operation, operationId: operation.id });
           writeQueue(readQueue().filter((item) => item.id !== operation.id));
           processed++;
           continue;
