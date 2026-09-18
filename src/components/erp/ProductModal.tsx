@@ -200,6 +200,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isBarcodeCameraOpen, setIsBarcodeCameraOpen] = useState(false);
+  const [barcodeCameraTarget, setBarcodeCameraTarget] = useState<'main' | 'presentation' | 'supplier'>('main');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2346,14 +2347,28 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-700 mb-1">Código de Barras</label>
-                    <input
-                      type="text"
-                      value={newPresBarcode}
-                      onChange={(e) => setNewPresBarcode(e.target.value)}
-                      placeholder="759000..."
-                      className="w-full px-2.5 py-1 border border-slate-300 rounded font-mono text-xs"
-                    />
+                    <label className="block text-[11px] font-medium text-slate-700 mb-1">EAN / Código de Barras</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={newPresBarcode}
+                        onChange={(e) => setNewPresBarcode(e.target.value)}
+                        placeholder="759000..."
+                        className="min-w-0 flex-1 px-2.5 py-1 border border-slate-300 rounded font-mono text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBarcodeCameraTarget('presentation');
+                          setIsBarcodeCameraOpen(true);
+                        }}
+                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold"
+                        title="Capturar EAN de esta presentación con la cámara trasera"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        Cámara
+                      </button>
+                    </div>
                   </div>
 
                   <div className="sm:col-span-4 flex justify-end">
@@ -2457,17 +2472,23 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     />
                   </div>
 
-                  <div>
+                  <div className="flex flex-col justify-end">
                     <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                      Código de Barras Proveedor
+                      Código de barras del proveedor
                     </label>
-                    <input
-                      type="text"
-                      value={supplierBarcode}
-                      onChange={(e) => setSupplierBarcode(e.target.value)}
-                      placeholder="7591234567890"
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono text-xs"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBarcodeCameraTarget('supplier');
+                        setIsBarcodeCameraOpen(true);
+                      }}
+                      className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5"
+                      title="Capturar el código del proveedor con la cámara trasera"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      Capturar con cámara
+                    </button>
+                    <span className="mt-1 text-[9px] text-slate-400">Sin campo manual: se asigna al proveedor seleccionado.</span>
                   </div>
                 </div>
 
