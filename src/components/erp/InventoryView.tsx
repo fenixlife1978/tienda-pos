@@ -5,6 +5,7 @@ import { ProductModal } from './ProductModal';
 import { BarcodeLabelsModal } from './BarcodeLabelsModal';
 import { SkuAuditModal } from './SkuAuditModal';
 import { InventoryExecutiveReportModal } from './InventoryExecutiveReportModal';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 import {
   Boxes,
   Search,
@@ -25,6 +26,8 @@ import {
   FileDown,
   Wand2,
   Sparkles,
+  Camera,
+  Scan,
 } from 'lucide-react';
 import { auditInventorySKUs } from '../../utils/skuGenerator';
 import { exportToCSV } from '../../utils/exportUtils';
@@ -44,6 +47,9 @@ export const InventoryView: React.FC = () => {
   const [adjustQuantity, setAdjustQuantity] = useState<number>(10);
   const [adjustReason, setAdjustReason] = useState<string>('Entrada por compra a proveedor');
   const [adjustType, setAdjustType] = useState<'in' | 'out'>('in');
+
+  // Barcode Scanner Modal state
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
 
   // Barcode Labels Modal state
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
@@ -154,7 +160,16 @@ export const InventoryView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setIsScannerModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition cursor-pointer shadow-xs animate-pulse"
+            title="Escanear código de barras o SKU con la cámara del dispositivo para consulta o ajuste"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Escanear Barcode / SKU</span>
+          </button>
+
           <button
             onClick={() => {
               setReportFilter('all');
@@ -246,15 +261,23 @@ export const InventoryView: React.FC = () => {
 
       {/* Filters bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="relative w-full md:max-w-xs">
+        <div className="relative w-full md:max-w-sm flex items-center">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar por código SKU, nombre o categoría..."
-            className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+            placeholder="Buscar por código SKU, nombre, EAN..."
+            className="w-full pl-9 pr-24 py-2 text-xs border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
           />
+          <button
+            onClick={() => setIsScannerModalOpen(true)}
+            className="absolute right-1 top-1/2 -translate-y-1/2 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-md text-[11px] font-bold flex items-center gap-1 border border-indigo-200 transition cursor-pointer"
+            title="Abrir lector de cámara"
+          >
+            <Camera className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Escanear</span>
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto text-xs">
@@ -581,6 +604,20 @@ export const InventoryView: React.FC = () => {
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
         initialFilter={reportFilter}
+      />
+
+      {/* Modal: Live Camera Barcode & SKU Scanner Utility */}
+      <BarcodeScannerModal
+        isOpen={isScannerModalOpen}
+        onClose={() => setIsScannerModalOpen(false)}
+        products={products}
+        settings={settings}
+        onAdjustStock={adjustProductStock}
+        onEditProduct={handleOpenEdit}
+        onOpenBarcodeLabels={(prod) => {
+          setBarcodeSelectedProduct(prod);
+          setIsBarcodeModalOpen(true);
+        }}
       />
 
     </div>

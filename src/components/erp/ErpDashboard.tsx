@@ -6,6 +6,9 @@ import { PosView } from './PosView';
 import { OrdersManagementView } from './OrdersManagementView';
 import { CustomerRequestsManagementView } from './CustomerRequestsManagementView';
 import { InventoryView } from './InventoryView';
+import { PurchasesEntryView } from './PurchasesEntryView';
+import { ProfitabilityMarginView } from './ProfitabilityMarginView';
+import { PromotionsManagementView } from './PromotionsManagementView';
 import { AccountsReceivableView } from './AccountsReceivableView';
 import { AccountsPayableView } from './AccountsPayableView';
 import { FinancialReportsView } from './FinancialReportsView';
@@ -39,12 +42,15 @@ export const ErpDashboard: React.FC = () => {
       />
 
       {/* Render Active Module */}
-      <main>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {activeTab === 'dashboard' && <SalesDashboardView />}
         {activeTab === 'pos' && <PosView />}
         {activeTab === 'pedidos' && <OrdersManagementView />}
         {activeTab === 'solicitudes' && <CustomerRequestsManagementView />}
         {activeTab === 'inventario' && <InventoryView />}
+        {activeTab === 'entradas_compras' && <PurchasesEntryView />}
+        {activeTab === 'rentabilidad' && <ProfitabilityMarginView />}
+        {activeTab === 'promociones' && <PromotionsManagementView />}
         {activeTab === 'cxc' && <AccountsReceivableView />}
         {activeTab === 'cxp' && <AccountsPayableView />}
         {activeTab === 'reportes' && <FinancialReportsView />}

@@ -12,10 +12,14 @@ import {
   PaymentMethod,
   PaymentStatus,
   PayableItem,
+  PayablePaymentRecord,
   Product,
   ProductCategory,
   ProductPresentation,
   ProductUnit,
+  PurchaseEntry,
+  PurchaseEntryItem,
+  PurchasePaymentCondition,
   ReceivableItem,
   ReceivablePaymentRecord,
   Supplier,
@@ -31,6 +35,7 @@ import {
   INITIAL_ORDERS,
   INITIAL_PAYABLES,
   INITIAL_PRODUCTS,
+  INITIAL_PURCHASE_ENTRIES,
   INITIAL_RECEIVABLES,
   INITIAL_SETTINGS,
   INITIAL_SUPPLIERS,
@@ -62,6 +67,7 @@ interface AppContextType {
   invoices: Invoice[];
   receivables: ReceivableItem[];
   payables: PayableItem[];
+  purchaseEntries: PurchaseEntry[];
   suppliers: Supplier[];
   customers: Customer[];
   users: User[];
@@ -186,9 +192,57 @@ interface AppContextType {
       bcvRate?: number;
     }
   ) => void;
-  registerPayablePayment: (payableId: string, amountUSD: number) => void;
+  registerPayablePayment: (
+    payableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => void;
+  registerGlobalSupplierPayment: (
+    supplierId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => { liquidatedInvoicesCount: number; partialAbonoUSD: number; fullyPaidTotalUSD: number };
+  liquidateSupplierInvoice: (
+    payableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => void;
+  liquidateSupplierTotalDebt: (
+    supplierId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => void;
+  updateSupplierCredit: (
+    supplierId: string,
+    creditDays: number,
+    creditLimitUSD?: number,
+    notes?: string
+  ) => void;
+  addPayableInvoice: (payable: Omit<PayableItem, 'id'>) => void;
   addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
   updateSupplier: (supplier: Supplier) => void;
+  processPurchaseEntry: (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>) => {
+    success: boolean;
+    purchaseEntry: PurchaseEntry;
+  };
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: string) => { success: boolean; message: string };
@@ -425,6 +479,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_PAYABLES;
   });
 
+  const [purchaseEntries, setPurchaseEntries] = useState<PurchaseEntry[]>(() => {
+    const saved = localStorage.getItem('omni_purchase_entries');
+    return saved ? JSON.parse(saved) : INITIAL_PURCHASE_ENTRIES;
+  });
+
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     const saved = localStorage.getItem('omni_notifications');
     return saved
@@ -525,6 +584,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem('omni_payables', JSON.stringify(payables));
   }, [payables]);
+
+  useEffect(() => {
+    localStorage.setItem('omni_purchase_entries', JSON.stringify(purchaseEntries));
+  }, [purchaseEntries]);
 
   useEffect(() => {
     localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
@@ -2165,29 +2228,235 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Accounts Payable payment registration (Pago a Proveedores)
-  const registerPayablePayment = (payableId: string, amountUSD: number) => {
+  // Accounts Payable payment registration (Pago a Proveedores individual)
+  const registerPayablePayment = (
+    payableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const customNotes = details?.notes || 'Abono / Pago a Proveedor';
+
+    let supplierName = '';
+    let invoiceNumber = '';
+    let isSettled = false;
+
     setPayables((prev) =>
       prev.map((pay) => {
         if (pay.id === payableId) {
+          supplierName = pay.supplierName;
+          invoiceNumber = pay.invoiceNumber;
           const newPaid = pay.amountPaidUSD + amountUSD;
           const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
-          const isFull = newBalance <= 0.01;
+          isSettled = newBalance <= 0.01;
+
+          const record: PayablePaymentRecord = {
+            id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            date: new Date().toISOString(),
+            amountUSD,
+            amountBs: amountUSD * rate,
+            bcvRate: rate,
+            paymentMethod: method,
+            reference: ref,
+            notes: customNotes,
+            registeredBy: currentUser.name,
+            balanceAfterUSD: newBalance,
+            isFullSettlement: isSettled,
+          };
+
           return {
             ...pay,
             amountPaidUSD: newPaid,
             balanceUSD: newBalance,
-            status: isFull ? 'pagado' : pay.status,
+            status: isSettled ? 'pagado' : pay.status,
+            paymentHistory: [record, ...(pay.paymentHistory || [])],
           };
         }
         return pay;
       })
     );
-    pushNotification(
-      'Pago a Proveedor (CxP)',
-      `Pago de $${amountUSD.toFixed(2)} registrado en Cuentas por Pagar.`,
-      'credit_alert'
+
+    triggerPushNotification({
+      title: isSettled ? '🎉 Compra a Proveedor Liquidada (CxP)' : '💵 Pago Registrado a Proveedor (CxP)',
+      message: `${
+        isSettled
+          ? `Factura de compra ${invoiceNumber} (${supplierName}) liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).`
+          : `Abono de $${amountUSD.toFixed(2)} USD pagado a ${supplierName} (Factura ${invoiceNumber}).`
+      }`,
+      type: 'credit_alert',
+      badge: isSettled ? 'CxP Liquidada' : 'Pago CxP',
+    });
+  };
+
+  // Liquidate a specific payable purchase invoice completely in one action
+  const liquidateSupplierInvoice = (
+    payableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const targetPay = payables.find((p) => p.id === payableId);
+    if (!targetPay || targetPay.balanceUSD <= 0.001) return;
+    registerPayablePayment(payableId, targetPay.balanceUSD, {
+      ...details,
+      notes: details?.notes || 'Liquidación completa de factura por pagar',
+    });
+  };
+
+  // Global FIFO waterfall distribution across all pending supplier purchase invoices
+  const registerGlobalSupplierPayment = (
+    supplierId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const customNotes = details?.notes || 'Pago Global Distribuido a Proveedor (FIFO)';
+
+    // Get pending payables for supplier sorted chronologically (oldest issuedDate first)
+    const supplierPendingPays = payables
+      .filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001)
+      .sort((a, b) => new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime());
+
+    let remainingPayment = amountUSD;
+    let liquidatedCount = 0;
+    let fullyPaidTotal = 0;
+    let partialAbono = 0;
+
+    const updatedPayables = payables.map((pay) => {
+      if (pay.supplierId !== supplierId || pay.balanceUSD <= 0.001 || remainingPayment <= 0.0001) {
+        return pay;
+      }
+
+      const inQueue = supplierPendingPays.some((sp) => sp.id === pay.id);
+      if (!inQueue) return pay;
+
+      const toPay = Math.min(pay.balanceUSD, remainingPayment);
+      remainingPayment -= toPay;
+      const newPaid = pay.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
+
+      if (isSettled) {
+        liquidatedCount++;
+        fullyPaidTotal += toPay;
+      } else {
+        partialAbono += toPay;
+      }
+
+      const record: PayablePaymentRecord = {
+        id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        date: new Date().toISOString(),
+        amountUSD: toPay,
+        amountBs: toPay * rate,
+        bcvRate: rate,
+        paymentMethod: method,
+        reference: ref,
+        notes: isSettled
+          ? `${customNotes} - Factura ${pay.invoiceNumber} liquidada totalmente`
+          : `${customNotes} - Abono parcial computado`,
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+      };
+
+      return {
+        ...pay,
+        amountPaidUSD: newPaid,
+        balanceUSD: newBalance,
+        status: isSettled ? 'pagado' : pay.status,
+        paymentHistory: [record, ...(pay.paymentHistory || [])],
+      };
+    });
+
+    setPayables(updatedPayables);
+
+    const supObj = suppliers.find((s) => s.id === supplierId);
+    const supName = supObj ? supObj.name : 'Proveedor';
+
+    triggerPushNotification({
+      title: '💳 Pago Global Distribuido (CxP)',
+      message: `Egreso de $${amountUSD.toFixed(2)} USD procesado a favor de ${supName}. Se liquidaron ${liquidatedCount} factura(s)${
+        partialAbono > 0 ? ` y se aplicó un abono de $${partialAbono.toFixed(2)} a la compra más antigua.` : '.'
+      }`,
+      type: 'credit_alert',
+      badge: 'Pago Global CxP',
+    });
+
+    return {
+      liquidatedInvoicesCount: liquidatedCount,
+      partialAbonoUSD: partialAbono,
+      fullyPaidTotalUSD: fullyPaidTotal,
+    };
+  };
+
+  // Liquidate all pending debt with a specific supplier
+  const liquidateSupplierTotalDebt = (
+    supplierId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const supPending = payables.filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001);
+    const totalDebt = supPending.reduce((sum, p) => sum + p.balanceUSD, 0);
+    if (totalDebt <= 0) return;
+    registerGlobalSupplierPayment(supplierId, totalDebt, {
+      ...details,
+      notes: details?.notes || 'Liquidación TOTAL de compras con el proveedor',
+    });
+  };
+
+  const updateSupplierCredit = (
+    supplierId: string,
+    creditDays: number,
+    creditLimitUSD?: number,
+    notes?: string
+  ) => {
+    setSuppliers((prev) =>
+      prev.map((s) =>
+        s.id === supplierId
+          ? {
+              ...s,
+              creditDays,
+              creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD,
+            }
+          : s
+      )
     );
+    triggerPushNotification({
+      title: 'Condiciones de Proveedor Actualizadas',
+      message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`,
+      type: 'credit_alert',
+      badge: 'Condiciones CxP',
+    });
+  };
+
+  const addPayableInvoice = (payable: Omit<PayableItem, 'id'>) => {
+    const newPayable: PayableItem = {
+      ...payable,
+      id: `pay-${Date.now()}`,
+      paymentHistory: payable.paymentHistory || [],
+    };
+    setPayables((prev) => [newPayable, ...prev]);
   };
 
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
@@ -2196,6 +2465,107 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `sup-${Date.now()}`,
     };
     setSuppliers((prev) => [newSup, ...prev]);
+  };
+
+  const processPurchaseEntry = (
+    entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>
+  ): { success: boolean; purchaseEntry: PurchaseEntry } => {
+    const entryId = `ent-${Date.now()}`;
+    const seq = purchaseEntries.length + 1;
+    const entryNumber = `ENT-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
+    const nowIso = new Date().toISOString();
+
+    const newEntry: PurchaseEntry = {
+      ...entryData,
+      id: entryId,
+      entryNumber,
+      createdAt: nowIso,
+    };
+
+    // 1. Update products stock and cost prices
+    const updatedProducts = products.map((prod) => {
+      const match = entryData.items.find((it) => it.productId === prod.id);
+      if (!match) return prod;
+
+      const newStock = Math.max(0, (prod.stock || 0) + match.quantity);
+      const prevCost = prod.costUSD;
+      const newCost = match.currentBaseCostUSD;
+      const newRealCost = match.realCostUSD;
+
+      return {
+        ...prod,
+        stock: newStock,
+        lastCostUSD: prevCost > 0 ? prevCost : newCost,
+        costUSD: newCost,
+        realCostUSD: newRealCost,
+      };
+    });
+
+    setProducts(updatedProducts);
+    broadcastStockUpdate(updatedProducts, {
+      productIds: entryData.items.map((it) => it.productId),
+      source: 'adjustment',
+      summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario`,
+    });
+
+    // 2. If there is an outstanding balance (credito or mixto), record into payables (CxP)
+    if (entryData.balanceUSD > 0.001) {
+      const isSettled = entryData.balanceUSD <= 0.01;
+      const initialHistory: PayablePaymentRecord[] = [];
+      if (entryData.amountPaidUSD > 0) {
+        initialHistory.push({
+          id: `pay-rec-${Date.now()}`,
+          date: nowIso,
+          amountUSD: entryData.amountPaidUSD,
+          amountBs: entryData.amountPaidBs,
+          bcvRate: entryData.bcvRate,
+          paymentMethod: 'transferencia_usd',
+          reference: 'PAGO-INICIAL-ENTRADA',
+          notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
+          registeredBy: currentUser.name || 'Admin',
+          balanceAfterUSD: entryData.balanceUSD,
+          isFullSettlement: false,
+        });
+      }
+
+      const newPayable: PayableItem = {
+        id: `pay-${Date.now()}`,
+        supplierId: entryData.supplierId,
+        supplierName: entryData.supplierName,
+        invoiceNumber: entryData.invoiceNumber || entryNumber,
+        description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
+        totalAmountUSD: entryData.totalInvoiceUSD,
+        amountPaidUSD: entryData.amountPaidUSD,
+        balanceUSD: entryData.balanceUSD,
+        issuedDate: entryData.date,
+        dueDate: entryData.creditDueDate || entryData.date,
+        creditDays: entryData.creditDays || 15,
+        status: isSettled ? 'pagado' : 'al_dia',
+        items: entryData.items.map((it) => ({
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPriceUSD: it.realCostUSD,
+          subtotalUSD: it.subtotalUSD,
+        })),
+        paymentHistory: initialHistory,
+      };
+
+      setPayables((prev) => [newPayable, ...prev]);
+    }
+
+    // 3. Save purchase entry
+    setPurchaseEntries((prev) => [newEntry, ...prev]);
+
+    // 4. Notifications & Feedback
+    triggerPushNotification({
+      title: `Entrada ${entryNumber} Registrada con Éxito`,
+      message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`,
+      type: 'inventory_alert',
+      badge: 'Entrada por Compra',
+      sound: true,
+    });
+
+    return { success: true, purchaseEntry: newEntry };
   };
 
   const updateSupplier = (supplier: Supplier) => {
@@ -2337,6 +2707,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         invoices,
         receivables,
         payables,
+        purchaseEntries,
         suppliers,
         customers,
         users,
@@ -2366,9 +2737,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveCustomerVerification,
         rejectCustomerVerification,
         registerReceivablePayment,
+        registerGlobalCustomerPayment,
+        liquidateCustomerInvoice,
+        liquidateCustomerTotalDebt,
         registerPayablePayment,
+        registerGlobalSupplierPayment,
+        liquidateSupplierInvoice,
+        liquidateSupplierTotalDebt,
+        updateSupplierCredit,
+        addPayableInvoice,
         addSupplier,
         updateSupplier,
+        processPurchaseEntry,
         addUser,
         updateUser,
         deleteUser,

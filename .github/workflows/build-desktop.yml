@@ -1,58 +1,95 @@
-name: Compilar Artefactos Windows (.exe Demo e Instalador)
+name: Compilar y Generar Instalador Windows .EXE
 
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: 'Etiqueta o versión de compilación (ej. v1.0.0)'
+      version_tag:
+        description: 'Versión o Etiqueta del Release (ej. v1.0.0)'
         required: false
         default: 'v1.0.0'
+      create_release:
+        description: '¿Publicar automáticamente en GitHub Releases?'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
-  build-windows-executables:
-    name: Generar Demo .exe e Instalador .exe
+  build-windows-exe:
+    name: Compilar Instalador y Ejecutable Windows (.exe)
     runs-on: windows-latest
 
     steps:
-      - name: Descargar Código Fuente
+      - name: 📥 Clonar Repositorio
         uses: actions/checkout@v4
 
-      - name: Configurar Entorno Node.js
+      - name: ⚙️ Configurar Entorno Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      - name: Instalar Dependencias del Proyecto
+      - name: 📦 Instalar Dependencias
         run: npm ci || npm install
 
-      - name: Instalar electron y electron-builder para empaquetado
+      - name: 🛠️ Instalar Dependencias de Empaquetado Desktop (Electron)
         run: npm install --save-dev electron@33.2.1 electron-builder@25.1.8
 
-      - name: Compilar Frontend Web (Vite React)
+      - name: 🚀 Compilar Aplicación Web (Vite + React)
         run: npm run build
 
-      - name: Generar Ejecutables Windows (Demo Portable e Instalador NSIS)
+      - name: 📦 Generar Instalador .EXE (NSIS Setup y Portable)
         run: npx electron-builder --win --x64 --config electron-builder.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Subir Artefacto - Demo Portable (.exe)
+      - name: 📤 Publicar Artefacto: Instalador Setup (.exe)
         uses: actions/upload-artifact@v4
         with:
-          name: Distribuidora-Demo-Portable-exe
+          name: Distribuidora-LaGranBodega-Instalador-Setup-EXE
+          path: release-builds/Distribuidora-Setup-Installer.exe
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: 📤 Publicar Artefacto: Ejecutable Portable (.exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Distribuidora-LaGranBodega-Ejecutable-Portable-EXE
           path: release-builds/Distribuidora-Demo-Portable.exe
           if-no-files-found: error
           retention-days: 90
 
-      - name: Subir Artefacto - Instalador Setup (.exe)
+      - name: 📤 Publicar Paquete Completo de Artefactos
         uses: actions/upload-artifact@v4
         with:
-          name: Distribuidora-Setup-Installer-exe
-          path: release-builds/Distribuidora-Setup-Installer.exe
-          if-no-files-found: error
+          name: Todos-Los-Ejecutables-Windows-EXE
+          path: release-builds/*.exe
+          if-no-files-found: warn
           retention-days: 90
+
+      - name: 🏷️ Publicar en GitHub Releases (Opcional si es Tag o Dispatch)
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
+          name: "Distribuidora La Gran Bodega M&S - Release ${{ github.event.inputs.version_tag || github.ref_name }}"
+          body: |
+            ### 📦 Descargas Disponibles para Windows
+            - 💾 **[Distribuidora-Setup-Installer.exe](Distribuidora-Setup-Installer.exe)**: Instalador oficial con acceso directo en Escritorio y Menú Inicio.
+            - ⚡ **[Distribuidora-Demo-Portable.exe](Distribuidora-Demo-Portable.exe)**: Ejecutable portable (no requiere instalación, ideal para pendrive o pruebas rápidas).
+            
+            *Compilado automáticamente mediante GitHub Actions con soporte de facturación, POS, catálogo y panel ERP.*
+          files: |
+            release-builds/Distribuidora-Setup-Installer.exe
+            release-builds/Distribuidora-Demo-Portable.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

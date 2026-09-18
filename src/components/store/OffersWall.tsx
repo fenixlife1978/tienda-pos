@@ -160,11 +160,16 @@ export const OffersWall: React.FC = () => {
                   />
 
                   {/* Mega discount badge */}
-                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                  <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 items-start">
                     <span className="bg-rose-600 text-white text-xs font-black px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1">
                       <Flame className="w-3.5 h-3.5 text-amber-300" />
                       -{discount}% OFF
                     </span>
+                    {product.offerBadgeText && (
+                      <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-sm tracking-wider uppercase">
+                        {product.offerBadgeText}
+                      </span>
+                    )}
                   </div>
 
                   {/* Real-time stock countdown pill */}
@@ -203,6 +208,15 @@ export const OffersWall: React.FC = () => {
                     <p className="text-xs text-slate-600 line-clamp-1">
                       {product.description}
                     </p>
+                  )}
+
+                  {/* Condition callout */}
+                  {product.offerCondition && (
+                    <div className="p-2 rounded-xl bg-rose-50 border border-rose-200/80 text-[11px] text-rose-900 font-medium flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span className="font-bold text-rose-700">Condición:</span>
+                      <span className="font-semibold">{product.offerCondition}</span>
+                    </div>
                   )}
 
                   {/* Savings callout badge */}

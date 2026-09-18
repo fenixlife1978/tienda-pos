@@ -99,6 +99,39 @@ export interface AlternativePrices {
   granMayor: AlternativePrice;
 }
 
+export interface PromotionOffer {
+  id: string;
+  productId: string;
+  productName: string;
+  productCode: string;
+  category: string;
+  image?: string;
+  costUSD?: number;
+  originalPriceUSD: number;
+  discountPercentage: number;
+  promotionalPriceUSD: number;
+  customerSavingsUSD: number;
+  customerSavingsBs: number;
+  conditionText?: string; // ej: "Después de 6 artículos", "A partir de 12 unidades" (Editable en texto libre)
+  condition?: string;
+  badgeText?: string; // ej: "SUPER OFERTA", "PROMO FLASH", "LIQUIDACIÓN", "DESCUENTO X VOLUMEN"
+  minQuantity?: number;
+  active: boolean;
+  startDate?: string;
+  endDate?: string;
+  notes?: string;
+  stockAvailable?: number;
+  createdAt: string;
+}
+
+export interface PromotionConditionPreset {
+  id: string;
+  label: string;
+  minQuantity?: number;
+  description?: string;
+  isCustom?: boolean;
+}
+
 // 4 Métodos de formación de precio
 export type PricingMethod = 'markup' | 'margin_on_sale' | 'gap_system' | 'manual';
 
@@ -145,7 +178,9 @@ export interface CompositeComponent {
 
 export interface Product {
   id: string;
-  code: string;
+  code: string; // SKU o Código Interno
+  barcode?: string; // Código de barras EAN-13, EAN-8 o Code 128
+  ean?: string; // Código EAN-13 internacional
   name: string;
   category: string;
   costUSD: number; // Costo de compra en USD
@@ -175,6 +210,14 @@ export interface Product {
   image: string;
   isOffer?: boolean;
   discountPercentage?: number;
+  offerCondition?: string; // e.g. "Después de 6 artículos", "A partir de 12 unidades" (Texto libre)
+  offerBadgeText?: string; // e.g. "PROMO FLASH", "SUPER OFERTA", "LIQUIDACIÓN"
+  offerSavingsUSD?: number;
+  offerSavingsBs?: number;
+  offerMinQuantity?: number;
+  promotionalPriceUSD?: number;
+  offerStartDate?: string;
+  offerEndDate?: string;
   description?: string;
   
   // Campos avanzados
@@ -216,9 +259,11 @@ export type PaymentMethod =
   | 'efectivo_bs'
   | 'biopago'
   | 'transferencia_bs'
+  | 'transferencia_usd'
   | 'zelle'
   | 'pago_movil'
   | 'efectivo_usd'
+  | 'divisas_efectivo'
   | 'credito';
 
 export const formatPaymentMethod = (method: PaymentMethod | string): string => {
@@ -228,11 +273,14 @@ export const formatPaymentMethod = (method: PaymentMethod | string): string => {
     case 'biopago':
       return 'Biopago';
     case 'transferencia_bs':
-      return 'Transferencia';
+      return 'Transferencia Bs.';
+    case 'transferencia_usd':
+      return 'Zelle / Transf. USD';
     case 'zelle':
       return 'Zelle';
     case 'efectivo_usd':
-      return 'Efectivo USD';
+    case 'divisas_efectivo':
+      return 'Efectivo Divisas USD';
     case 'pago_movil':
       return 'Pago Móvil';
     case 'credito':
@@ -343,8 +391,65 @@ export interface Supplier {
   rif: string;
   phone: string;
   email: string;
-  contactPerson: string;
+  contactPerson?: string;
+  contactName?: string;
   creditDays: number;
+  creditLimitUSD?: number;
+  address?: string;
+}
+
+export type PurchasePaymentCondition = 'contado' | 'credito' | 'mixto';
+
+export interface PurchaseEntryItem {
+  productId: string;
+  productName: string;
+  productCode: string;
+  category: string;
+  quantity: number;
+  previousCostUSD: number; // Costo anterior automático
+  currentBaseCostUSD: number; // Costo base de compra actual
+  additionalExpenseUSD: number; // Gastos adicionales (fletes, IVA, otros)
+  realCostUSD: number; // Costo real unitario = base + adicionales
+  subtotalUSD: number; // quantity * realCostUSD
+  notes?: string;
+}
+
+export interface PurchaseEntry {
+  id: string;
+  entryNumber: string;
+  date: string;
+  supplierId: string;
+  supplierName: string;
+  supplierRif?: string;
+  invoiceNumber: string;
+  bcvRate: number;
+  paymentCondition: PurchasePaymentCondition;
+  creditDays?: number;
+  creditDueDate?: string;
+  totalInvoiceUSD: number;
+  totalInvoiceBs: number;
+  amountPaidUSD: number;
+  amountPaidBs: number;
+  balanceUSD: number;
+  balanceBs: number;
+  items: PurchaseEntryItem[];
+  notes?: string;
+  registeredBy?: string;
+  createdAt: string;
+}
+
+export interface PayablePaymentRecord {
+  id: string;
+  date: string;
+  amountUSD: number;
+  amountBs: number;
+  bcvRate: number;
+  paymentMethod: PaymentMethod;
+  reference?: string;
+  notes?: string;
+  registeredBy?: string;
+  balanceAfterUSD?: number;
+  isFullSettlement?: boolean;
 }
 
 export interface PayableItem {
@@ -358,7 +463,15 @@ export interface PayableItem {
   balanceUSD: number;
   issuedDate: string;
   dueDate: string;
+  creditDays?: number;
   status: 'al_dia' | 'por_vencer' | 'vencido' | 'pagado';
+  paymentHistory?: PayablePaymentRecord[];
+  items?: {
+    productName: string;
+    quantity: number;
+    unitPriceUSD: number;
+    subtotalUSD: number;
+  }[];
 }
 
 export interface BcvHistoryEntry {
@@ -439,4 +552,20 @@ export interface AppNotification {
   actionUrl?: string;
   badge?: string;
   priority?: 'normal' | 'high' | 'urgent';
+}
+
+export interface SlowMovingProductAnalysis {
+  productId: string;
+  productCode: string;
+  productName: string;
+  category: string;
+  stock: number;
+  costUSD: number;
+  priceUSD: number;
+  totalValueUSD: number;
+  unitsSold: number;
+  revenueUSD: number;
+  lastSaleDate: string | null;
+  daysSinceLastSale: number | null;
+  status: 'sin_movimiento' | 'poco_movimiento' | 'movimiento_normal';
 }

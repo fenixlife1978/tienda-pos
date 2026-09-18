@@ -77,6 +77,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   // ==================== TAB 1: DATOS BÁSICOS ====================
   const [code, setCode] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [ean, setEan] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState(categories[0]?.name || 'Víveres');
   const [unit, setUnit] = useState(units[0]?.name || 'Unidad');
@@ -206,6 +208,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     if (isOpen) {
       if (productToEdit) {
         setCode(productToEdit.code);
+        setBarcode(productToEdit.barcode || productToEdit.ean || '');
+        setEan(productToEdit.ean || productToEdit.barcode || '');
         setName(productToEdit.name);
         setCategory(productToEdit.category || (categories[0]?.name || 'Víveres'));
         setUnit(productToEdit.unit || (units[0]?.name || 'Unidad'));
@@ -315,6 +319,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           products
         );
         setCode(initialSku);
+        setBarcode('');
+        setEan('');
         setName('');
         setCategory(initialCategory);
         setUnit(units[0]?.name || 'Unidad');
@@ -774,6 +780,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
     const productPayload: Omit<Product, 'id'> = {
       code: code.trim() || `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
+      barcode: barcode.trim() || undefined,
+      ean: ean.trim() || barcode.trim() || undefined,
       name: name.trim(),
       category: category.trim() || 'Víveres',
       unit: unit.trim() || 'Unidad',
@@ -1114,6 +1122,43 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-700 flex items-center gap-1">
+                          <Barcode className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Código de Barras Físico / EAN-13</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const random12 = '759' + Math.floor(100000000 + Math.random() * 900000000).toString();
+                            let sum = 0;
+                            for (let i = 0; i < 12; i++) {
+                              sum += parseInt(random12[i]) * (i % 2 === 0 ? 1 : 3);
+                            }
+                            const checkDigit = (10 - (sum % 10)) % 10;
+                            const ean13 = random12 + checkDigit;
+                            setBarcode(ean13);
+                            setEan(ean13);
+                          }}
+                          className="text-[10px] text-indigo-600 font-bold hover:underline cursor-pointer"
+                          title="Generar un código de barras EAN-13 estándar de 13 dígitos con dígito verificador"
+                        >
+                          + Auto-EAN13
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        value={barcode}
+                        onChange={(e) => {
+                          setBarcode(e.target.value);
+                          setEan(e.target.value);
+                        }}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono text-slate-900"
+                        placeholder="Ej: 7591001000018..."
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
                         <label className="font-bold text-slate-700">Categoría *</label>
                         <button
                           type="button"
@@ -1135,7 +1180,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         ))}
                       </select>
                     </div>
+                  </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="font-bold text-slate-700">Unidad de Medida Base *</label>
@@ -1158,6 +1205,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    <div className="flex items-end">
+                      <div className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex items-center gap-2">
+                        <Camera className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>Compatible con escaneo óptico por cámara y pistolas USB.</span>
+                      </div>
                     </div>
                   </div>
 

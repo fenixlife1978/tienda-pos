@@ -15,6 +15,8 @@ import {
   Building2,
   LayoutDashboard,
   UserCheck,
+  Truck,
+  Tag,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
@@ -24,6 +26,9 @@ export type ErpTab =
   | 'pedidos'
   | 'solicitudes'
   | 'inventario'
+  | 'entradas_compras'
+  | 'rentabilidad'
+  | 'promociones'
   | 'cxc'
   | 'cxp'
   | 'reportes'
@@ -90,6 +95,24 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       icon: Boxes,
       badge: lowStockCount > 0 ? lowStockCount : null,
       badgeColor: 'bg-rose-500 text-white',
+    },
+    {
+      id: 'entradas_compras' as ErpTab,
+      label: 'Entradas por Compras',
+      icon: Truck,
+      badge: null,
+    },
+    {
+      id: 'rentabilidad' as ErpTab,
+      label: 'Margen & Rentabilidad',
+      icon: TrendingUp,
+      badge: null,
+    },
+    {
+      id: 'promociones' as ErpTab,
+      label: 'Promociones & Ofertas',
+      icon: Tag,
+      badge: null,
     },
     {
       id: 'cxc' as ErpTab,

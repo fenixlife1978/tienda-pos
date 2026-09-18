@@ -1,7 +1,9 @@
 {
-  "name": "react-example",
+  "name": "distribuidora-lagranbodega",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Sistema de Pedidos Online, POS Bimoneda y ERP de Distribuidora La Gran Bodega M&S",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -10,8 +12,8 @@
     "clean": "rm -rf dist server.js release-builds",
     "lint": "tsc --noEmit",
     "build:desktop": "vite build && electron-builder --win --x64",
-    "dist:demo": "electron-builder --win portable",
-    "dist:installer": "electron-builder --win nsis"
+    "dist:installer": "vite build && electron-builder --win nsis",
+    "dist:portable": "vite build && electron-builder --win portable"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

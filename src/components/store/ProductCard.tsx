@@ -136,7 +136,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
         )}
 
-        {/* Product Title (Exactly matching the screenshot format) */}
+        {/* Product Title */}
         <h3
           onClick={() => hasSpecialSalesMode && setPresentationModalProduct(product)}
           className={`font-bold text-slate-900 text-xs sm:text-sm leading-snug line-clamp-2 min-h-[2.25rem] ${
@@ -145,6 +145,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         >
           {product.name}
         </h3>
+
+        {/* Offer Condition and Savings Pill if on Promotion */}
+        {product.isOffer && product.discountPercentage && (
+          <div className="mt-1.5 space-y-1">
+            {product.offerCondition && (
+              <div className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/80 text-[10px] font-semibold text-amber-900 flex items-center gap-1">
+                <span className="text-amber-600 font-bold">Condición:</span>
+                <span className="truncate">{product.offerCondition}</span>
+              </div>
+            )}
+            <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/70 flex items-center justify-between">
+              <span>¡Ahorras:</span>
+              <span className="font-mono">+{formatUSD(product.priceUSD - effectivePriceUSD)} ({formatBs((product.priceUSD - effectivePriceUSD) * settings.bcvRate)})</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Pricing & Add to cart Controls */}
