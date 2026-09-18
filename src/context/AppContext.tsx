@@ -1311,6 +1311,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const orderNum = terminalIdentity.nextOrderNumber();
     const invoiceNum = terminalIdentity.nextInvoiceNumber();
     const now = new Date();
+    // Una venta POS queda vinculada a la sesión de caja exacta que estaba abierta
+    // en ese terminal. Las ventas de tienda online no tienen sesión de caja.
+    let cashSessionId: string | undefined;
+    if (orderInput.channel === 'pos') {
+      try {
+        const rawSession = localStorage.getItem('omni_cash_session_v2');
+        const localSession = rawSession ? JSON.parse(rawSession) : null;
+        if (localSession?.terminalId === terminalIdentity.getId() && localSession?.status === 'open') {
+          cashSessionId = String(localSession.id);
+        }
+      } catch {
+        // Si el cache local está corrupto, la venta conserva el comportamiento anterior.
+      }
+    }
 
     const orderItems = orderInput.items.map((item) => {
       let unitPriceUSD: number;
@@ -1408,6 +1422,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       paymentReference: orderInput.paymentReference,
       channel: orderInput.channel,
       createdAt: now.toISOString(),
+      cashSessionId,
       creditDays: isCredit ? creditDays : undefined,
       creditDueDate: dueDate,
       estimatedDelivery: 'Tiempo estimado: 2 a 4 horas hábiles',
@@ -1435,6 +1450,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: now.toISOString(),
       dueDate,
       isCredit,
+      cashSessionId,
       creditDays: isCredit ? creditDays : undefined,
     };
 
