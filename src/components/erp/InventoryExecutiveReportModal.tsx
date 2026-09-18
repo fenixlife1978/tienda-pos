@@ -20,7 +20,7 @@ import {
   ArrowDownRight,
   ShieldAlert,
 } from 'lucide-react';
-import { exportElementToPDF, exportToCSV } from '../../utils/exportUtils';
+import { exportInventoryExecutivePDF, exportToCSV } from '../../utils/exportUtils';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 
 interface InventoryExecutiveReportModalProps {
@@ -180,19 +180,57 @@ export const InventoryExecutiveReportModal: React.FC<InventoryExecutiveReportMod
     setIsExportingPDF(true);
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      await exportElementToPDF(
-        'executive-inventory-pdf-printable',
+      const ok = exportInventoryExecutivePDF(
         `Reporte_Gerencial_Inventario_${dateStr}`,
         {
-          format: paperFormat,
-          orientation: 'portrait',
-          margin: 6,
-          scale: 2.2,
+          companyName: settings.companyName || 'Distribuidora La Gran Bodega M&S',
+          rif: settings.companyRif,
+          phone: settings.companyPhone,
+          address: settings.companyAddress,
+          bcvRate: settings.bcvRate,
+          generatedAt: new Date().toISOString(),
+          totalProducts: metrics.totalProductsCount,
+          totalUnits: metrics.totalUnits,
+          totalCostUSD: metrics.totalCostUSD,
+          totalCostBs: metrics.totalCostBs,
+          totalRetailUSD: metrics.totalRetailUSD,
+          totalRetailBs: metrics.totalRetailBs,
+          potentialMarginPercent: metrics.potentialMarginPercent,
+          outOfStockCount: metrics.outOfStockCount,
+          lowStockCount: metrics.lowStockCount,
+          healthyStockCount: metrics.healthyStockCount,
+          categoryRows: Object.entries(metrics.categoryStats).map(([name, stat]) => ({
+            name,
+            products: stat.itemsCount,
+            units: stat.units,
+            costUSD: stat.costUSD,
+            costBs: stat.costUSD * settings.bcvRate,
+            retailUSD: stat.retailUSD,
+            alerts: stat.lowStockItems,
+          })),
+          detailRows: filteredProducts.map((p) => {
+            const isCritical = p.stock <= 0;
+            const isLow = p.stock > 0 && p.stock <= p.minStock;
+            return {
+              code: p.code,
+              name: p.name,
+              category: p.category || 'Sin Categoría',
+              stock: p.stock,
+              minStock: p.minStock,
+              unit: p.unit,
+              status: isCritical ? 'AGOTADO' : isLow ? 'REORDEN' : 'OPTIMO',
+              costUSD: p.costUSD,
+              retailUSD: p.priceUSD,
+              valueCostUSD: p.costUSD * p.stock,
+              valueCostBs: p.costUSD * p.stock * settings.bcvRate,
+            };
+          }),
         }
       );
+      if (!ok) throw new Error('No fue posible generar el PDF profesional.');
     } catch (err) {
       console.error('Error al generar PDF de inventario:', err);
-      alert('Hubo un error al compilar el PDF del inventario.');
+      alert('Hubo un error al generar el documento PDF.');
     } finally {
       setIsExportingPDF(false);
     }
