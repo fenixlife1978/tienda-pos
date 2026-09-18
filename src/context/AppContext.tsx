@@ -594,6 +594,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
   }, [suppliers]);
 
+  // Once the initial local snapshot has been persisted, subsequent business
+  // state changes are also marked dirty for cloud replay. This keeps the
+  // existing UI untouched while making the ERP resilient to network outages.
+  const offlineSyncReadyRef = useRef(false);
+  useEffect(() => {
+    offlineSyncReadyRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('settings', settings);
+  }, [settings]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('products', products);
+  }, [products]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('customers', customers);
+  }, [customers]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('suppliers', suppliers);
+  }, [suppliers]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('orders', orders);
+  }, [orders]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('invoices', invoices);
+  }, [invoices]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('receivables', receivables);
+  }, [receivables]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('payables', payables);
+  }, [payables]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('users', users);
+  }, [users]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('categories', categories);
+  }, [categories]);
+  useEffect(() => {
+    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('units', units);
+  }, [units]);
+
   // --- Real-time multi-client / cross-tab stock synchronization ---
   const [lastStockUpdateEvent, setLastStockUpdateEvent] = useState<{
     productIds: string[];
