@@ -830,7 +830,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tablesCreated: [
           'products', 'categories', 'units', 'customers', 'suppliers',
           'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
-          'sync_operations', 'system_users', 'system_settings', 'bcv_history'
+          'inventory_movements', 'sync_operations', 'system_users', 'system_settings', 'bcv_history'
         ],
         totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
       });
