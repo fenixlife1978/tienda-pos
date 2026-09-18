@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatBs, formatUSD } from '../../utils/formatUtils';
+import { formatPaymentMethod } from '../../types';
 import { terminalIdentity } from '../../services/terminalIdentity';
 import {
   WalletCards,
@@ -115,17 +116,52 @@ export const CashRegisterView: React.FC = () => {
   );
 
   const salesByMethod = useMemo(() => {
-    const map: Record<string, number> = {};
+    const map: Record<string, { method: string; currency: 'Bs' | 'USD'; amount: number }> = {};
+
+    // En arqueo NO se convierten los medios de pago a una moneda común:
+    // cada método se muestra en la moneda en la que se recibió originalmente.
+    const currencyForMethod = (method: string): 'Bs' | 'USD' => {
+      switch (method) {
+        case 'efectivo_usd':
+        case 'divisas_efectivo':
+        case 'zelle':
+        case 'transferencia_usd':
+          return 'USD';
+        default:
+          return 'Bs';
+      }
+    };
+
+    const add = (method: string, amount: number, currency: 'Bs' | 'USD') => {
+      if (!Number.isFinite(amount) || Math.abs(amount) < 0.005) return;
+      const key = `${method}__${currency}`;
+      map[key] ??= { method, currency, amount: 0 };
+      map[key].amount += amount;
+    };
+
     for (const order of posOrders) {
       if (order.paymentSplits?.length) {
         for (const split of order.paymentSplits) {
-          map[split.method] = (map[split.method] || 0) + split.amountUSD;
+          const currency = currencyForMethod(split.method);
+          // amountBs / amountUSD contienen la equivalencia; para arqueo
+          // tomamos exclusivamente el importe de la moneda original.
+          add(
+            split.method,
+            currency === 'Bs' ? (split.amountBs || 0) : (split.amountUSD || 0),
+            currency
+          );
         }
       } else {
-        map[order.paymentMethod] = (map[order.paymentMethod] || 0) + order.totalUSD;
+        const currency = currencyForMethod(order.paymentMethod);
+        add(
+          order.paymentMethod,
+          currency === 'Bs' ? (order.totalBs || 0) : (order.totalUSD || 0),
+          currency
+        );
       }
     }
-    return map;
+
+    return Object.values(map).sort((a, b) => a.method.localeCompare(b.method));
   }, [posOrders]);
 
   const sessionMovements = useMemo(
@@ -289,6 +325,7 @@ export const CashRegisterView: React.FC = () => {
         session,
         salesUSD: totalSalesUSD,
         salesByMethod,
+        salesByMethodCurrency: salesByMethod,
         expectedBs,
         expectedUSD,
         printerMode,
@@ -360,12 +397,16 @@ export const CashRegisterView: React.FC = () => {
           <div className="text-2xl font-black text-indigo-700">{formatUSD(totalSalesUSD)}</div>
           <div className="text-xs text-slate-500 mb-3">Ventas POS de la sesión actual</div>
           <div className="space-y-1 text-xs">
-            {Object.entries(salesByMethod).map(([method, value]) => (
-              <div key={method} className="flex justify-between gap-2">
-                <span>{method.replace(/_/g, ' ')}</span>
-                <b>{formatUSD(value)}</b>
-              </div>
-            ))}
+            {salesByMethod.length === 0 ? (
+              <div className="text-slate-400">Sin ventas cobradas en esta sesión.</div>
+            ) : (
+              salesByMethod.map(({ method, currency, amount }) => (
+                <div key={`${method}-${currency}`} className="flex justify-between gap-2">
+                  <span>{formatPaymentMethod(method)}</span>
+                  <b>{currency === 'Bs' ? formatBs(amount) : formatUSD(amount)}</b>
+                </div>
+              ))
+            )}
           </div>
           <div className="mt-3 pt-3 border-t text-xs space-y-1">
             <div className="flex justify-between"><span>Efectivo USD</span><b>{formatUSD(cashSalesUSD)}</b></div>
