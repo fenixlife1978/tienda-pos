@@ -1146,7 +1146,7 @@ export const PosView: React.FC = () => {
                   title={!canUseCredit ? 'Cliente sin línea de crédito activa o cupo excedido' : 'Venta a crédito'}
                 >
                   <CreditCard className="w-4 h-4 mx-auto mb-0.5 text-amber-600" />
-                  <span className="text-[11px]">A Crédito ({canUseCredit ? `${selectedCustomer?.creditDays}d` : 'No disp.'})</span>
+                  <span className="text-[11px]">A Crédito</span>
                 </button>
               </div>
             </div>
