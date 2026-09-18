@@ -309,6 +309,30 @@ class TursoService {
       `);
       tablesCreated.push('invoices');
 
+      // Idempotent migrations for mixed payments and sale reversal audit fields.
+      for (const sql of [
+        "ALTER TABLE orders ADD COLUMN payment_splits TEXT",
+        "ALTER TABLE orders ADD COLUMN is_voided INTEGER DEFAULT 0",
+        "ALTER TABLE orders ADD COLUMN voided_at TEXT",
+        "ALTER TABLE orders ADD COLUMN voided_by TEXT",
+        "ALTER TABLE orders ADD COLUMN void_reason TEXT",
+        "ALTER TABLE orders ADD COLUMN is_returned INTEGER DEFAULT 0",
+        "ALTER TABLE orders ADD COLUMN returned_at TEXT",
+        "ALTER TABLE orders ADD COLUMN returned_by TEXT",
+        "ALTER TABLE orders ADD COLUMN return_reason TEXT",
+        "ALTER TABLE invoices ADD COLUMN payment_splits TEXT",
+        "ALTER TABLE invoices ADD COLUMN is_voided INTEGER DEFAULT 0",
+        "ALTER TABLE invoices ADD COLUMN voided_at TEXT",
+        "ALTER TABLE invoices ADD COLUMN voided_by TEXT",
+        "ALTER TABLE invoices ADD COLUMN void_reason TEXT",
+        "ALTER TABLE invoices ADD COLUMN is_returned INTEGER DEFAULT 0",
+        "ALTER TABLE invoices ADD COLUMN returned_at TEXT",
+        "ALTER TABLE invoices ADD COLUMN returned_by TEXT",
+        "ALTER TABLE invoices ADD COLUMN return_reason TEXT"
+      ]) {
+        try { await client.execute(sql); } catch {}
+      }
+
       // 9. accounts_receivable
       await client.execute(`
         CREATE TABLE IF NOT EXISTS accounts_receivable (
@@ -329,6 +353,13 @@ class TursoService {
         );
       `);
       tablesCreated.push('accounts_receivable');
+      for (const sql of [
+        "ALTER TABLE accounts_receivable ADD COLUMN is_voided INTEGER DEFAULT 0",
+        "ALTER TABLE accounts_receivable ADD COLUMN voided_at TEXT",
+        "ALTER TABLE accounts_receivable ADD COLUMN void_reason TEXT"
+      ]) {
+        try { await client.execute(sql); } catch {}
+      }
 
       // 10. accounts_payable
       await client.execute(`
@@ -1048,8 +1079,9 @@ class TursoService {
         INSERT OR REPLACE INTO orders (
           id, order_number, customer_id, customer_name, customer_rif, customer_phone,
           customer_address, items, subtotal_usd, tax_usd, total_usd, total_bs,
-          bcv_rate, payment_method, payment_status, order_status, payment_reference,
-          channel, created_at, estimated_delivery, credit_due_date, credit_days, notes
+          bcv_rate, payment_method, payment_splits, payment_status, order_status, payment_reference,
+          channel, created_at, estimated_delivery, credit_due_date, credit_days, notes,
+          is_voided, voided_at, voided_by, void_reason, is_returned, returned_at, returned_by, return_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
@@ -1067,6 +1099,7 @@ class TursoService {
         o.totalBs,
         o.bcvRate,
         o.paymentMethod,
+        o.paymentSplits ? JSON.stringify(o.paymentSplits) : null,
         o.paymentStatus,
         o.orderStatus,
         o.paymentReference || null,
@@ -1076,6 +1109,14 @@ class TursoService {
         o.creditDueDate || null,
         o.creditDays ?? null,
         o.notes || null,
+        o.isVoided ? 1 : 0,
+        o.voidedAt || null,
+        o.voidedBy || null,
+        o.voidReason || null,
+        o.isReturned ? 1 : 0,
+        o.returnedAt || null,
+        o.returnedBy || null,
+        o.returnReason || null,
       ],
     });
   }
@@ -1088,8 +1129,9 @@ class TursoService {
         INSERT OR REPLACE INTO invoices (
           id, invoice_number, order_id, customer_id, customer_name, customer_rif,
           customer_address, customer_phone, items, subtotal_usd, tax_usd, total_usd,
-          total_bs, bcv_rate, payment_method, payment_status, created_at, due_date,
-          is_credit, credit_days
+          total_bs, bcv_rate, payment_method, payment_splits, payment_status, created_at, due_date,
+          is_credit, credit_days, is_voided, voided_at, voided_by, void_reason,
+          is_returned, returned_at, returned_by, return_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
@@ -1108,11 +1150,20 @@ class TursoService {
         inv.totalBs,
         inv.bcvRate,
         inv.paymentMethod,
+        inv.paymentSplits ? JSON.stringify(inv.paymentSplits) : null,
         inv.paymentStatus,
         inv.createdAt,
         inv.dueDate || null,
         inv.isCredit ? 1 : 0,
         inv.creditDays ?? null,
+        inv.isVoided ? 1 : 0,
+        inv.voidedAt || null,
+        inv.voidedBy || null,
+        inv.voidReason || null,
+        inv.isReturned ? 1 : 0,
+        inv.returnedAt || null,
+        inv.returnedBy || null,
+        inv.returnReason || null,
       ],
     });
   }
@@ -1125,7 +1176,7 @@ class TursoService {
         INSERT OR REPLACE INTO accounts_receivable (
           id, invoice_id, invoice_number, customer_id, customer_name,
           customer_phone, total_amount_usd, amount_paid_usd, balance_usd,
-          issued_date, due_date, credit_days, status, created_at
+          issued_date, due_date, credit_days, status, created_at, is_voided, voided_at, void_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
@@ -1143,6 +1194,9 @@ class TursoService {
         r.creditDays,
         r.status,
         new Date().toISOString(),
+        r.isVoided ? 1 : 0,
+        r.voidedAt || null,
+        r.voidReason || null,
       ],
     });
   }
