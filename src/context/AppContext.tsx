@@ -1707,6 +1707,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!reason.trim()) return { success: false, message: 'Debe indicar el motivo de la devolución.', refundUSD: 0 };
 
     const now = new Date().toISOString();
+    const returnNumber = terminalIdentity.nextReturnNumber();
     const inventoryMovements: Array<{ productId: string; quantityDelta: number; movementType: 'return' }> = [];
 
     setProducts((prev) => prev.map((product) => {
@@ -1743,6 +1744,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setInvoices((prev) => prev.map((inv) => inv.orderId === orderId ? {
       ...inv,
       isReturned: true,
+      returnNumber,
       returnedAt: now,
       returnedBy: currentUser.name,
       returnReason: reason.trim(),
