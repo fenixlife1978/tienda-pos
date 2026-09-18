@@ -10,6 +10,7 @@ import {
   Order,
   OrderStatus,
   PaymentMethod,
+  PaymentSplit,
   PaymentStatus,
   PayableItem,
   PayablePaymentRecord,
@@ -111,6 +112,7 @@ interface AppContextType {
       customNote?: string;
     }[];
     paymentMethod: PaymentMethod;
+    paymentSplits?: PaymentSplit[];
     paymentReference?: string;
     channel: 'online' | 'pos';
     notes?: string;
@@ -1343,15 +1345,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saleMode: item.saleMode,
         weightKg: item.weightKg,
         customAmountBs: item.customAmountBs,
+        customNote: item.customNote,
+        taxUSD: Number((
+          subtotalUSD * (
+            item.product.appliesIva === false
+              ? 0
+              : ((item.product.ivaRate ?? settings.ivaPercentage) / 100)
+          )
+        ).toFixed(2)),
+        ivaRate: item.product.appliesIva === false ? 0 : (item.product.ivaRate ?? settings.ivaPercentage),
       };
     });
 
     const subtotalUSD = orderItems.reduce((acc, curr) => acc + curr.subtotalUSD, 0);
-    const taxUSD = subtotalUSD * (settings.ivaPercentage / 100);
-    const totalUSD = subtotalUSD + taxUSD;
-    const totalBs = totalUSD * settings.bcvRate;
+    const taxUSD = orderItems.reduce((acc, curr) => acc + (curr.taxUSD || 0), 0);
+    const totalUSD = Number((subtotalUSD + taxUSD).toFixed(2));
+    const totalBs = Number((totalUSD * settings.bcvRate).toFixed(2));
 
-    const isCredit = orderInput.paymentMethod === 'credito';
+    const paymentSplits = (orderInput.paymentSplits || []).map((split) => ({
+      ...split,
+      amountUSD: Number(split.amountUSD.toFixed(2)),
+      amountBs: Number((split.amountBs || split.amountUSD * settings.bcvRate).toFixed(2)),
+    }));
+    const splitTotalUSD = Number(paymentSplits.reduce((sum, split) => sum + split.amountUSD, 0).toFixed(2));
+    if (paymentSplits.length > 0 && orderInput.paymentMethod !== 'credito' && splitTotalUSD + 0.01 < totalUSD) {
+      throw new Error(`El cobro mixto está incompleto. Faltan ${(totalUSD - splitTotalUSD).toFixed(2)} USD equivalentes.`);
+    }
+    const effectivePaymentMethod: PaymentMethod =
+      paymentSplits.length > 1 ? 'mixto' : (paymentSplits[0]?.method || orderInput.paymentMethod);
+    const isCredit = effectivePaymentMethod === 'credito';
     const customer = customers.find((c) => c.id === orderInput.customerId);
     const creditDays = orderInput.customCreditDays || customer?.creditDays || settings.defaultCreditDays;
     const dueDate = isCredit
@@ -1372,10 +1394,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalUSD,
       totalBs,
       bcvRate: settings.bcvRate,
-      paymentMethod: orderInput.paymentMethod,
+      paymentMethod: effectivePaymentMethod,
+      paymentSplits: paymentSplits.length ? paymentSplits : undefined,
       paymentStatus: isCredit
         ? 'a_credito'
-        : ['efectivo_usd', 'efectivo_bs', 'biopago'].includes(orderInput.paymentMethod) && orderInput.channel === 'pos'
+        : (orderInput.channel === 'pos' && (paymentSplits.length === 0 || splitTotalUSD + 0.01 >= totalUSD))
         ? 'pagado'
         : 'pendiente',
       orderStatus: 'en_tramite',
@@ -1403,7 +1426,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalUSD,
       totalBs,
       bcvRate: settings.bcvRate,
-      paymentMethod: orderInput.paymentMethod,
+      paymentMethod: effectivePaymentMethod,
+      paymentSplits: paymentSplits.length ? paymentSplits : undefined,
       paymentStatus: newOrder.paymentStatus,
       createdAt: now.toISOString(),
       dueDate,

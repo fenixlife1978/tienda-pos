@@ -17,11 +17,13 @@ import {
   UserCheck,
   Truck,
   Tag,
+  WalletCards,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
 export type ErpTab =
   | 'dashboard'
+  | 'caja'
   | 'pos'
   | 'pedidos'
   | 'solicitudes'
@@ -67,6 +69,12 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       id: 'dashboard' as ErpTab,
       label: 'Dashboard & Ventas',
       icon: LayoutDashboard,
+      badge: null,
+    },
+    {
+      id: 'caja' as ErpTab,
+      label: 'Caja & Arqueo',
+      icon: WalletCards,
       badge: null,
     },
     {

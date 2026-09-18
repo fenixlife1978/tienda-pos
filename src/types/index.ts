@@ -264,7 +264,18 @@ export type PaymentMethod =
   | 'pago_movil'
   | 'efectivo_usd'
   | 'divisas_efectivo'
-  | 'credito';
+  | 'tarjeta'
+  | 'credito'
+  | 'mixto';
+
+export interface PaymentSplit {
+  id: string;
+  method: Exclude<PaymentMethod, 'mixto'>;
+  amountUSD: number;
+  amountBs: number;
+  reference?: string;
+  createdAt?: string;
+}
 
 export const formatPaymentMethod = (method: PaymentMethod | string): string => {
   switch (method) {
@@ -283,6 +294,10 @@ export const formatPaymentMethod = (method: PaymentMethod | string): string => {
       return 'Efectivo Divisas USD';
     case 'pago_movil':
       return 'Pago Móvil';
+    case 'tarjeta':
+      return 'Tarjeta';
+    case 'mixto':
+      return 'Cobro Mixto';
     case 'credito':
       return 'Crédito Comercial';
     default:
@@ -296,6 +311,8 @@ export interface OrderItem {
   quantity: number;
   unitPriceUSD: number;
   subtotalUSD: number;
+  taxUSD?: number;
+  ivaRate?: number;
   presentationName?: string;
   saleMode?: string;
   weightKg?: number;
@@ -318,6 +335,7 @@ export interface Order {
   totalBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
   paymentReference?: string;
@@ -500,6 +518,8 @@ export interface AcceptedPaymentMethodsConfig {
   efectivo_usd?: boolean;
   efectivo_bs?: boolean;
   biopago?: boolean;
+  tarjeta?: boolean;
+  mixto?: boolean;
 }
 
 export interface SystemSettings {
@@ -521,6 +541,8 @@ export interface SystemSettings {
   ivaPercentage: number;
   // Métodos de Pago Aceptados
   acceptedPaymentMethods: AcceptedPaymentMethodsConfig;
+  printerMode?: 'thermal' | 'fiscal';
+  thermalPaperWidth?: 58 | 80;
   // Datos Pago Móvil
   pagoMovilBank: string;
   pagoMovilPhone: string;

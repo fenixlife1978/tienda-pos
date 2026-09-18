@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
-import { Product, PaymentMethod, ProductPresentation } from '../../types';
+import { Product, PaymentMethod, PaymentSplit, ProductPresentation, formatPaymentMethod } from '../../types';
 import {
   Search,
   ShoppingCart,
@@ -88,6 +88,12 @@ export const PosView: React.FC = () => {
   const [cashTenderedBs, setCashTenderedBs] = useState<string>('');
   const [paymentReference, setPaymentReference] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isMixedPayment, setIsMixedPayment] = useState(false);
+  const [mixedPayments, setMixedPayments] = useState<Array<{ id: string; method: Exclude<PaymentMethod, 'mixto'>; amountUSD: string; reference: string }>>([]);
+  const mixedPaidUSD = useMemo(() => mixedPayments.reduce((sum, p) => sum + (Number(p.amountUSD) || 0), 0), [mixedPayments]);
+  const mixedRemainingUSD = Math.max(0, totalUSD - mixedPaidUSD);
+  const addMixedPayment = () => setMixedPayments((prev) => [...prev, { id: `mix-${Date.now()}-${prev.length}`, method: 'efectivo_usd', amountUSD: '', reference: '' }]);
+  const removeMixedPayment = (id: string) => setMixedPayments((prev) => prev.filter((p) => p.id !== id));
 
   // Barcode Scanner state & visual feedback
   const [scanFeedback, setScanFeedback] = useState<{
@@ -501,6 +507,10 @@ export const PosView: React.FC = () => {
       return;
     }
 
+    if (isMixedPayment && mixedPaidUSD + 0.01 < totalUSD) {
+      alert(`El cobro mixto está incompleto. Faltan ${formatUSD(totalUSD - mixedPaidUSD)} USD equivalentes.`);
+      return;
+    }
     setIsProcessing(true);
 
     try {
@@ -521,7 +531,17 @@ export const PosView: React.FC = () => {
           unitPriceUSD: item.unitPriceUSD,
           customNote: item.customNote,
         })),
-        paymentMethod,
+        paymentMethod: isMixedPayment ? 'mixto' : paymentMethod,
+        paymentSplits: isMixedPayment
+          ? mixedPayments.map((p): PaymentSplit => ({
+              id: p.id,
+              method: p.method,
+              amountUSD: Number(p.amountUSD) || 0,
+              amountBs: Number(((Number(p.amountUSD) || 0) * settings.bcvRate).toFixed(2)),
+              reference: p.reference || undefined,
+              createdAt: new Date().toISOString(),
+            }))
+          : undefined,
         paymentReference: paymentReference || undefined,
         channel: 'pos',
         customCreditDays: paymentMethod === 'credito' ? customCreditDays : undefined,
@@ -1079,6 +1099,15 @@ export const PosView: React.FC = () => {
                   <span className="text-[11px]">Efectivo $</span>
                 </button>
 
+                {/* Tarjeta */}
+                <button type="button" onClick={() => { setIsMixedPayment(false); setPaymentMethod('tarjeta'); }} className={`p-2 rounded-lg border text-center transition cursor-pointer ${paymentMethod === 'tarjeta' && !isMixedPayment ? 'bg-cyan-50 border-cyan-600 text-cyan-800 font-bold ring-1 ring-cyan-500' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                  <CreditCard className="w-4 h-4 mx-auto mb-0.5 text-cyan-600" /><span className="text-[11px]">Tarjeta</span>
+                </button>
+                {/* Cobro Mixto */}
+                <button type="button" onClick={() => { setIsMixedPayment(true); if (!mixedPayments.length) addMixedPayment(); }} className={`p-2 rounded-lg border text-center transition cursor-pointer ${isMixedPayment ? 'bg-violet-50 border-violet-600 text-violet-800 font-bold ring-1 ring-violet-500' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                  <Layers className="w-4 h-4 mx-auto mb-0.5 text-violet-600" /><span className="text-[11px]">Cobro Mixto</span>
+                </button>
+
                 {/* Crédito Comercial */}
                 <button
                   type="button"
@@ -1099,8 +1128,26 @@ export const PosView: React.FC = () => {
               </div>
             </div>
 
+            {isMixedPayment && (
+              <div className="p-3 bg-violet-50 rounded-xl border border-violet-200 text-xs space-y-2">
+                <div className="flex items-center justify-between"><div><div className="font-bold text-violet-950">Calculadora de Cobro Mixto</div><div className="text-[10px] text-violet-700">Todos los importes se controlan en USD equivalente con la tasa BCV vigente.</div></div><button type="button" onClick={addMixedPayment} className="px-2.5 py-1.5 bg-violet-600 text-white rounded-lg font-bold">+ Agregar medio</button></div>
+                {mixedPayments.map((row) => (
+                  <div key={row.id} className="grid grid-cols-12 gap-1.5 items-center">
+                    <select value={row.method} onChange={(e) => setMixedPayments((prev) => prev.map((p) => p.id === row.id ? { ...p, method: e.target.value as Exclude<PaymentMethod, 'mixto'> } : p))} className="col-span-4 px-2 py-1.5 border border-violet-200 rounded-lg bg-white font-semibold">
+                      <option value="efectivo_usd">Efectivo USD</option><option value="efectivo_bs">Efectivo Bs.</option><option value="zelle">Zelle</option><option value="pago_movil">Pago Móvil</option><option value="transferencia_bs">Transferencia Bs.</option><option value="transferencia_usd">Transferencia USD</option><option value="biopago">Biopago</option><option value="tarjeta">Tarjeta</option>
+                    </select>
+                    <input type="number" min="0" step="0.01" value={row.amountUSD} onChange={(e) => setMixedPayments((prev) => prev.map((p) => p.id === row.id ? { ...p, amountUSD: e.target.value } : p))} placeholder="USD equiv." className="col-span-3 px-2 py-1.5 border border-violet-200 rounded-lg font-mono text-right bg-white" />
+                    <span className="col-span-3 text-right font-mono font-bold text-violet-900">{formatBs((Number(row.amountUSD) || 0) * settings.bcvRate)}</span>
+                    <button type="button" onClick={() => removeMixedPayment(row.id)} className="col-span-2 px-2 py-1.5 bg-white border border-rose-200 text-rose-600 rounded-lg font-bold">Quitar</button>
+                    <input type="text" value={row.reference} onChange={(e) => setMixedPayments((prev) => prev.map((p) => p.id === row.id ? { ...p, reference: e.target.value } : p))} placeholder="Referencia (opcional)" className="col-span-12 px-2 py-1.5 border border-violet-200 rounded-lg bg-white font-mono" />
+                  </div>
+                ))}
+                <div className="flex justify-between pt-2 border-t border-violet-200 font-bold"><span>Aplicado: {formatUSD(mixedPaidUSD)} USD</span><span className={mixedRemainingUSD > 0.005 ? 'text-rose-700' : 'text-emerald-700'}>{mixedRemainingUSD > 0.005 ? `Falta: ${formatUSD(mixedRemainingUSD)}` : 'Cobro completo'}</span></div>
+              </div>
+            )}
+
             {/* If Cash Bs., calculate change */}
-            {paymentMethod === 'efectivo_bs' && (
+            {!isMixedPayment && paymentMethod === 'efectivo_bs' && (
               <div className="p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-200 text-xs space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-emerald-900">Monto recibido en Bs:</label>
@@ -1125,7 +1172,7 @@ export const PosView: React.FC = () => {
             )}
 
             {/* If Cash USD, calculate change */}
-            {paymentMethod === 'efectivo_usd' && (
+            {!isMixedPayment && paymentMethod === 'efectivo_usd' && (
               <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-slate-700">Monto recibido (USD):</label>
@@ -1150,7 +1197,7 @@ export const PosView: React.FC = () => {
             )}
 
             {/* Biopago reference */}
-            {paymentMethod === 'biopago' && (
+            {!isMixedPayment && paymentMethod === 'biopago' && (
               <div className="p-2.5 bg-indigo-50/50 rounded-xl border border-indigo-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-indigo-900 font-semibold">
                   <span>Terminal Biopago BDV</span>
@@ -1167,7 +1214,7 @@ export const PosView: React.FC = () => {
             )}
 
             {/* Transferencia reference */}
-            {paymentMethod === 'transferencia_bs' && (
+            {!isMixedPayment && paymentMethod === 'transferencia_bs' && (
               <div className="p-2.5 bg-blue-50/50 rounded-xl border border-blue-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-blue-900 font-semibold">
                   <span>Transferencia Bancaria / Punto de Venta</span>
@@ -1184,7 +1231,7 @@ export const PosView: React.FC = () => {
             )}
 
             {/* Zelle reference */}
-            {paymentMethod === 'zelle' && (
+            {!isMixedPayment && paymentMethod === 'zelle' && (
               <div className="p-2.5 bg-purple-50/50 rounded-xl border border-purple-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-purple-900 font-semibold">
                   <span>Pago Electrónico Zelle</span>
@@ -1201,7 +1248,7 @@ export const PosView: React.FC = () => {
             )}
 
             {/* Pago Móvil reference */}
-            {paymentMethod === 'pago_movil' && (
+            {!isMixedPayment && paymentMethod === 'pago_movil' && (
               <div className="p-2.5 bg-sky-50/50 rounded-xl border border-sky-200 text-xs space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-sky-900 font-semibold">
                   <span>Pago Móvil Interbancario</span>
@@ -1217,8 +1264,15 @@ export const PosView: React.FC = () => {
               </div>
             )}
 
+            {!isMixedPayment && paymentMethod === 'tarjeta' && (
+              <div className="p-2.5 bg-cyan-50/60 rounded-xl border border-cyan-200 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-cyan-900 font-semibold"><span>Pago con Tarjeta</span><span className="font-mono font-bold">{formatUSD(totalUSD)} USD</span></div>
+                <input type="text" placeholder="Últimos 4 dígitos / referencia / lote..." value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} className="w-full px-3 py-1.5 text-xs bg-white border border-cyan-300 rounded-lg focus:ring-2 focus:ring-cyan-500 font-mono" />
+              </div>
+            )}
+
             {/* If Credit, choose credit days */}
-            {paymentMethod === 'credito' && (
+            {!isMixedPayment && paymentMethod === 'credito' && (
               <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-xs space-y-2 text-amber-900">
                 <div className="flex items-center justify-between">
                   <span className="font-bold">Días de Crédito Otorgados:</span>
