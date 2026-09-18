@@ -309,8 +309,9 @@ class TursoService {
       `);
       tablesCreated.push('invoices');
 
-      // Idempotent migrations for mixed payments and sale reversal audit fields.
+      // Idempotent migrations for mixed payments, per-warehouse stock and reversal audit fields.
       for (const sql of [
+        "ALTER TABLE products ADD COLUMN warehouse_stocks TEXT",
         "ALTER TABLE orders ADD COLUMN payment_splits TEXT",
         "ALTER TABLE orders ADD COLUMN is_voided INTEGER DEFAULT 0",
         "ALTER TABLE orders ADD COLUMN voided_at TEXT",
@@ -624,6 +625,7 @@ class TursoService {
           stock: Number(row.stock),
           minStock: Number(row.min_stock),
           unit: String(row.unit),
+          warehouseStocks: row.warehouse_stocks ? JSON.parse(String(row.warehouse_stocks)) : undefined,
           image: String(row.image || ''),
           isOffer: Boolean(row.is_offer),
           discountPercentage: row.discount_percentage ? Number(row.discount_percentage) : undefined,
@@ -924,7 +926,7 @@ class TursoService {
         INSERT OR REPLACE INTO products (
           id, code, name, category, cost_usd, profit_margin_percent, price_usd,
           stock, min_stock, unit, image, is_offer, discount_percentage,
-          description, applies_iva, alternative_prices, presentations,
+          warehouse_stocks, description, applies_iva, alternative_prices, presentations,
           suppliers_info, highest_supplier_cost, is_composite,
           composite_components, composite_virtual_stock, is_weighable,
           price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
@@ -948,6 +950,7 @@ class TursoService {
         p.image || '',
         p.isOffer ? 1 : 0,
         p.discountPercentage ?? 0,
+        p.warehouseStocks ? JSON.stringify(p.warehouseStocks) : null,
         p.description || '',
         p.appliesIva === false ? 0 : 1,
         p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
