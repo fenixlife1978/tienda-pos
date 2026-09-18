@@ -190,7 +190,7 @@ export const CashRegisterView: React.FC = () => {
   );
 
   const expectedBs = useMemo(
-    () => (session?.openingBs || 0) + cashSalesBs * settings.bcvRate + movementCashBs,
+    () => (session?.openingBs || 0) + cashSalesBs + movementCashBs + refundCash.bs,
     [session, cashSalesBs, movementCashBs, refundCash.bs, settings.bcvRate]
   );
 
