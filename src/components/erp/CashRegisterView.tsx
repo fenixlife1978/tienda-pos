@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatBs, formatUSD } from '../../utils/formatUtils';
 import { formatPaymentMethod } from '../../types';
 import { terminalIdentity } from '../../services/terminalIdentity';
+import { tursoService } from '../../services/tursoService';
 import {
   WalletCards,
   LockKeyhole,
@@ -84,6 +85,42 @@ export const CashRegisterView: React.FC = () => {
   const [movementCurrency, setMovementCurrency] = useState<'Bs' | 'USD'>('Bs');
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
+
+  useEffect(() => {
+    if (!tursoService.isConfigured() || !navigator.onLine) return;
+    let cancelled = false;
+    const hydrate = async () => {
+      try {
+        const [remoteSession, remoteHistory, remoteMovements] = await Promise.all([
+          tursoService.loadOpenCashSession(terminalId),
+          tursoService.loadCashHistory(terminalId),
+          tursoService.loadCashMovements(terminalId),
+        ]);
+        if (cancelled) return;
+        if (remoteSession) {
+          persistSession({
+            id:String(remoteSession.id), terminalId:String(remoteSession.terminal_id), openedAt:String(remoteSession.opened_at),
+            openedBy:String(remoteSession.opened_by), openingBs:Number(remoteSession.opening_bs||0), openingUSD:Number(remoteSession.opening_usd||0),
+            status:'open',
+          });
+        }
+        if (remoteHistory.length) persistHistory(remoteHistory.map((r:any)=>({
+          id:String(r.id),terminalId:String(r.terminal_id),openedAt:String(r.opened_at),openedBy:String(r.opened_by),
+          openingBs:Number(r.opening_bs||0),openingUSD:Number(r.opening_usd||0),closedAt:r.closed_at||undefined,closedBy:r.closed_by||undefined,
+          closingBs:r.closing_bs==null?undefined:Number(r.closing_bs),closingUSD:r.closing_usd==null?undefined:Number(r.closing_usd),
+          expectedBs:r.expected_bs==null?undefined:Number(r.expected_bs),expectedUSD:r.expected_usd==null?undefined:Number(r.expected_usd),
+          differenceBs:r.difference_bs==null?undefined:Number(r.difference_bs),differenceUSD:r.difference_usd==null?undefined:Number(r.difference_usd),
+          status:'closed',
+        })));
+        if (remoteMovements.length) persistMovements(remoteMovements.map((r:any)=>({
+          id:String(r.id),sessionId:String(r.session_id),terminalId:String(r.terminal_id),type:r.type,currency:r.currency,
+          amount:Number(r.amount||0),reason:String(r.reason),createdAt:String(r.created_at),createdBy:String(r.created_by),
+        })));
+      } catch (error) { console.warn('No se pudo hidratar Caja desde Turso:', error); }
+    };
+    hydrate();
+    return () => { cancelled = true; };
+  }, [terminalId]);
 
   const persistSession = (next: CashSession | null) => {
     setSession(next);
@@ -250,6 +287,7 @@ export const CashRegisterView: React.FC = () => {
     };
 
     persistSession(next);
+    if (tursoService.isConfigured()) tursoService.saveCashSession(next).catch(console.warn);
     setOpeningBs('');
     setOpeningUSD('');
   };
@@ -285,6 +323,7 @@ export const CashRegisterView: React.FC = () => {
     };
 
     persistMovements([...movements, movement]);
+    if (tursoService.isConfigured()) tursoService.saveCashMovement(movement).catch(console.warn);
     setMovementAmount('');
     setMovementReason('');
   };
@@ -310,6 +349,7 @@ export const CashRegisterView: React.FC = () => {
     };
 
     persistHistory([closed, ...history]);
+    if (tursoService.isConfigured()) tursoService.saveCashSession(closed).catch(console.warn);
     persistSession(null);
     setClosingBs('');
     setClosingUSD('');
