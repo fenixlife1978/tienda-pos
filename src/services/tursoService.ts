@@ -376,7 +376,25 @@ class TursoService {
       `);
       tablesCreated.push('sync_operations');
 
-      // 13. system_users
+      // 13. inventory_movements — movimientos append-only para inventario multi-caja/offline
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS inventory_movements (
+          movement_id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL,
+          quantity_delta REAL NOT NULL,
+          movement_type TEXT NOT NULL,
+          source_operation_id TEXT NOT NULL,
+          terminal_id TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+      await client.execute(`
+        CREATE INDEX IF NOT EXISTS idx_inventory_movements_product
+        ON inventory_movements(product_id);
+      `);
+      tablesCreated.push('inventory_movements');
+
+      // 14. system_users
       await client.execute(`
         CREATE TABLE IF NOT EXISTS system_users (
           id TEXT PRIMARY KEY,
@@ -392,7 +410,7 @@ class TursoService {
       `);
       tablesCreated.push('system_users');
 
-      // 14. bcv_history
+      // 15. bcv_history
       await client.execute(`
         CREATE TABLE IF NOT EXISTS bcv_history (
           id TEXT PRIMARY KEY,
@@ -846,7 +864,7 @@ class TursoService {
     });
   }
 
-  public async saveProduct(p: Product) {
+  public async saveProduct(p: Product, options?: { preserveStock?: boolean }) {
     const client = this.getClient();
     if (!client) return;
     await client.execute({
@@ -868,7 +886,11 @@ class TursoService {
         p.costUSD,
         p.profitMarginPercent ?? null,
         p.priceUSD,
-        p.stock,
+        options?.preserveStock ? (
+          // Preserve the authoritative global stock when replaying a master-data snapshot.
+          // Inventory quantity is changed only through inventory_movements.
+          Number((await client.execute({ sql: 'SELECT stock FROM products WHERE id = ?', args: [p.id] })).rows[0]?.stock ?? p.stock)
+        ) : p.stock,
         p.minStock,
         p.unit,
         p.image || '',
@@ -1086,6 +1108,59 @@ class TursoService {
         new Date().toISOString(),
       ],
     });
+  }
+
+  public async applyInventoryMovement(movement: {
+    movementId: string;
+    productId: string;
+    quantityDelta: number;
+    movementType: string;
+    sourceOperationId: string;
+    terminalId: string;
+    createdAt: string;
+  }): Promise<'applied' | 'already_applied'> {
+    const client = this.getClient();
+    if (!client) throw new Error('Cliente Turso no configurado');
+
+    const tx = await client.transaction('write');
+    try {
+      const insert = await tx.execute({
+        sql: `INSERT OR IGNORE INTO inventory_movements
+          (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          movement.movementId,
+          movement.productId,
+          movement.quantityDelta,
+          movement.movementType,
+          movement.sourceOperationId,
+          movement.terminalId,
+          movement.createdAt,
+        ],
+      });
+
+      if (Number(insert.rowsAffected || 0) === 0) {
+        await tx.rollback();
+        return 'already_applied';
+      }
+
+      const updated = await tx.execute({
+        sql: `UPDATE products
+          SET stock = MAX(0, ROUND(stock + ?, 3)), updated_at = ?
+          WHERE id = ?`,
+        args: [movement.quantityDelta, movement.createdAt, movement.productId],
+      });
+
+      if (Number(updated.rowsAffected || 0) === 0) {
+        throw new Error(`Producto no encontrado para movimiento de inventario: ${movement.productId}`);
+      }
+
+      await tx.commit();
+      return 'applied';
+    } catch (error) {
+      try { await tx.rollback(); } catch {}
+      throw error;
+    }
   }
 
   public async beginSyncOperation(operation: SyncOperationRecord): Promise<'new' | 'processed'> {
