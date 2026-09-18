@@ -1798,6 +1798,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } : inv));
 
     if (order.paymentStatus === 'a_credito') {
+      const invoiceId = invoices.find((inv) => inv.orderId === orderId)?.id;
+      if (invoiceId) {
+        setReceivables((prev) => prev.map((rec) =>
+          rec.invoiceId === invoiceId
+            ? {
+                ...rec,
+                amountPaidUSD: rec.totalAmountUSD,
+                balanceUSD: 0,
+                status: 'pagado',
+                isVoided: true,
+                voidedAt: now,
+                voidReason: 'Anulación de venta',
+              }
+            : rec
+        ));
+      }
       setCustomers((prev) => prev.map((customer) =>
         customer.id === order.customerId
           ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - order.totalUSD) }
