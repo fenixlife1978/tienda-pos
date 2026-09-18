@@ -342,6 +342,8 @@ export interface Order {
   paymentReference?: string;
   channel: 'online' | 'pos';
   createdAt: string;
+  /** Caja/terminal POS que originó la venta; permite arqueo exacto multi-caja. */
+  cashSessionId?: string;
   estimatedDelivery?: string;
   creditDueDate?: string;
   creditDays?: number;
@@ -376,6 +378,8 @@ export interface Invoice {
   paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
   createdAt: string;
+  /** Sesión de caja POS asociada al documento, cuando aplica. */
+  cashSessionId?: string;
   dueDate?: string;
   isCredit: boolean;
   creditDays?: number;
