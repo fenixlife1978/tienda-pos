@@ -830,13 +830,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tablesCreated: [
           'products', 'categories', 'units', 'customers', 'suppliers',
           'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
-          'system_users', 'system_settings', 'bcv_history'
+          'sync_operations', 'system_users', 'system_settings', 'bcv_history'
         ],
         totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
       });
-      if (flushed.pending > 0) {
-        console.info('POS offline: ' + flushed.pending + ' operación(es) quedan pendientes de sincronización.');
-      }
     } catch (err: any) {
       console.error('Error syncing with Turso:', err);
       setTursoState((prev) => ({
