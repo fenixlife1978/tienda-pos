@@ -1394,7 +1394,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // If credit, add to Cuentas por Cobrar (CxC) and increase customer debt
     if (isCredit && dueDate) {
       const newRec: ReceivableItem = {
-        id: `rec-${Date.now()}`,
+        id: `rec-${newInvoice.id}`,
         invoiceId: newInvoice.id,
         invoiceNumber: newInvoice.invoiceNumber,
         customerId: orderInput.customerId,
