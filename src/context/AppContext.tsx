@@ -749,6 +749,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Flush durable local POS transactions before pulling cloud state.
       // This prevents an offline sale from being overwritten by a stale cloud snapshot.
       const flushed = await offlineSyncService.flush();
+      if (flushed.pending > 0) {
+        // Never replace the local POS state with an older cloud snapshot while
+        // an offline sale is still waiting to be uploaded.
+        setTursoState((prev) => ({
+          ...prev,
+          isConnected: false,
+          isSyncing: false,
+          statusText: 'Ventas locales pendientes de sincronización',
+          errorMessage: 'Hay operaciones POS pendientes. Se reintentará automáticamente.',
+        }));
+        return;
+      }
       const cloudData = await tursoService.loadAllData();
       if (cloudData.products.length > 0) setProducts(cloudData.products);
       if (cloudData.categories.length > 0) setCategories(cloudData.categories);
