@@ -64,7 +64,7 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 export const CashRegisterView: React.FC = () => {
-  const { orders, currentUser, settings, updateSettings } = useApp();
+  const { orders, receivables, currentUser, settings, updateSettings } = useApp();
   const terminalId = terminalIdentity.getId();
 
   const [session, setSession] = useState<CashSession | null>(() =>
@@ -155,6 +155,50 @@ export const CashRegisterView: React.FC = () => {
         : [],
     [orders, session]
   );
+
+  const cxcPayments = useMemo(() => {
+    if (!session) return [];
+    const from = new Date(session.openedAt).getTime();
+    const to = new Date(session.closedAt || new Date().toISOString()).getTime();
+    return receivables.flatMap(rec => (rec.paymentHistory || []).map(p => ({ rec, p }))).filter(({p}) => {
+      if (p.cashSessionId) return p.cashSessionId === session.id;
+      const ts = new Date(p.date).getTime();
+      return !p.cashSessionId && ts >= from && ts <= to;
+    });
+  }, [receivables, session]);
+
+  const cxcByMethod = useMemo(() => {
+    const map: Record<string,{method:string;currency:'Bs'|'USD';amount:number}> = {};
+    const add=(method:string,currency:'Bs'|'USD',amount:number)=>{
+      if (!Number.isFinite(amount)||Math.abs(amount)<0.005) return;
+      const key=method+'__'+currency;
+      map[key] ??= {method,currency,amount:0};
+      map[key].amount += amount;
+    };
+    for (const {p} of cxcPayments) {
+      if (p.paymentSplits?.length) {
+        for (const s of p.paymentSplits) add(s.method,s.currency,s.currency==='USD'?s.amountUSD:s.amountBs);
+      } else {
+        const currency=['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(p.paymentMethod)?'Bs':'USD';
+        add(p.paymentMethod,currency,currency==='USD'?p.amountUSD:p.amountBs);
+      }
+    }
+    return Object.values(map).sort((a,b)=>a.method.localeCompare(b.method));
+  },[cxcPayments]);
+
+  const { cxcCashSalesUSD, cxcCashSalesBs } = useMemo(() => {
+    let usd=0, bs=0;
+    for (const {p} of cxcPayments) {
+      if (p.paymentSplits?.length) for (const s of p.paymentSplits) {
+        if ((s.method==='efectivo_usd'||s.method==='divisas_efectivo') && s.currency==='USD') usd += s.amountUSD || 0;
+        if (s.method==='efectivo_bs' && s.currency==='Bs') bs += s.amountBs || 0;
+      } else {
+        if ((p.paymentMethod==='efectivo_usd'||p.paymentMethod==='divisas_efectivo')) usd += p.amountUSD || 0;
+        if (p.paymentMethod==='efectivo_bs') bs += p.amountBs || 0;
+      }
+    }
+    return {cxcCashSalesUSD:Number(usd.toFixed(2)),cxcCashSalesBs:Number(bs.toFixed(2))};
+  },[cxcPayments]);
 
   const salesByMethod = useMemo(() => {
     const map: Record<string, { method: string; currency: 'Bs' | 'USD'; amount: number }> = {};
@@ -265,13 +309,13 @@ export const CashRegisterView: React.FC = () => {
     .reduce((sum, m) => sum + (m.type === 'ingreso' || m.type === 'deposito' ? m.amount : -m.amount), 0);
 
   const expectedUSD = useMemo(
-    () => (session?.openingUSD || 0) + cashSalesUSD + movementCashUSD + refundCash.usd,
-    [session, cashSalesUSD, movementCashUSD, refundCash.usd]
+    () => (session?.openingUSD || 0) + cashSalesUSD + cxcCashSalesUSD + movementCashUSD + refundCash.usd,
+    [session, cashSalesUSD, cxcCashSalesUSD, movementCashUSD, refundCash.usd]
   );
 
   const expectedBs = useMemo(
-    () => (session?.openingBs || 0) + cashSalesBs + movementCashBs + refundCash.bs,
-    [session, cashSalesBs, movementCashBs, refundCash.bs, settings.bcvRate]
+    () => (session?.openingBs || 0) + cashSalesBs + cxcCashSalesBs + movementCashBs + refundCash.bs,
+    [session, cashSalesBs, cxcCashSalesBs, movementCashBs, refundCash.bs]
   );
 
   const totalSalesUSD = posOrders.reduce((sum, order) => sum + order.totalUSD, 0);
@@ -373,6 +417,11 @@ export const CashRegisterView: React.FC = () => {
         salesUSD: totalSalesUSD,
         salesByMethod,
         salesByMethodCurrency: salesByMethod,
+        cxcByMethod,
+        cxcCashSalesBs,
+        cxcCashSalesUSD,
+        openingBs: session?.openingBs || 0,
+        openingUSD: session?.openingUSD || 0,
         expectedBs,
         expectedUSD,
         printerMode,
