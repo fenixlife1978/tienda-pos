@@ -121,6 +121,8 @@ interface AppContextType {
   reorder: (orderId: string) => boolean;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   updatePaymentStatus: (orderId: string, paymentStatus: PaymentStatus) => void;
+  processSaleReturn: (orderId: string, reason: string) => { success: boolean; message: string; refundUSD: number };
+  voidSale: (orderId: string, reason: string) => { success: boolean; message: string };
   updateBcvRate: (
     newRate: number,
     updatedBy?: string,
@@ -1645,6 +1647,173 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+
+  const processSaleReturn = (orderId: string, reason: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'Venta no encontrada.', refundUSD: 0 };
+    if (order.isVoided) return { success: false, message: 'La venta ya está anulada.', refundUSD: 0 };
+    if (order.isReturned) return { success: false, message: 'La venta ya tiene una devolución registrada.', refundUSD: 0 };
+    if (!reason.trim()) return { success: false, message: 'Debe indicar el motivo de la devolución.', refundUSD: 0 };
+
+    const now = new Date().toISOString();
+    const inventoryMovements: Array<{ productId: string; quantityDelta: number; movementType: 'return' }> = [];
+
+    setProducts((prev) => prev.map((product) => {
+      const itemRows = order.items.filter((item) => item.productId === product.id);
+      if (!itemRows.length) return product;
+
+      const restored = itemRows.reduce((sum, item) => {
+        if (item.presentationName) {
+          const presentation = product.presentations?.find((p) => p.name === item.presentationName);
+          return sum + item.quantity * (presentation?.factor || 1);
+        }
+        if (item.saleMode === 'weight' && item.weightKg) return sum + item.weightKg;
+        return sum + item.quantity;
+      }, 0);
+
+      inventoryMovements.push({
+        productId: product.id,
+        quantityDelta: Number(restored.toFixed(3)),
+        movementType: 'return',
+      });
+
+      return { ...product, stock: Number((product.stock + restored).toFixed(3)) };
+    }));
+
+    setOrders((prev) => prev.map((o) => o.id === orderId ? {
+      ...o,
+      isReturned: true,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    } : o));
+
+    setInvoices((prev) => prev.map((inv) => inv.orderId === orderId ? {
+      ...inv,
+      isReturned: true,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    } : inv));
+
+    if (order.paymentStatus === 'a_credito') {
+      setReceivables((prev) => prev.map((rec) =>
+        rec.invoiceId === (invoices.find((i) => i.orderId === orderId)?.id || '')
+          ? { ...rec, balanceUSD: 0, amountPaidUSD: rec.totalAmountUSD, status: 'pagado', isVoided: true, voidedAt: now, voidReason: 'Devolución total de venta' }
+          : rec
+      ));
+      setCustomers((prev) => prev.map((customer) =>
+        customer.id === order.customerId
+          ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - order.totalUSD) }
+          : customer
+      ));
+    }
+
+    for (const movement of inventoryMovements) {
+      offlineSyncService.enqueueInventoryMovement(movement);
+    }
+
+    const refundSplits = order.paymentSplits?.length
+      ? order.paymentSplits.map((split) => ({ ...split, amountUSD: -split.amountUSD, amountBs: -(split.amountBs || 0) }))
+      : [{
+          id: crypto.randomUUID(),
+          method: order.paymentMethod === 'mixto' ? 'efectivo_usd' : order.paymentMethod,
+          amountUSD: -order.totalUSD,
+          amountBs: -order.totalBs,
+          createdAt: now,
+        }];
+
+    try {
+      const refunds = JSON.parse(localStorage.getItem('omni_sale_refunds_v1') || '[]');
+      refunds.unshift({
+        id: crypto.randomUUID(),
+        orderId,
+        orderNumber: order.orderNumber,
+        createdAt: now,
+        createdBy: currentUser.name,
+        reason: reason.trim(),
+        refundUSD: order.paymentStatus === 'a_credito' ? 0 : order.totalUSD,
+        refundSplits: order.paymentStatus === 'a_credito' ? [] : refundSplits,
+      });
+      localStorage.setItem('omni_sale_refunds_v1', JSON.stringify(refunds.slice(0, 500)));
+    } catch {}
+
+    broadcastStockUpdate(products, {
+      productIds: inventoryMovements.map((m) => m.productId),
+      source: 'adjustment',
+      summary: `Devolución total de ${order.orderNumber}: stock reintegrado`,
+    });
+
+    return {
+      success: true,
+      message: order.paymentStatus === 'a_credito'
+        ? 'Devolución registrada y crédito revertido.'
+        : 'Devolución registrada. El reintegro queda registrado según el medio de pago original.',
+      refundUSD: order.paymentStatus === 'a_credito' ? 0 : order.totalUSD,
+    };
+  };
+
+  const voidSale = (orderId: string, reason: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return { success: false, message: 'Venta no encontrada.' };
+    if (order.isVoided) return { success: false, message: 'La venta ya está anulada.' };
+    if (order.isReturned) return { success: false, message: 'No se puede anular una venta ya devuelta.' };
+    if (!reason.trim()) return { success: false, message: 'Debe indicar el motivo de la anulación.' };
+
+    const now = new Date().toISOString();
+
+    setProducts((prev) => prev.map((product) => {
+      const rows = order.items.filter((item) => item.productId === product.id);
+      if (!rows.length) return product;
+      const restored = rows.reduce((sum, item) => {
+        if (item.presentationName) {
+          const presentation = product.presentations?.find((p) => p.name === item.presentationName);
+          return sum + item.quantity * (presentation?.factor || 1);
+        }
+        if (item.saleMode === 'weight' && item.weightKg) return sum + item.weightKg;
+        return sum + item.quantity;
+      }, 0);
+      offlineSyncService.enqueueInventoryMovement({
+        productId: product.id,
+        quantityDelta: Number(restored.toFixed(3)),
+        movementType: 'return',
+      });
+      return { ...product, stock: Number((product.stock + restored).toFixed(3)) };
+    }));
+
+    setOrders((prev) => prev.map((o) => o.id === orderId ? {
+      ...o,
+      isVoided: true,
+      voidedAt: now,
+      voidedBy: currentUser.name,
+      voidReason: reason.trim(),
+    } : o));
+
+    setInvoices((prev) => prev.map((inv) => inv.orderId === orderId ? {
+      ...inv,
+      isVoided: true,
+      voidedAt: now,
+      voidedBy: currentUser.name,
+      voidReason: reason.trim(),
+    } : inv));
+
+    if (order.paymentStatus === 'a_credito') {
+      setCustomers((prev) => prev.map((customer) =>
+        customer.id === order.customerId
+          ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - order.totalUSD) }
+          : customer
+      ));
+    }
+
+    try {
+      const audit = JSON.parse(localStorage.getItem('omni_sale_voids_v1') || '[]');
+      audit.unshift({ id: crypto.randomUUID(), orderId, orderNumber: order.orderNumber, createdAt: now, createdBy: currentUser.name, reason: reason.trim() });
+      localStorage.setItem('omni_sale_voids_v1', JSON.stringify(audit.slice(0, 500)));
+    } catch {}
+
+    return { success: true, message: 'Venta anulada y mercancía reintegrada al inventario.' };
+  };
+
   // BCV Rate management with history tracking
   const updateBcvRate = (
     newRate: number,
@@ -2917,6 +3086,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reorder,
         updateOrderStatus,
         updatePaymentStatus,
+      processSaleReturn,
+      voidSale,
         updateBcvRate,
         fetchAutomaticBcvRate,
         syncBcvOfficialHistory,
