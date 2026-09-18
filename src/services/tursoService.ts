@@ -274,6 +274,10 @@ class TursoService {
           payment_reference TEXT,
           channel TEXT NOT NULL,
           created_at TEXT NOT NULL,
+          document_series TEXT,
+          document_sequence INTEGER,
+          return_number TEXT,
+          void_number TEXT,
           estimated_delivery TEXT,
           credit_due_date TEXT,
           credit_days INTEGER,
@@ -302,18 +306,32 @@ class TursoService {
           payment_method TEXT NOT NULL,
           payment_status TEXT NOT NULL,
           created_at TEXT NOT NULL,
+          document_series TEXT,
+          document_sequence INTEGER,
+          return_number TEXT,
+          void_number TEXT,
           due_date TEXT,
           is_credit INTEGER DEFAULT 0,
           credit_days INTEGER
         );
       `);
       tablesCreated.push('invoices');
+      for (const sql of [
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_number ON orders(order_number)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_invoice_number ON invoices(invoice_number)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_return_number ON orders(return_number)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_void_number ON orders(void_number)'
+      ]) { try { await client.execute(sql); } catch {} }
 
       // Idempotent migrations for mixed payments, per-warehouse stock and reversal audit fields.
       for (const sql of [
         "ALTER TABLE products ADD COLUMN warehouse_stocks TEXT",
         "ALTER TABLE orders ADD COLUMN payment_splits TEXT",
         "ALTER TABLE orders ADD COLUMN cash_session_id TEXT",
+        "ALTER TABLE orders ADD COLUMN document_series TEXT",
+        "ALTER TABLE orders ADD COLUMN document_sequence INTEGER",
+        "ALTER TABLE orders ADD COLUMN return_number TEXT",
+        "ALTER TABLE orders ADD COLUMN void_number TEXT",
 
         "ALTER TABLE orders ADD COLUMN is_voided INTEGER DEFAULT 0",
         "ALTER TABLE orders ADD COLUMN voided_at TEXT",
@@ -325,6 +343,10 @@ class TursoService {
         "ALTER TABLE orders ADD COLUMN return_reason TEXT",
         "ALTER TABLE invoices ADD COLUMN payment_splits TEXT",
         "ALTER TABLE invoices ADD COLUMN cash_session_id TEXT",
+        "ALTER TABLE invoices ADD COLUMN document_series TEXT",
+        "ALTER TABLE invoices ADD COLUMN document_sequence INTEGER",
+        "ALTER TABLE invoices ADD COLUMN return_number TEXT",
+        "ALTER TABLE invoices ADD COLUMN void_number TEXT",
 
         "ALTER TABLE invoices ADD COLUMN is_voided INTEGER DEFAULT 0",
         "ALTER TABLE invoices ADD COLUMN voided_at TEXT",
@@ -737,6 +759,10 @@ class TursoService {
           bcvRate: Number(row.bcv_rate),
           paymentMethod: row.payment_method as any,
           cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
+          documentSeries: row.document_series ? String(row.document_series) : undefined,
+          documentSequence: row.document_sequence != null ? Number(row.document_sequence) : undefined,
+          returnNumber: row.return_number ? String(row.return_number) : undefined,
+          voidNumber: row.void_number ? String(row.void_number) : undefined,
           paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
           paymentStatus: row.payment_status as any,
           orderStatus: row.order_status as any,
@@ -956,7 +982,7 @@ class TursoService {
           suppliers_info, highest_supplier_cost, is_composite,
           composite_components, composite_virtual_stock, is_weighable,
           price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         p.id,
@@ -1129,10 +1155,10 @@ class TursoService {
         INSERT OR REPLACE INTO orders (
           id, order_number, customer_id, customer_name, customer_rif, customer_phone,
           customer_address, items, subtotal_usd, tax_usd, total_usd, total_bs,
-          bcv_rate, payment_method, payment_splits, cash_session_id, payment_status, order_status, payment_reference,
+          bcv_rate, payment_method, payment_splits, cash_session_id, document_series, document_sequence, return_number, void_number, payment_status, order_status, payment_reference,
           channel, created_at, estimated_delivery, credit_due_date, credit_days, notes,
           is_voided, voided_at, voided_by, void_reason, is_returned, returned_at, returned_by, return_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         o.id,
@@ -1151,6 +1177,10 @@ class TursoService {
         o.paymentMethod,
         o.paymentSplits ? JSON.stringify(o.paymentSplits) : null,
         o.cashSessionId || null,
+        o.documentSeries || null,
+        o.documentSequence ?? null,
+        o.returnNumber || null,
+        o.voidNumber || null,
         o.paymentStatus,
         o.orderStatus,
         o.paymentReference || null,
@@ -1180,7 +1210,7 @@ class TursoService {
         INSERT OR REPLACE INTO invoices (
           id, invoice_number, order_id, customer_id, customer_name, customer_rif,
           customer_address, customer_phone, items, subtotal_usd, tax_usd, total_usd,
-          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, payment_status, created_at, due_date,
+          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, document_series, document_sequence, return_number, void_number, payment_status, created_at, due_date,
           is_credit, credit_days, is_voided, voided_at, voided_by, void_reason,
           is_returned, returned_at, returned_by, return_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1203,6 +1233,10 @@ class TursoService {
         inv.paymentMethod,
         inv.paymentSplits ? JSON.stringify(inv.paymentSplits) : null,
         inv.cashSessionId || null,
+        inv.documentSeries || null,
+        inv.documentSequence ?? null,
+        inv.returnNumber || null,
+        inv.voidNumber || null,
         inv.paymentStatus,
         inv.createdAt,
         inv.dueDate || null,
@@ -1389,13 +1423,13 @@ class TursoService {
 
       const o = operation.order;
       await tx.execute({
-        sql: 'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,payment_status,order_status,payment_reference,channel,created_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        args: [o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.cashSessionId||null,o.paymentStatus,o.orderStatus,o.paymentReference||null,o.channel,o.createdAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null],
+        sql: 'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,document_series,document_sequence,return_number,void_number,payment_status,order_status,payment_reference,channel,created_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        args: [o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.cashSessionId||null,o.documentSeries||null,o.documentSequence??null,o.returnNumber||null,o.voidNumber||null,o.paymentStatus,o.orderStatus,o.paymentReference||null,o.channel,o.createdAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null],
       });
       const inv = operation.invoice;
       await tx.execute({
-        sql: 'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        args: [inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.cashSessionId||null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null],
+        sql: 'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,document_series,document_sequence,return_number,void_number,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        args: [inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.cashSessionId||null,inv.documentSeries||null,inv.documentSequence??null,inv.returnNumber||null,inv.voidNumber||null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null],
       });
       if (operation.customer) {
         const x = operation.customer;
