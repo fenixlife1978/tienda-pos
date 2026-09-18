@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ReceivableItem, Customer, Invoice, PaymentMethod } from '../../types';
+import { ReceivableItem, Customer, Invoice, PaymentMethod, ReceivablePaymentSplit } from '../../types';
 import {
   HandCoins,
   Search,
@@ -66,6 +66,7 @@ export const AccountsReceivableView: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('transferencia_usd');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [paymentSplits, setPaymentSplits] = useState<ReceivablePaymentSplit[]>([]);
 
   const [editingCustomerCredit, setEditingCustomerCredit] = useState<Customer | null>(null);
 
@@ -223,16 +224,33 @@ export const AccountsReceivableView: React.FC = () => {
     setPaymentAmount(rec.balanceUSD);
     setPaymentReference('');
     setPaymentNotes('');
+    const rate = settings.bcvRate;
+    setPaymentSplits([{
+      id: 'cxc-ui-' + Date.now(),
+      method: 'transferencia_usd',
+      amountUSD: rec.balanceUSD,
+      amountBs: Number((rec.balanceUSD * rate).toFixed(2)),
+      currency: 'USD',
+      reference: '',
+      createdAt: new Date().toISOString(),
+    }]);
   };
 
   const handleProcessPayment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedReceivableForPay || paymentAmount <= 0) return;
-    registerReceivablePayment(selectedReceivableForPay.id, paymentAmount, {
-      paymentMethod,
+    const rate = settings.bcvRate;
+    const normalized = paymentSplits.reduce((sum, s) => sum + (s.currency === 'USD' ? Number(s.amountUSD || 0) : Number(s.amountBs || 0) / rate), 0);
+    if (normalized <= 0 || normalized > selectedReceivableForPay.balanceUSD + 0.0001) {
+      alert('Los métodos y montos del cobro no cuadran con el saldo pendiente.');
+      return;
+    }
+    registerReceivablePayment(selectedReceivableForPay.id, normalized, {
+      paymentMethod: paymentSplits.length > 1 ? 'mixto' : paymentSplits[0]?.method || paymentMethod,
+      paymentSplits,
       reference: paymentReference,
       notes: paymentNotes,
-      bcvRate: settings.bcvRate,
+      bcvRate: rate,
     });
     setSelectedReceivableForPay(null);
   };
@@ -925,9 +943,52 @@ export const AccountsReceivableView: React.FC = () => {
                 />
               </div>
 
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-700">Distribución del cobro por método / moneda</label>
+                  <button type="button" onClick={() => setPaymentSplits(prev => [...prev, {
+                    id: 'cxc-ui-' + Date.now(),
+                    method: 'efectivo_usd',
+                    amountUSD: 0,
+                    amountBs: 0,
+                    currency: 'USD',
+                  }])} className="px-2 py-1 bg-indigo-600 text-white rounded-lg text-[10px] font-bold">+ Agregar método</button>
+                </div>
+                {paymentSplits.map((split, idx) => (
+                  <div key={split.id} className="grid grid-cols-12 gap-1.5 items-end">
+                    <select value={split.method} onChange={e => {
+                      const method = e.target.value as Exclude<PaymentMethod,'mixto'>;
+                      const currency = ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(method) ? 'Bs' : 'USD';
+                      setPaymentSplits(prev => prev.map((s,i) => i===idx ? {...s, method, currency} : s));
+                    }} className="col-span-5 px-2 py-1.5 border rounded-lg text-[10px] bg-white">
+                      <option value="efectivo_usd">Efectivo USD (físico)</option>
+                      <option value="efectivo_bs">Efectivo Bs. (físico)</option>
+                      <option value="zelle">Zelle</option>
+                      <option value="transferencia_usd">Transferencia USD</option>
+                      <option value="transferencia_bs">Transferencia Bs.</option>
+                      <option value="pago_movil">Pago Móvil</option>
+                      <option value="biopago">Biopago</option>
+                      <option value="tarjeta">Tarjeta</option>
+                    </select>
+                    <select value={split.currency} onChange={e => setPaymentSplits(prev => prev.map((s,i)=>i===idx?{...s,currency:e.target.value as 'Bs'|'USD'}:s))} className="col-span-2 px-1 py-1.5 border rounded-lg text-[10px] bg-white">
+                      <option value="USD">USD</option><option value="Bs">Bs.</option>
+                    </select>
+                    <input type="number" min="0" step="0.01" value={split.currency==='USD' ? split.amountUSD || '' : split.amountBs || ''} onChange={e => {
+                      const amount = Number(e.target.value) || 0;
+                      setPaymentSplits(prev => prev.map((s,i)=>i===idx ? (s.currency==='USD' ? {...s, amountUSD: amount, amountBs: Number((amount * settings.bcvRate).toFixed(2))} : {...s, amountBs: amount, amountUSD: Number((amount / settings.bcvRate).toFixed(6))}) : s));
+                    }} className="col-span-3 px-2 py-1.5 border rounded-lg text-[10px] font-mono font-bold" />
+                    <button type="button" disabled={paymentSplits.length===1} onClick={()=>setPaymentSplits(prev=>prev.filter((_,i)=>i!==idx))} className="col-span-2 px-2 py-1.5 border border-rose-200 text-rose-600 rounded-lg text-[10px] font-bold disabled:opacity-30">Quitar</button>
+                  </div>
+                ))}
+                <div className="flex justify-between text-[10px] font-bold pt-1 border-t">
+                  <span>Total normalizado</span>
+                  <span>{formatUSD(paymentSplits.reduce((sum,s)=>sum+(s.currency==='USD'?s.amountUSD:s.amountBs/settings.bcvRate),0))} USD</span>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Método de Pago</label>
+                  <label className="block font-bold text-slate-700 mb-1">Método principal</label>
                   <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
