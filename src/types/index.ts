@@ -434,17 +434,13 @@ export interface ReceivablePaymentSplit extends PaymentSplit {
 }
 
 export interface ReceivablePaymentRecord {
-  paymentSplits?: ReceivablePaymentSplit[];
-  terminalId?: string;
-  cashSessionId?: string;
-  receiptNumber?: string;
   id: string;
   date: string;
   amountUSD: number;
   amountBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
-  paymentSplits?: PayablePaymentSplit[];
+  paymentSplits?: ReceivablePaymentSplit[];
   reference?: string;
   notes?: string;
   registeredBy?: string;
@@ -525,7 +521,7 @@ export interface PurchaseEntry {
   createdAt: string;
 }
 
-export export interface PayablePaymentSplit extends PaymentSplit {
+export interface PayablePaymentSplit extends PaymentSplit {
   currency: 'Bs' | 'USD';
 }
 
@@ -536,6 +532,7 @@ export interface PayablePaymentRecord {
   amountBs: number;
   bcvRate: number;
   paymentMethod: PaymentMethod;
+  paymentSplits?: PayablePaymentSplit[];
   reference?: string;
   notes?: string;
   registeredBy?: string;
