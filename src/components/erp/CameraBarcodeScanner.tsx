@@ -81,9 +81,6 @@ export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
         const height = Math.min(Math.max(110, Math.floor(viewfinderHeight * 0.28)), 190);
         return { width, height };
       },
-      videoConstraints: {
-        facingMode: { ideal: 'environment' as const },
-      },
     };
 
     await scanner.start(
@@ -114,6 +111,16 @@ export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
     );
 
     try {
+      const settings = scanner.getRunningTrackSettings();
+      if (settings.facingMode === 'user') {
+        throw new Error('El navegador seleccionó la cámara frontal.');
+      }
+    } catch (error) {
+      await stopScanner();
+      throw error;
+    }
+
+    try {
       const capabilities = scanner.getRunningTrackCapabilities();
       setTorchSupported(Boolean((capabilities as MediaTrackCapabilities & { torch?: boolean }).torch));
     } catch {
@@ -139,36 +146,22 @@ export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
     }
 
     try {
-      // Primera opción: exigir cámara orientada al entorno.
-      try {
-        await startWithCamera(
-          { facingMode: { exact: 'environment' } },
-        );
-        return;
-      } catch {
-        await stopScanner();
-      }
-
-      // Fallback para navegadores que no soportan exact correctamente.
-      try {
-        await startWithCamera({ facingMode: 'environment' });
-        return;
-      } catch {
-        await stopScanner();
-      }
-
-      // Último fallback: pedir permisos y seleccionar explícitamente por etiqueta.
+      // Primero solicitamos permiso y buscamos explícitamente una cámara trasera
+      // por su etiqueta. Esto evita depender de que el navegador recuerde
+      // accidentalmente la cámara frontal usada anteriormente.
       const cameras = await Html5Qrcode.getCameras();
       const rearCamera = cameras.find((camera) => {
         const label = camera.label.toLowerCase();
         return REAR_CAMERA_KEYWORDS.some((keyword) => label.includes(keyword));
       });
 
-      if (!rearCamera) {
-        throw new Error('No se encontró una cámara trasera disponible en este dispositivo.');
+      if (rearCamera) {
+        await startWithCamera(rearCamera.id);
+        return;
       }
 
-      await startWithCamera(rearCamera.id);
+      // Si el navegador no expone etiquetas útiles, exigimos environment.
+      await startWithCamera({ facingMode: { exact: 'environment' } });
     } catch (error) {
       console.error('No se pudo iniciar el escáner de cámara:', error);
       if (mountedRef.current) {
