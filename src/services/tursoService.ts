@@ -915,6 +915,71 @@ class TursoService {
     });
   }
 
+  /**
+   * Persiste datos maestros del producto sin tocar stock.
+   * Stock es propiedad exclusiva de inventory_movements para evitar lost updates
+   * cuando varias cajas trabajan offline y reconectan después.
+   */
+  public async saveProductMaster(p: Product) {
+    const client = this.getClient();
+    if (!client) return;
+
+    // If the product is new, create it once with its local initial stock.
+    await client.execute({
+      sql: `
+        INSERT OR IGNORE INTO products (
+          id, code, name, category, cost_usd, profit_margin_percent, price_usd,
+          stock, min_stock, unit, image, is_offer, discount_percentage,
+          description, applies_iva, alternative_prices, presentations,
+          suppliers_info, highest_supplier_cost, is_composite,
+          composite_components, composite_virtual_stock, is_weighable,
+          price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        p.id, p.code, p.name, p.category, p.costUSD, p.profitMarginPercent ?? null,
+        p.priceUSD, p.stock, p.minStock, p.unit, p.image || '', p.isOffer ? 1 : 0,
+        p.discountPercentage ?? 0, p.description || '', p.appliesIva === false ? 0 : 1,
+        p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
+        p.presentations ? JSON.stringify(p.presentations) : null,
+        p.suppliersInfo ? JSON.stringify(p.suppliersInfo) : null,
+        p.highestSupplierCost ?? null, p.isComposite ? 1 : 0,
+        p.compositeComponents ? JSON.stringify(p.compositeComponents) : null,
+        p.compositeVirtualStock ?? null, p.isWeighable ? 1 : 0,
+        p.pricePerKgUSD ?? null, p.isFractionable ? 1 : 0, p.fractionUnit ?? null,
+        new Date().toISOString(), new Date().toISOString(),
+      ],
+    });
+
+    // Update only master/product attributes. Stock is deliberately excluded.
+    await client.execute({
+      sql: `
+        UPDATE products SET
+          code = ?, name = ?, category = ?, cost_usd = ?, profit_margin_percent = ?,
+          price_usd = ?, min_stock = ?, unit = ?, image = ?, is_offer = ?,
+          discount_percentage = ?, description = ?, applies_iva = ?,
+          alternative_prices = ?, presentations = ?, suppliers_info = ?,
+          highest_supplier_cost = ?, is_composite = ?, composite_components = ?,
+          composite_virtual_stock = ?, is_weighable = ?, price_per_kg_usd = ?,
+          is_fractionable = ?, fraction_unit = ?, updated_at = ?
+        WHERE id = ?
+      `,
+      args: [
+        p.code, p.name, p.category, p.costUSD, p.profitMarginPercent ?? null,
+        p.priceUSD, p.minStock, p.unit, p.image || '', p.isOffer ? 1 : 0,
+        p.discountPercentage ?? 0, p.description || '', p.appliesIva === false ? 0 : 1,
+        p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
+        p.presentations ? JSON.stringify(p.presentations) : null,
+        p.suppliersInfo ? JSON.stringify(p.suppliersInfo) : null,
+        p.highestSupplierCost ?? null, p.isComposite ? 1 : 0,
+        p.compositeComponents ? JSON.stringify(p.compositeComponents) : null,
+        p.compositeVirtualStock ?? null, p.isWeighable ? 1 : 0,
+        p.pricePerKgUSD ?? null, p.isFractionable ? 1 : 0, p.fractionUnit ?? null,
+        new Date().toISOString(), p.id,
+      ],
+    });
+  }
+
   public async deleteProduct(id: string) {
     const client = this.getClient();
     if (!client) return;
