@@ -8,6 +8,8 @@ import { Barcode, Camera, CheckCircle2, Flashlight, RefreshCw, X } from 'lucide-
 interface CameraBarcodeScannerProps {
   onScan: (barcode: string) => void;
   onClose: () => void;
+  /** Mantiene la cámara activa después de cada lectura (ideal para POS móvil/tablet). */
+  continuous?: boolean;
 }
 
 const REAR_CAMERA_KEYWORDS = [
@@ -23,6 +25,7 @@ const REAR_CAMERA_KEYWORDS = [
 export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
   onScan,
   onClose,
+  continuous = false,
 }) => {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const startingRef = useRef(false);
@@ -215,7 +218,7 @@ export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-black text-white">Escanear código de barras</h3>
-              <p className="text-[11px] text-slate-400">Cámara trasera del teléfono</p>
+              <p className="text-[11px] text-slate-400">Cámara trasera · {continuous ? 'Escaneo continuo activo' : 'Escaneo individual'}</p>
             </div>
           </div>
 
@@ -273,6 +276,17 @@ export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
                 </button>
               )}
 
+              {continuous && (
+                <button
+                  type="button"
+                  onClick={() => void handleClose()}
+                  className="rounded-lg bg-rose-600/90 px-3 py-2 text-[11px] font-black text-white backdrop-blur transition hover:bg-rose-500"
+                >
+                  <X className="mr-1 inline h-3.5 w-3.5" />
+                  Detener escáner
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => void startCamera()}
@@ -288,7 +302,9 @@ export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
         <div className="flex items-center gap-2 border-t border-slate-800 px-4 py-3 text-[11px] text-slate-400">
           <Barcode className="h-4 w-4 shrink-0 text-emerald-400" />
           <span>
-            Coloca el código de barras horizontalmente dentro del recuadro. Al detectarlo, el producto se agregará automáticamente al ticket.
+            {continuous
+              ? 'Modo continuo: escanea un producto detrás de otro sin cerrar la cámara. Puedes mezclar este modo con el lector USB y detenerlo cuando vayas a cobrar.'
+              : 'Coloca el código de barras horizontalmente dentro del recuadro. Al detectarlo, el producto se agregará automáticamente al ticket.'}
           </span>
         </div>
       </div>
