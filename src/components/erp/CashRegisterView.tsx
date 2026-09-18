@@ -515,5 +515,5 @@ export const CashRegisterView: React.FC = () => {
         El modo térmico funciona sin impresora fiscal. El modo fiscal queda preparado para una integración de controlador fiscal; no se asume hardware fiscal instalado.
       </div>
     </div>
-  </div>;
+  );
 };
