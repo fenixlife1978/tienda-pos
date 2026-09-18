@@ -1082,7 +1082,7 @@ class TursoService {
           bcv_rate, payment_method, payment_splits, payment_status, order_status, payment_reference,
           channel, created_at, estimated_delivery, credit_due_date, credit_days, notes,
           is_voided, voided_at, voided_by, void_reason, is_returned, returned_at, returned_by, return_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         o.id,
@@ -1132,7 +1132,7 @@ class TursoService {
           total_bs, bcv_rate, payment_method, payment_splits, payment_status, created_at, due_date,
           is_credit, credit_days, is_voided, voided_at, voided_by, void_reason,
           is_returned, returned_at, returned_by, return_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         inv.id,
@@ -1177,7 +1177,7 @@ class TursoService {
           id, invoice_id, invoice_number, customer_id, customer_name,
           customer_phone, total_amount_usd, amount_paid_usd, balance_usd,
           issued_date, due_date, credit_days, status, created_at, is_voided, voided_at, void_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         r.id,
