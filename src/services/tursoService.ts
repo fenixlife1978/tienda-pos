@@ -710,6 +710,7 @@ class TursoService {
           totalBs: Number(row.total_bs),
           bcvRate: Number(row.bcv_rate),
           paymentMethod: row.payment_method as any,
+          paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
           paymentStatus: row.payment_status as any,
           orderStatus: row.order_status as any,
           paymentReference: row.payment_reference ? String(row.payment_reference) : undefined,
@@ -719,6 +720,14 @@ class TursoService {
           creditDueDate: row.credit_due_date ? String(row.credit_due_date) : undefined,
           creditDays: row.credit_days ? Number(row.credit_days) : undefined,
           notes: row.notes ? String(row.notes) : undefined,
+          isVoided: Boolean(row.is_voided),
+          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+          voidedBy: row.voided_by ? String(row.voided_by) : undefined,
+          voidReason: row.void_reason ? String(row.void_reason) : undefined,
+          isReturned: Boolean(row.is_returned),
+          returnedAt: row.returned_at ? String(row.returned_at) : undefined,
+          returnedBy: row.returned_by ? String(row.returned_by) : undefined,
+          returnReason: row.return_reason ? String(row.return_reason) : undefined,
         });
       }
     } catch (e) {
@@ -746,11 +755,20 @@ class TursoService {
           totalBs: Number(row.total_bs),
           bcvRate: Number(row.bcv_rate),
           paymentMethod: row.payment_method as any,
+          paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
           paymentStatus: row.payment_status as any,
           createdAt: String(row.created_at),
           dueDate: row.due_date ? String(row.due_date) : undefined,
           isCredit: Boolean(row.is_credit),
           creditDays: row.credit_days ? Number(row.credit_days) : undefined,
+          isVoided: Boolean(row.is_voided),
+          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+          voidedBy: row.voided_by ? String(row.voided_by) : undefined,
+          voidReason: row.void_reason ? String(row.void_reason) : undefined,
+          isReturned: Boolean(row.is_returned),
+          returnedAt: row.returned_at ? String(row.returned_at) : undefined,
+          returnedBy: row.returned_by ? String(row.returned_by) : undefined,
+          returnReason: row.return_reason ? String(row.return_reason) : undefined,
         });
       }
     } catch (e) {
@@ -776,6 +794,9 @@ class TursoService {
           dueDate: String(row.due_date),
           creditDays: Number(row.credit_days || 15),
           status: row.status as any,
+          isVoided: Boolean(row.is_voided),
+          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+          voidReason: row.void_reason ? String(row.void_reason) : undefined,
         });
       }
     } catch (e) {
