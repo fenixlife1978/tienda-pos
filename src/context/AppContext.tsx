@@ -1478,9 +1478,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrders((prev) => [newOrder, ...prev]);
     setInvoices((prev) => [newInvoice, ...prev]);
 
-    // Persist the complete sale locally before relying on the network.
-    // The queue survives app restarts and is replayed automatically when Internet returns.
-    const affectedProducts = updatedProducts.filter((p) => boughtProductIds.includes(p.id));
+    // Persist the sale locally as an immutable document plus inventory DELTAS.
+    // Stock is never uploaded as a snapshot: every terminal contributes its movement
+    // to the single global inventory when it reconnects.
+    const inventoryByProduct = new Map<string, number>();
+    for (const bought of orderInput.items) {
+      const units = bought.selectedPresentation
+        ? bought.quantity * bought.selectedPresentation.factor
+        : bought.saleMode === 'weight' && bought.weightKg
+        ? bought.weightKg
+        : bought.quantity;
+      inventoryByProduct.set(
+        bought.product.id,
+        Number(((inventoryByProduct.get(bought.product.id) || 0) - units).toFixed(3))
+      );
+    }
+    const inventoryMovements = Array.from(inventoryByProduct.entries()).map(([productId, quantityDelta]) => ({
+      productId,
+      quantityDelta,
+      movementType: 'sale' as const,
+    }));
     const receivable = isCredit
       ? {
           id: 'rec-' + newInvoice.id,
@@ -1505,7 +1522,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     offlineSyncService.enqueueSale({
       order: newOrder,
       invoice: newInvoice,
-      products: affectedProducts,
+      inventoryMovements,
       receivable,
       customer: syncedCustomer,
     });
@@ -1919,6 +1936,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       source: 'adjustment',
       summary: `Stock ajustado (${delta > 0 ? '+' : ''}${delta}) en ${target?.name || 'producto'}: ${reason}`,
     });
+    offlineSyncService.enqueueInventoryMovement({
+      productId,
+      quantityDelta: delta,
+      movementType: 'adjustment',
+    });
+    if (navigator.onLine && tursoService.isConfigured()) {
+      offlineSyncService.flush().catch((error) => console.warn('Ajuste de inventario en cola:', error));
+    }
     pushNotification('Ajuste de Stock', `Inventario ajustado (${delta > 0 ? '+' : ''}${delta}). Motivo: ${reason}`, 'inventory_alert');
   };
 
