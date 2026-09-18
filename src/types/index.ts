@@ -444,6 +444,9 @@ export interface ReceivablePaymentRecord {
   reference?: string;
   notes?: string;
   registeredBy?: string;
+  terminalId?: string;
+  cashSessionId?: string;
+  receiptNumber?: string;
   balanceAfterUSD: number;
   isFullSettlement?: boolean;
 }
