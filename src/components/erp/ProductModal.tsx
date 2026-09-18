@@ -2741,8 +2741,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               onScan={(scannedCode) => {
                 const cleanCode = scannedCode.trim();
                 if (!cleanCode) return;
-                setBarcode(cleanCode);
-                setEan(cleanCode);
+
+                if (barcodeCameraTarget === 'presentation') {
+                  setNewPresBarcode(cleanCode);
+                } else if (barcodeCameraTarget === 'supplier') {
+                  setSupplierBarcode(cleanCode);
+                } else {
+                  setBarcode(cleanCode);
+                  setEan(cleanCode);
+                }
+
                 setIsBarcodeCameraOpen(false);
               }}
               onClose={() => setIsBarcodeCameraOpen(false)}
