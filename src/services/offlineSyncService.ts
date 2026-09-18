@@ -53,6 +53,18 @@ export type OfflineSnapshotEntity =
   | 'categories'
   | 'units';
 
+export interface OfflineSaleReversalOperation {
+  id: string;
+  terminalId: string;
+  type: 'sale_reversal';
+  createdAt: string;
+  order: Order;
+  invoice: Invoice;
+  inventoryMovements: OfflineInventoryMovement[];
+  receivable?: ReceivableItem;
+  customer?: Customer;
+}
+
 export interface OfflineInventoryMovementOperation {
   id: string;
   terminalId: string;
@@ -72,6 +84,7 @@ export interface OfflineSnapshotOperation {
 
 type OfflineOperation =
   | OfflineSaleOperation
+  | OfflineSaleReversalOperation
   | OfflineInventoryMovementOperation
   | OfflineSnapshotOperation;
 
@@ -124,6 +137,21 @@ export const offlineSyncService = {
       inventoryMovements,
     });
 
+    writeQueue(queue);
+    return queue.length;
+  },
+
+  enqueueSaleReversal(operation: Omit<OfflineSaleReversalOperation, 'id' | 'type' | 'createdAt' | 'terminalId' | 'inventoryMovements'> & {
+    inventoryMovements: Omit<OfflineInventoryMovement, 'movementId' | 'sourceOperationId' | 'terminalId' | 'createdAt'>[];
+  }) {
+    const queue = readQueue();
+    const operationId = crypto.randomUUID();
+    const terminalId = terminalIdentity.getId();
+    const createdAt = new Date().toISOString();
+    const inventoryMovements: OfflineInventoryMovement[] = operation.inventoryMovements.map((movement) => ({
+      ...movement, movementId: crypto.randomUUID(), sourceOperationId: operationId, terminalId, createdAt,
+    }));
+    queue.push({ ...operation, id: operationId, terminalId, type: 'sale_reversal', createdAt, inventoryMovements });
     writeQueue(queue);
     return queue.length;
   },
@@ -198,13 +226,13 @@ export const offlineSyncService = {
           terminalId: operation.terminalId,
           operationType: operation.type,
           entityId:
-            operation.type === 'sale'
+            operation.type === 'sale' || operation.type === 'sale_reversal'
               ? operation.invoice.id
               : operation.type === 'inventory_movement'
               ? operation.movement.movementId
               : operation.entity,
           payload:
-            operation.type === 'sale'
+            operation.type === 'sale' || operation.type === 'sale_reversal'
               ? {
                   orderId: operation.order.id,
                   invoiceId: operation.invoice.id,
@@ -219,6 +247,10 @@ export const offlineSyncService = {
           writeQueue(readQueue().filter((item) => item.id !== operation.id));
           processed++;
           continue;
+        }
+
+        if (operation.type === 'sale_reversal') {
+          await tursoService.applySaleReversal(operation);
         }
 
         if (operation.type === 'sale') {
