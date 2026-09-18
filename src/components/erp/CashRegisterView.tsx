@@ -102,12 +102,15 @@ export const CashRegisterView: React.FC = () => {
 
   const posOrders = useMemo(
     () =>
-      orders.filter(
-        (o) =>
-          o.channel === 'pos' &&
-          (!session || (o.createdAt >= session.openedAt && o.createdAt <= (session.closedAt || new Date().toISOString()))) &&
-          !(o as any).isVoided
-      ),
+      session
+        ? orders.filter(
+            (o) =>
+              o.channel === 'pos' &&
+              o.createdAt >= session.openedAt &&
+              o.createdAt <= (session.closedAt || new Date().toISOString()) &&
+              !(o as any).isVoided
+          )
+        : [],
     [orders, session]
   );
 
