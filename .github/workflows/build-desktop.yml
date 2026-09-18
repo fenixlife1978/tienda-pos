@@ -67,7 +67,7 @@ jobs:
       - name: 📤 Publicar artefactos Windows
         uses: actions/upload-artifact@v4
         with:
-          name: Distribuidora-LaGranBodega-Windows-\${{ github.sha }}
+          name: Distribuidora-LaGranBodega-Windows-${{ github.sha }}
           path: |
             release-builds/*.exe
           if-no-files-found: error
@@ -77,8 +77,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true && inputs.version_tag != '')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: \${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version_tag }}
-          name: "Distribuidora La Gran Bodega M&S - Release \${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version_tag }}"
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version_tag }}
+          name: "Distribuidora La Gran Bodega M&S - Release ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version_tag }}"
           body: |
             ### 📦 Descargas para Windows
             - Instalador Setup NSIS (.exe)
@@ -88,4 +88,4 @@ jobs:
           files: |
             release-builds/*.exe
         env:
-          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
