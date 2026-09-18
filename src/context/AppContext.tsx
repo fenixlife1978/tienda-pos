@@ -1736,8 +1736,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ));
     }
 
-    for (const movement of inventoryMovements) {
-      offlineSyncService.enqueueInventoryMovement(movement);
+    const reversalInvoice = invoices.find((inv) => inv.orderId === orderId);
+    const returnedOrder: Order = {
+      ...order,
+      isReturned: true,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    };
+    const returnedInvoice: Invoice | undefined = reversalInvoice ? {
+      ...reversalInvoice,
+      isReturned: true,
+      returnedAt: now,
+      returnedBy: currentUser.name,
+      returnReason: reason.trim(),
+    } : undefined;
+    const returnedReceivable = order.paymentStatus === 'a_credito'
+      ? receivables.find((rec) => rec.invoiceId === reversalInvoice?.id)
+      : undefined;
+    const returnedCustomer = order.paymentStatus === 'a_credito'
+      ? customers.find((customer) => customer.id === order.customerId)
+      : undefined;
+
+    if (returnedInvoice) {
+      offlineSyncService.enqueueSaleReversal({
+        order: returnedOrder,
+        invoice: returnedInvoice,
+        inventoryMovements,
+        receivable: returnedReceivable ? {
+          ...returnedReceivable,
+          balanceUSD: 0,
+          amountPaidUSD: returnedReceivable.totalAmountUSD,
+          status: 'pagado',
+          isVoided: true,
+          voidedAt: now,
+          voidReason: 'Devolución total de venta',
+        } : undefined,
+        customer: returnedCustomer ? {
+          ...returnedCustomer,
+          currentDebtUSD: Math.max(0, returnedCustomer.currentDebtUSD - order.totalUSD),
+        } : undefined,
+      });
     }
 
     const refundSplits = order.paymentSplits?.length
@@ -1765,15 +1804,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('omni_sale_refunds_v1', JSON.stringify(refunds.slice(0, 500)));
     } catch {}
 
-    // Broadcast the post-return inventory, not the stale pre-return snapshot.
-    setProducts((current) => {
-      broadcastStockUpdate(current, {
-        productIds: inventoryMovements.map((m) => m.productId),
-        source: 'adjustment',
-        summary: `Devolución total de ${order.orderNumber}: stock reintegrado`,
-      });
-      return current;
-    });
+    // El inventario ya se actualizó localmente; el broadcast se realizará desde el flujo normal de sincronización.
 
     if (navigator.onLine && tursoService.isConfigured()) {
       offlineSyncService.flush().catch((error) => {
@@ -1799,6 +1830,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const now = new Date().toISOString();
 
+    const inventoryMovements: Array<{ productId: string; quantityDelta: number; movementType: 'return' }> = [];
     setProducts((prev) => prev.map((product) => {
       const rows = order.items.filter((item) => item.productId === product.id);
       if (!rows.length) return product;
@@ -1810,11 +1842,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (item.saleMode === 'weight' && item.weightKg) return sum + item.weightKg;
         return sum + item.quantity;
       }, 0);
-      offlineSyncService.enqueueInventoryMovement({
-        productId: product.id,
-        quantityDelta: Number(restored.toFixed(3)),
-        movementType: 'return',
-      });
+      inventoryMovements.push({ productId: product.id, quantityDelta: Number(restored.toFixed(3)), movementType: 'return' });
       return { ...product, stock: Number((product.stock + restored).toFixed(3)) };
     }));
 
@@ -1856,6 +1884,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - order.totalUSD) }
           : customer
       ));
+    }
+
+    const voidInvoice = invoices.find((inv) => inv.orderId === orderId);
+    if (voidInvoice) {
+      const voidReceivable = order.paymentStatus === 'a_credito'
+        ? receivables.find((rec) => rec.invoiceId === voidInvoice.id)
+        : undefined;
+      const voidCustomer = order.paymentStatus === 'a_credito'
+        ? customers.find((customer) => customer.id === order.customerId)
+        : undefined;
+      offlineSyncService.enqueueSaleReversal({
+        order: { ...order, isVoided: true, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
+        invoice: { ...voidInvoice, isVoided: true, voidedAt: now, voidedBy: currentUser.name, voidReason: reason.trim() },
+        inventoryMovements,
+        receivable: voidReceivable ? {
+          ...voidReceivable, amountPaidUSD: voidReceivable.totalAmountUSD, balanceUSD: 0,
+          status: 'pagado', isVoided: true, voidedAt: now, voidReason: 'Anulación de venta',
+        } : undefined,
+        customer: voidCustomer ? {
+          ...voidCustomer, currentDebtUSD: Math.max(0, voidCustomer.currentDebtUSD - order.totalUSD),
+        } : undefined,
+      });
     }
 
     if (navigator.onLine && tursoService.isConfigured()) {
