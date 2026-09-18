@@ -426,6 +426,26 @@ class TursoService {
       `);
       tablesCreated.push('inventory_movements');
 
+      // 14. cash_sessions / cash_movements — caja persistente por terminal
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS cash_sessions (
+          id TEXT PRIMARY KEY, terminal_id TEXT NOT NULL, opened_at TEXT NOT NULL,
+          opened_by TEXT NOT NULL, opening_bs REAL NOT NULL DEFAULT 0, opening_usd REAL NOT NULL DEFAULT 0,
+          closed_at TEXT, closed_by TEXT, closing_bs REAL, closing_usd REAL,
+          expected_bs REAL, expected_usd REAL, difference_bs REAL, difference_usd REAL, status TEXT NOT NULL
+        );
+      `);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_cash_sessions_terminal_status ON cash_sessions(terminal_id,status)`);
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS cash_movements (
+          id TEXT PRIMARY KEY, session_id TEXT NOT NULL, terminal_id TEXT NOT NULL,
+          type TEXT NOT NULL, currency TEXT NOT NULL, amount REAL NOT NULL, reason TEXT NOT NULL,
+          created_at TEXT NOT NULL, created_by TEXT NOT NULL
+        );
+      `);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id)`);
+      tablesCreated.push('cash_sessions','cash_movements');
+
       // 14. system_users
       await client.execute(`
         CREATE TABLE IF NOT EXISTS system_users (
@@ -1378,6 +1398,39 @@ class TursoService {
       sql: `UPDATE sync_operations SET status = 'pending', error = ? WHERE operation_id = ?`,
       args: [String(error instanceof Error ? error.message : error), operationId],
     });
+  }
+
+  public async saveCashSession(session: {
+    id: string; terminalId: string; openedAt: string; openedBy: string; openingBs: number; openingUSD: number;
+    closedAt?: string; closedBy?: string; closingBs?: number; closingUSD?: number;
+    expectedBs?: number; expectedUSD?: number; differenceBs?: number; differenceUSD?: number; status: 'open'|'closed';
+  }) {
+    const client=this.getClient(); if(!client) return;
+    await client.execute({sql:`INSERT OR REPLACE INTO cash_sessions
+      (id,terminal_id,opened_at,opened_by,opening_bs,opening_usd,closed_at,closed_by,closing_bs,closing_usd,expected_bs,expected_usd,difference_bs,difference_usd,status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,args:[session.id,session.terminalId,session.openedAt,session.openedBy,session.openingBs,session.openingUSD,session.closedAt||null,session.closedBy||null,session.closingBs??null,session.closingUSD??null,session.expectedBs??null,session.expectedUSD??null,session.differenceBs??null,session.differenceUSD??null,session.status]});
+  }
+  public async saveCashMovement(movement: {
+    id:string; sessionId:string; terminalId:string; type:string; currency:'Bs'|'USD'; amount:number; reason:string; createdAt:string; createdBy:string;
+  }) {
+    const client=this.getClient(); if(!client) return;
+    await client.execute({sql:`INSERT OR REPLACE INTO cash_movements
+      (id,session_id,terminal_id,type,currency,amount,reason,created_at,created_by) VALUES (?,?,?,?,?,?,?,?,?)`,args:[movement.id,movement.sessionId,movement.terminalId,movement.type,movement.currency,movement.amount,movement.reason,movement.createdAt,movement.createdBy]});
+  }
+  public async loadOpenCashSession(terminalId:string) {
+    const client=this.getClient(); if(!client) return null;
+    const r=await client.execute({sql:'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'open\' ORDER BY opened_at DESC LIMIT 1',args:[terminalId]});
+    return r.rows[0] || null;
+  }
+  public async loadCashHistory(terminalId:string, limit=100) {
+    const client=this.getClient(); if(!client) return [];
+    const r=await client.execute({sql:'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'closed\' ORDER BY closed_at DESC LIMIT ?',args:[terminalId,limit]});
+    return r.rows;
+  }
+  public async loadCashMovements(terminalId:string, limit=500) {
+    const client=this.getClient(); if(!client) return [];
+    const r=await client.execute({sql:'SELECT * FROM cash_movements WHERE terminal_id=? ORDER BY created_at DESC LIMIT ?',args:[terminalId,limit]});
+    return r.rows;
   }
 
   public async savePurchaseEntry(entry: PurchaseEntry) {
