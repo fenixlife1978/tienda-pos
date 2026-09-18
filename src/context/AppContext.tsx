@@ -121,8 +121,8 @@ interface AppContextType {
   reorder: (orderId: string) => boolean;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   updatePaymentStatus: (orderId: string, paymentStatus: PaymentStatus) => void;
-  processSaleReturn: (orderId: string, reason: string) => { success: boolean; message: string; refundUSD: number };
-  voidSale: (orderId: string, reason: string) => { success: boolean; message: string };
+  processSaleReturn: (orderId: string, reason: string) => { success: boolean; message: string; refundUSD: number; returnNumber?: string };
+  voidSale: (orderId: string, reason: string) => { success: boolean; message: string; voidNumber?: string };
   updateBcvRate: (
     newRate: number,
     updatedBy?: string,
@@ -1952,7 +1952,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('omni_sale_voids_v1', JSON.stringify(audit.slice(0, 500)));
     } catch {}
 
-    return { success: true, message: 'Venta anulada y mercancía reintegrada al inventario.' };
+    return { success: true, voidNumber, message: `Venta anulada y mercancía reintegrada al inventario.` };
   };
 
   // BCV Rate management with history tracking
