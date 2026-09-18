@@ -91,7 +91,6 @@ export const PosView: React.FC = () => {
   const [isMixedPayment, setIsMixedPayment] = useState(false);
   const [mixedPayments, setMixedPayments] = useState<Array<{ id: string; method: Exclude<PaymentMethod, 'mixto'>; amountUSD: string; reference: string }>>([]);
   const mixedPaidUSD = useMemo(() => mixedPayments.reduce((sum, p) => sum + (Number(p.amountUSD) || 0), 0), [mixedPayments]);
-  const mixedRemainingUSD = Math.max(0, totalUSD - mixedPaidUSD);
   const addMixedPayment = () => setMixedPayments((prev) => [...prev, { id: `mix-${Date.now()}-${prev.length}`, method: 'efectivo_usd', amountUSD: '', reference: '' }]);
   const removeMixedPayment = (id: string) => setMixedPayments((prev) => prev.filter((p) => p.id !== id));
 
@@ -119,6 +118,7 @@ export const PosView: React.FC = () => {
   };
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || customers[0];
+  const mixedRemainingUSD = Math.max(0, totalUSD - mixedPaidUSD);
 
   const categories = useMemo(() => {
     const cats = ['Todos'];
