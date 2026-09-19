@@ -78,7 +78,7 @@ export const CashReportPreview: React.FC<{
         </div>
 
         <div className="flex-1 overflow-auto p-5">
-          <div id="cash-report-thermal-preview" className="thermal-cash-report mx-auto bg-white text-black font-mono text-[10px] leading-[1.25] p-[7mm] shadow-xl" style={{ width: '80mm', minHeight: '80mm' }}>
+          <div id="cash-report-thermal-preview" className="thermal-cash-report mx-auto bg-white text-black font-mono text-[10px] leading-[1.25] p-[7mm] shadow-xl" style={{ width: '80mm', minHeight: '80mm', boxSizing: 'border-box' }}>
             <div className="text-center font-black text-[13px] tracking-tight">
               {data.kind === 'X' ? 'REPORTE X' : 'REPORTE Z'}
             </div>
