@@ -195,7 +195,7 @@ export const CameraBarcodeScanner: React.FC<CameraBarcodeScannerProps> = ({
     try {
       await scanner.applyVideoConstraints({
         advanced: [{ torch: !torchOn }],
-      } as MediaTrackConstraints);
+      } as unknown as MediaTrackConstraints);
 
       setTorchOn((value) => !value);
     } catch {
