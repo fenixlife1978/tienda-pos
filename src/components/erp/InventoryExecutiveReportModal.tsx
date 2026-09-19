@@ -199,7 +199,7 @@ export const InventoryExecutiveReportModal: React.FC<InventoryExecutiveReportMod
           outOfStockCount: metrics.outOfStockCount,
           lowStockCount: metrics.lowStockCount,
           healthyStockCount: metrics.healthyStockCount,
-          categoryRows: Object.entries(metrics.categoryStats).map(([name, stat]) => ({
+          categoryRows: (Object.entries(metrics.categoryStats) as [string, CategoryStat][]).map(([name, stat]) => ({
             name,
             products: stat.itemsCount,
             units: stat.units,
