@@ -54,7 +54,7 @@ export const LandingPage: React.FC = () => {
             {/* Brand Logo & Name */}
             <div className="flex items-center gap-3 sm:gap-4">
               <img
-                src="/logo.png"
+                src="./logo.png"
                 alt="Distribuidora La Gran Bodega M&S"
                 className="h-12 sm:h-14 w-auto object-contain rounded-xl shadow-xs"
               />
@@ -174,7 +174,7 @@ export const LandingPage: React.FC = () => {
               <div className="bg-slate-800/60 backdrop-blur-xl border border-slate-700/60 rounded-3xl p-6 sm:p-8 shadow-2xl max-w-md w-full text-center space-y-5">
                 <div className="relative mx-auto w-48 h-48 sm:w-56 sm:h-56 rounded-2xl overflow-hidden shadow-2xl border border-slate-700/80 bg-slate-950 flex items-center justify-center">
                   <img
-                    src="/logo.png"
+                    src="./logo.png"
                     alt="Logo Distribuidora La Gran Bodega M&S"
                     className="w-full h-full object-contain p-2"
                   />
@@ -397,7 +397,7 @@ export const LandingPage: React.FC = () => {
             <div className="md:col-span-2 space-y-3">
               <div className="flex items-center gap-3">
                 <img
-                  src="/logo.png"
+                  src="./logo.png"
                   alt="Logo Gran Bodega"
                   className="h-10 w-auto object-contain rounded-lg"
                 />

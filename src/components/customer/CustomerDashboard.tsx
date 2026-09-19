@@ -111,7 +111,7 @@ export const CustomerDashboard: React.FC = () => {
             {/* Logo and Business Identity */}
             <div className="flex items-center gap-3">
               <img
-                src="/logo.png"
+                src="./logo.png"
                 alt="Distribuidora La Gran Bodega M&S"
                 className="h-12 sm:h-14 w-auto object-contain rounded-xl shadow-xs"
               />

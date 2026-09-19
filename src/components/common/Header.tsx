@@ -106,7 +106,7 @@ export const Header: React.FC = () => {
           {/* Logo and Brand */}
           <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
             <img
-              src="/logo.png"
+              src="./logo.png"
               alt="DISTRIBUIDORA LA GRAN BODEGA M&S"
               className="h-10 sm:h-11 w-auto object-contain rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs"
             />

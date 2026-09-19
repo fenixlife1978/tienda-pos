@@ -97,7 +97,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-white p-1 border border-slate-700 shadow-xs flex items-center justify-center shrink-0">
               <img
-                src="/logo.png"
+                src="./logo.png"
                 alt="Distribuidora La Gran Bodega M&S"
                 className="w-full h-full object-contain"
               />

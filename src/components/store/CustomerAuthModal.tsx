@@ -154,7 +154,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-white p-1 shadow-xs border border-white/20 flex items-center justify-center shrink-0">
               <img
-                src="/logo.png"
+                src="./logo.png"
                 alt="Distribuidora La Gran Bodega M&S"
                 className="w-full h-full object-contain"
               />
