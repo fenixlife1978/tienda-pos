@@ -241,7 +241,8 @@ export function printElement(elementId: string, options?: PrintOptions) {
       margin: 0 !important;
       padding: 3mm 2mm 8mm 2mm !important;
       box-shadow: none !important;
-    }\n    * {
+    }
+    * {
       color: #000000 !important;
       background: transparent !important;
       box-shadow: none !important;
