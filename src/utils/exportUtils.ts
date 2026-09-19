@@ -234,7 +234,14 @@ export function printElement(elementId: string, options?: PrintOptions) {
       line-height: 1.25;
       color: #000000;
     }
-    .thermal-cash-report {\n      width: 76mm !important;\n      max-width: 76mm !important;\n      box-sizing: border-box !important;\n      margin: 0 !important;\n      padding: 3mm 2mm 8mm 2mm !important;\n      box-shadow: none !important;\n    }\n    * {
+    .thermal-cash-report {
+      width: 76mm !important;
+      max-width: 76mm !important;
+      box-sizing: border-box !important;
+      margin: 0 !important;
+      padding: 3mm 2mm 8mm 2mm !important;
+      box-shadow: none !important;
+    }\n    * {
       color: #000000 !important;
       background: transparent !important;
       box-shadow: none !important;
