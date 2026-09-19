@@ -32,7 +32,8 @@ export default defineConfig(() => {
         workbox: {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,jpg,svg,woff,woff2}'],
-          // Only local assets and required BCV API responses are cached; no external font CDN is used.\n          runtimeCaching: [
+          // Only local assets and required BCV API responses are cached; no external font CDN is used.
+          runtimeCaching: [
             {
               urlPattern: /\.(?:png|jpg|jpeg|svg|webp)$/i,
               handler: 'StaleWhileRevalidate',
