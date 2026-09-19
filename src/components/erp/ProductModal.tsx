@@ -1132,7 +1132,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => setIsBarcodeCameraOpen(true)}
+                            onClick={() => {
+                              setBarcodeCameraTarget('main');
+                              setIsBarcodeCameraOpen(true);
+                            }}
                             className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100"
                             title="Leer el código usando la cámara trasera del dispositivo"
                           >
@@ -1142,21 +1145,22 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                            const random12 = '759' + Math.floor(100000000 + Math.random() * 900000000).toString();
-                            let sum = 0;
-                            for (let i = 0; i < 12; i++) {
-                              sum += parseInt(random12[i]) * (i % 2 === 0 ? 1 : 3);
-                            }
-                            const checkDigit = (10 - (sum % 10)) % 10;
-                            const ean13 = random12 + checkDigit;
-                            setBarcode(ean13);
-                            setEan(ean13);
-                          }}
-                          className="text-[10px] text-indigo-600 font-bold hover:underline cursor-pointer"
-                          title="Generar un código de barras EAN-13 estándar de 13 dígitos con dígito verificador"
-                        >
-                          + Auto-EAN13
-                        </button>
+                              const random12 = '759' + Math.floor(100000000 + Math.random() * 900000000).toString();
+                              let sum = 0;
+                              for (let i = 0; i < 12; i++) {
+                                sum += parseInt(random12[i]) * (i % 2 === 0 ? 1 : 3);
+                              }
+                              const checkDigit = (10 - (sum % 10)) % 10;
+                              const ean13 = random12 + checkDigit;
+                              setBarcode(ean13);
+                              setEan(ean13);
+                            }}
+                            className="text-[10px] text-indigo-600 font-bold hover:underline cursor-pointer"
+                            title="Generar un código de barras EAN-13 estándar de 13 dígitos con dígito verificador"
+                          >
+                            + Auto-EAN13
+                          </button>
+                        </div>
                       </div>
                       <input
                         type="text"
