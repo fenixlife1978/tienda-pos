@@ -56,6 +56,7 @@ import {
   validateSKU,
   SKUStrategy,
 } from '../../utils/skuGenerator';
+import { CameraBarcodeScanner } from './CameraBarcodeScanner';
 
 interface ProductModalProps {
   isOpen: boolean;
