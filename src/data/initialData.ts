@@ -157,36 +157,7 @@ export const INITIAL_GENERIC_ADMIN: User = {
   isInitialGeneric: true,
 };
 
-export const INITIAL_USERS: User[] = [
-  INITIAL_GENERIC_ADMIN,
-  {
-    id: 'usr-2',
-    name: 'Mariana Rondón',
-    email: 'operaciones@lagranbodegams.com',
-    role: 'gerente',
-    active: true,
-    createdAt: '2025-02-01',
-    password: '123',
-  },
-  {
-    id: 'usr-3',
-    name: 'José Gregorio Silva',
-    email: 'cajero@lagranbodegams.com',
-    role: 'cajero',
-    active: true,
-    createdAt: '2025-03-15',
-    password: '123',
-  },
-  {
-    id: 'usr-4',
-    name: 'Carlos Yépez',
-    email: 'despacho@lagranbodegams.com',
-    role: 'despachador',
-    active: true,
-    createdAt: '2025-04-10',
-    password: '123',
-  },
-];
+export const INITIAL_USERS: User[] = [INITIAL_GENERIC_ADMIN];
 
 export const INITIAL_CUSTOMERS: Customer[] = [
   {
