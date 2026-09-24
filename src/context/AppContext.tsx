@@ -3088,13 +3088,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMode('store');
     setActivePushToasts([]);
 
-    // The Turso reset is performed by the connected service when available.
-    const resetCloud = (tursoService as any).resetDatabaseToEmpty;
-    if (typeof resetCloud === 'function') {
-      resetCloud.call(tursoService).catch((error: unknown) => {
-        console.error('No fue posible reiniciar Turso:', error);
-      });
-    }
   };
 
 
