@@ -597,10 +597,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Once the initial local snapshot has been persisted, subsequent business
   // state changes are also marked dirty for cloud replay. This keeps the
   // existing UI untouched while making the ERP resilient to network outages.
+  // Durante el bootstrap inicial Turso es la fuente de verdad. No debemos
+  // generar snapshots desde localStorage antes de haber descargado la nube.
   const offlineSyncReadyRef = useRef(false);
-  useEffect(() => {
-    offlineSyncReadyRef.current = true;
-  }, []);
 
   useEffect(() => {
     if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('settings', settings);
@@ -852,13 +851,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Initial Turso Auto-Init on component mount
+  // Initial Turso Auto-Init on component mount.
+  // CRITICAL: localStorage must not be uploaded before the first cloud pull,
+  // otherwise an old local snapshot can overwrite Turso and reappear everywhere.
   useEffect(() => {
     const initTursoOnMount = async () => {
       if (tursoService.isConfigured()) {
+        offlineSyncService.clearPendingSnapshots();
         await bootstrapTursoSchema();
         await syncWithTurso();
+        offlineSyncReadyRef.current = true;
       } else {
+        offlineSyncReadyRef.current = true;
         setTursoState({
           isConnected: false,
           isSyncing: false,
@@ -886,6 +890,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
+  }, []);
+
+  // Sincronización periódica mientras la aplicación está abierta y conectada.
+  // Esto permite que web y .exe recojan cambios hechos en otro terminal sin
+  // depender de cerrar/reabrir la aplicación.
+  useEffect(() => {
+    if (!tursoService.isConfigured()) return;
+    const intervalId = window.setInterval(() => {
+      if (navigator.onLine && offlineSyncReadyRef.current) {
+        syncWithTurso().catch((error) => console.warn('Periodic Turso sync failed:', error));
+      }
+    }, 15000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   // Active push notification toasts floating on screen
