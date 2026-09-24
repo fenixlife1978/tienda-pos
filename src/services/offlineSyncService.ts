@@ -209,6 +209,15 @@ export const offlineSyncService = {
     return readQueue().length;
   },
 
+  // Snapshot de limpieza al iniciar: los snapshots locales creados antes de
+  // la primera sincronización no deben imponerse sobre Turso. Las operaciones
+  // POS transaccionales (ventas, reversos y movimientos) sí se conservan.
+  clearPendingSnapshots() {
+    const queue = readQueue().filter((item) => item.type !== 'snapshot');
+    writeQueue(queue);
+    return queue.length;
+  },
+
   async flush(): Promise<{ processed: number; pending: number }> {
     if (!tursoService.isConfigured() || !navigator.onLine) {
       return { processed: 0, pending: readQueue().length };
