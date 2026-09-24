@@ -23,6 +23,8 @@ import {
   INITIAL_PRODUCTS,
   INITIAL_RECEIVABLES,
   INITIAL_SETTINGS,
+  EMPTY_SYSTEM_SETTINGS,
+  INITIAL_GENERIC_ADMIN,
   INITIAL_SUPPLIERS,
   INITIAL_UNITS,
   INITIAL_USERS,
@@ -512,82 +514,31 @@ class TursoService {
   /**
    * Verifica si la base de datos está vacía y siembra los datos iniciales
    */
+  /**
+   * Inicializa una base Turso vacía únicamente con configuración vacía y
+   * el administrador semilla. Nunca inserta datos de demostración.
+   */
   public async autoSeedIfEmpty(): Promise<{ seeded: boolean; message: string }> {
     const client = this.getClient();
     if (!client) return { seeded: false, message: 'Cliente Turso no disponible' };
 
     try {
-      const prodCheck = await client.execute('SELECT count(*) as count FROM products');
-      const count = Number(prodCheck.rows[0]?.count || 0);
+      const userCheck = await client.execute('SELECT count(*) as count FROM system_users');
+      const userCount = Number(userCheck.rows[0]?.count || 0);
 
-      if (count > 0) {
-        return { seeded: false, message: `La base de datos ya contiene ${count} productos.` };
+      if (userCount > 0) {
+        return { seeded: false, message: 'La base de datos ya tiene usuarios configurados.' };
       }
 
-      console.log('Sembrando catálogo inicial y configuración en Turso DB...');
+      await this.saveSettings(EMPTY_SYSTEM_SETTINGS);
+      await this.saveUser(INITIAL_GENERIC_ADMIN);
 
-      // 1. Sembrar configuración
-      await this.saveSettings(INITIAL_SETTINGS);
-
-      // 2. Sembrar categorías
-      for (const cat of INITIAL_CATEGORIES) {
-        await client.execute({
-          sql: `INSERT OR REPLACE INTO categories (id, name, description, created_at) VALUES (?, ?, ?, ?)`,
-          args: [cat.id, cat.name, cat.description || '', new Date().toISOString()],
-        });
-      }
-
-      // 3. Sembrar unidades
-      for (const unit of INITIAL_UNITS) {
-        await client.execute({
-          sql: `INSERT OR REPLACE INTO units (id, name, abbreviation, allow_decimals) VALUES (?, ?, ?, ?)`,
-          args: [unit.id, unit.name, unit.abbreviation, unit.allowDecimals ? 1 : 0],
-        });
-      }
-
-      // 4. Sembrar productos
-      for (const prod of INITIAL_PRODUCTS) {
-        await this.saveProduct(prod);
-      }
-
-      // 5. Sembrar clientes
-      for (const cust of INITIAL_CUSTOMERS) {
-        await this.saveCustomer(cust);
-      }
-
-      // 6. Sembrar proveedores
-      for (const supp of INITIAL_SUPPLIERS) {
-        await this.saveSupplier(supp);
-      }
-
-      // 7. Sembrar usuarios
-      for (const user of INITIAL_USERS) {
-        await this.saveUser(user);
-      }
-
-      // 8. Sembrar órdenes iniciales
-      for (const order of INITIAL_ORDERS) {
-        await this.saveOrder(order);
-      }
-
-      // 9. Sembrar facturas
-      for (const inv of INITIAL_INVOICES) {
-        await this.saveInvoice(inv);
-      }
-
-      // 10. Sembrar cuentas por cobrar
-      for (const rec of INITIAL_RECEIVABLES) {
-        await this.saveReceivable(rec);
-      }
-
-      // 11. Sembrar cuentas por pagar
-      for (const pay of INITIAL_PAYABLES) {
-        await this.savePayable(pay);
-      }
-
-      return { seeded: true, message: 'Datos maestros sembrados con éxito en Turso DB.' };
+      return {
+        seeded: true,
+        message: 'Base de datos inicializada sin datos demo. Administrador semilla creado.',
+      };
     } catch (err: any) {
-      console.error('Error seeding Turso DB:', err);
+      console.error('Error initializing clean Turso DB:', err);
       return { seeded: false, message: err.message || String(err) };
     }
   }
