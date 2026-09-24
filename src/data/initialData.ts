@@ -148,12 +148,12 @@ export const EMPTY_SYSTEM_SETTINGS: SystemSettings = {
 
 export const INITIAL_GENERIC_ADMIN: User = {
   id: 'usr-admin-initial',
-  name: 'Administrador Inicial (Genérico)',
-  email: 'admin@lagranbodegams.com',
+  name: 'Administrador Principal',
+  email: 'admin',
   role: 'admin',
   active: true,
-  createdAt: '2025-01-01',
-  password: 'admin',
+  createdAt: new Date().toISOString().split('T')[0],
+  password: 'Admin123!',
   isInitialGeneric: true,
 };
 
