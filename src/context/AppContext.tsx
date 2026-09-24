@@ -807,18 +807,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
       const cloudData = await tursoService.loadAllData();
-      if (cloudData.products.length > 0) setProducts(cloudData.products);
-      if (cloudData.categories.length > 0) setCategories(cloudData.categories);
-      if (cloudData.units.length > 0) setUnits(cloudData.units);
-      if (cloudData.customers.length > 0) setCustomers(cloudData.customers);
-      if (cloudData.suppliers.length > 0) setSuppliers(cloudData.suppliers);
-      if (cloudData.orders.length > 0) setOrders(cloudData.orders);
-      if (cloudData.invoices.length > 0) setInvoices(cloudData.invoices);
-      if (cloudData.receivables.length > 0) setReceivables(cloudData.receivables);
-      if (cloudData.payables.length > 0) setPayables(cloudData.payables);
-      if (cloudData.purchaseEntries.length > 0) setPurchaseEntries(cloudData.purchaseEntries);
-      if (cloudData.users.length > 0) setUsers(cloudData.users);
-      if (cloudData.settings) setSettings(cloudData.settings);
+
+      // Turso es la fuente de verdad cuando está configurado. Incluso una
+      // tabla vacía debe reemplazar el snapshot local para impedir que datos
+      // antiguos/demo de localStorage reaparezcan en una base nueva o limpia.
+      setProducts(cloudData.products);
+      setCategories(cloudData.categories);
+      setUnits(cloudData.units);
+      setCustomers(cloudData.customers);
+      setSuppliers(cloudData.suppliers);
+      setOrders(cloudData.orders);
+      setInvoices(cloudData.invoices);
+      setReceivables(cloudData.receivables);
+      setPayables(cloudData.payables);
+      setPurchaseEntries(cloudData.purchaseEntries);
+      setUsers(cloudData.users);
+
+      if (cloudData.settings) {
+        setSettings(cloudData.settings);
+      } else {
+        setSettings(EMPTY_SYSTEM_SETTINGS);
+      }
 
       setTursoState({
         isConnected: true,
