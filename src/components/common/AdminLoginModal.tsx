@@ -11,8 +11,8 @@ interface AdminLoginModalProps {
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClose }) => {
   const { users, setCurrentUser, setIsAdminActive, setMode } = useApp();
 
-  const [username, setUsername] = useState('admin@lagranbodegams.com');
-  const [password, setPassword] = useState('admin');
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('');
   const [selectedRole, setSelectedRole] = useState<Role>('admin');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +22,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       const defaultAdmin = users.find(u => u.isInitialGeneric || u.role === 'admin') || users[0];
       if (defaultAdmin) {
         setUsername(defaultAdmin.email || defaultAdmin.name);
-        setPassword(defaultAdmin.password || 'admin');
+        setPassword('');
         setSelectedRole(defaultAdmin.role);
       }
       setError('');
@@ -75,9 +75,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       return;
     }
 
-    // Check valid password
-    const validPasswords = [matchedUser.password, 'admin', 'admin123', '123', '123456'].filter(Boolean);
-    if (!validPasswords.includes(trimmedPass)) {
+    // Check only the password stored for the selected user. No demo/fallback passwords are accepted.
+    if (!matchedUser.password || matchedUser.password !== trimmedPass) {
       setError('Contraseña incorrecta.');
       return;
     }
