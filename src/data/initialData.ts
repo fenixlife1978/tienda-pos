@@ -119,6 +119,33 @@ export const INITIAL_SETTINGS: SystemSettings = {
   creditReminderThresholdPercent: 80,
 };
 
+export const EMPTY_SYSTEM_SETTINGS: SystemSettings = {
+  ...INITIAL_SETTINGS,
+  companyName: '',
+  companyRif: '',
+  companyPhone: '',
+  companyEmail: '',
+  companyAddress: '',
+  companyLogo: '/logo.png',
+  bcvRate: 0,
+  lastBcvUpdate: null as any,
+  bcvEffectiveDate: '',
+  bcvHistory: [],
+  defaultCreditDays: 7,
+  defaultCreditLimitUSD: 0,
+  pagoMovilBank: '',
+  pagoMovilPhone: '',
+  pagoMovilRif: '',
+  zelleEmail: '',
+  zelleBeneficiary: '',
+  transferenciaBank: '',
+  transferenciaAccountNumber: '',
+  transferenciaAccountType: 'Cuenta Corriente',
+  transferenciaBeneficiary: '',
+  transferenciaRif: '',
+  autoRemindersEnabled: false,
+};
+
 export const INITIAL_GENERIC_ADMIN: User = {
   id: 'usr-admin-initial',
   name: 'Administrador Inicial (Genérico)',
