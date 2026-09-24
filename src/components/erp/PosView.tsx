@@ -33,6 +33,7 @@ import {
   X,
   Sparkles,
   Camera,
+  Calculator,
 } from 'lucide-react';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 import { playNotificationSound } from '../../utils/notificationSound';
@@ -85,6 +86,7 @@ export const PosView: React.FC = () => {
     }
   }, [ticketItems]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[0]?.id || '');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo_bs');
   const [customCreditDays, setCustomCreditDays] = useState<number>(15);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPaymentCalculator, setShowPaymentCalculator] = useState(false);
