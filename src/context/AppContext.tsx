@@ -32,6 +32,7 @@ import {
 import { playNotificationSound } from '../utils/notificationSound';
 import {
   INITIAL_CATEGORIES,
+  EMPTY_SYSTEM_SETTINGS,
   INITIAL_CUSTOMERS,
   INITIAL_GENERIC_ADMIN,
   INITIAL_INVOICES,
@@ -388,14 +389,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           parsed.bcvEffectiveDate = INITIAL_SETTINGS.bcvEffectiveDate;
         }
         return {
-          ...INITIAL_SETTINGS,
+          ...EMPTY_SYSTEM_SETTINGS,
           ...parsed,
-          companyName: parsed.companyName || INITIAL_SETTINGS.companyName,
-          companyRif: parsed.companyRif || INITIAL_SETTINGS.companyRif,
-          companyPhone: parsed.companyPhone || INITIAL_SETTINGS.companyPhone,
-          companyEmail: parsed.companyEmail || INITIAL_SETTINGS.companyEmail,
-          companyAddress: parsed.companyAddress || INITIAL_SETTINGS.companyAddress,
-          companyLogo: parsed.companyLogo || INITIAL_SETTINGS.companyLogo || '/logo.png',
+          companyName: parsed.companyName || EMPTY_SYSTEM_SETTINGS.companyName,
+          companyRif: parsed.companyRif || EMPTY_SYSTEM_SETTINGS.companyRif,
+          companyPhone: parsed.companyPhone || EMPTY_SYSTEM_SETTINGS.companyPhone,
+          companyEmail: parsed.companyEmail || EMPTY_SYSTEM_SETTINGS.companyEmail,
+          companyAddress: parsed.companyAddress || EMPTY_SYSTEM_SETTINGS.companyAddress,
+          companyLogo: parsed.companyLogo || EMPTY_SYSTEM_SETTINGS.companyLogo || '/logo.png',
           defaultCreditDays: parsed.defaultCreditDays || 7,
           defaultCreditLimitUSD: parsed.defaultCreditLimitUSD || 1000,
         };
@@ -403,7 +404,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error('Error reading omni_settings:', e);
       }
     }
-    return INITIAL_SETTINGS;
+    return EMPTY_SYSTEM_SETTINGS;
   });
 
   const [users, setUsers] = useState<User[]>(() => {
@@ -441,14 +442,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const saved = localStorage.getItem('omni_customers');
-    return saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(() => {
     const activeId = localStorage.getItem('omni_active_customer_id');
     if (activeId) {
       const saved = localStorage.getItem('omni_customers');
-      const list: Customer[] = saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
+      const list: Customer[] = saved ? JSON.parse(saved) : [];
       const found = list.find((c) => c.id === activeId);
       if (found) return found;
     }
@@ -457,7 +458,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('omni_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -467,48 +468,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [orders, setOrders] = useState<Order[]>(() => {
     const saved = localStorage.getItem('omni_orders');
-    return saved ? JSON.parse(saved) : INITIAL_ORDERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     const saved = localStorage.getItem('omni_invoices');
-    return saved ? JSON.parse(saved) : INITIAL_INVOICES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [receivables, setReceivables] = useState<ReceivableItem[]>(() => {
     const saved = localStorage.getItem('omni_receivables');
-    return saved ? JSON.parse(saved) : INITIAL_RECEIVABLES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
     const saved = localStorage.getItem('omni_suppliers');
-    return saved ? JSON.parse(saved) : INITIAL_SUPPLIERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [payables, setPayables] = useState<PayableItem[]>(() => {
     const saved = localStorage.getItem('omni_payables');
-    return saved ? JSON.parse(saved) : INITIAL_PAYABLES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [purchaseEntries, setPurchaseEntries] = useState<PurchaseEntry[]>(() => {
     const saved = localStorage.getItem('omni_purchase_entries');
-    return saved ? JSON.parse(saved) : INITIAL_PURCHASE_ENTRIES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     const saved = localStorage.getItem('omni_notifications');
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: 'notif-1',
-            title: 'Bienvenido al Sistema OmniPOS',
-            message: 'Tasa BCV configurada a 68.45 Bs/USD. Tienda online y ERP sincronizados.',
-            type: 'custom_broadcast',
-            createdAt: new Date().toISOString(),
-            read: false,
-          },
-        ];
+    return saved ? JSON.parse(saved) : [];
   });
 
   // UI Modals & Navigation
@@ -541,7 +531,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Dynamic Categories and Units of Measurement
   const [categories, setCategories] = useState<ProductCategory[]>(() => {
     const saved = localStorage.getItem('omni_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Automated Credit and Past-Due Invoice Reminders State
@@ -552,7 +542,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [units, setUnits] = useState<ProductUnit[]>(() => {
     const saved = localStorage.getItem('omni_units');
-    return saved ? JSON.parse(saved) : INITIAL_UNITS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Sync state to localStorage
@@ -908,6 +898,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     badge?: string;
     sound?: boolean;
   }) => {
+    // Push toasts are private to authenticated areas only:
+    // admin dashboard or an authenticated customer account. Never show them on landing/login.
+    if (!isAdminActive && !currentCustomer) return;
+
     // Suppress push notifications and sound alerts for BCV rate updates
     if (options.type === 'bcv_update') {
       return;
@@ -3065,10 +3059,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetSystemToFactory = () => {
-    localStorage.removeItem('omni_users'); localStorage.removeItem('omni_settings'); localStorage.removeItem('omni_customers'); localStorage.removeItem('omni_products'); localStorage.removeItem('omni_cart'); localStorage.removeItem('omni_orders'); localStorage.removeItem('omni_invoices'); localStorage.removeItem('omni_receivables'); localStorage.removeItem('omni_payables'); localStorage.removeItem('omni_suppliers'); localStorage.removeItem('omni_notifications'); localStorage.removeItem('omni_active_customer_id');
-    setUsers(INITIAL_USERS); setCurrentUser(INITIAL_GENERIC_ADMIN); setSettings(INITIAL_SETTINGS); setCustomers(INITIAL_CUSTOMERS); setProducts(INITIAL_PRODUCTS); setCart([]); setOrders(INITIAL_ORDERS); setInvoices(INITIAL_INVOICES); setReceivables(INITIAL_RECEIVABLES); setPayables(INITIAL_PAYABLES); setSuppliers(INITIAL_SUPPLIERS); setCurrentCustomer(null);
-    triggerPushNotification({ title: 'Sistema Reiniciado desde Cero', message: 'Valores restablecidos a fábrica. El Administrador Inicial (Genérico) ha sido restaurado.', type: 'custom_broadcast', badge: 'Reset de Fábrica' });
+    // Local state is immediately returned to a clean installation state.
+    const localKeys = [
+      'omni_users', 'omni_settings', 'omni_customers', 'omni_products', 'omni_categories',
+      'omni_units', 'omni_cart', 'omni_orders', 'omni_invoices', 'omni_receivables',
+      'omni_payables', 'omni_suppliers', 'omni_purchase_entries', 'omni_notifications',
+      'omni_automated_reminders', 'omni_active_customer_id', 'omni_mode',
+    ];
+    localKeys.forEach((key) => localStorage.removeItem(key));
+
+    setUsers([INITIAL_GENERIC_ADMIN]);
+    setCurrentUser(INITIAL_GENERIC_ADMIN);
+    setSettings(EMPTY_SYSTEM_SETTINGS);
+    setCategories([]);
+    setUnits([]);
+    setCustomers([]);
+    setProducts([]);
+    setCart([]);
+    setOrders([]);
+    setInvoices([]);
+    setReceivables([]);
+    setPayables([]);
+    setSuppliers([]);
+    setPurchaseEntries([]);
+    setNotifications([]);
+    setCurrentCustomer(null);
+    setIsAdminActive(false);
+    setMode('store');
+    setActivePushToasts([]);
+
+    // The Turso reset is performed by the connected service when available.
+    const resetCloud = (tursoService as any).resetDatabaseToEmpty;
+    if (typeof resetCloud === 'function') {
+      resetCloud.call(tursoService).catch((error: unknown) => {
+        console.error('No fue posible reiniciar Turso:', error);
+      });
+    }
   };
+
 
   const updateSettings = (newSettings: Partial<SystemSettings>) => setSettings((prev) => ({ ...prev, ...newSettings }));
   const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
