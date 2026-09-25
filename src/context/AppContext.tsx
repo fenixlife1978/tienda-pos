@@ -601,42 +601,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // generar snapshots desde localStorage antes de haber descargado la nube.
   const offlineSyncReadyRef = useRef(false);
 
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('settings', settings);
-  }, [settings]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('products', products);
-  }, [products]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('customers', customers);
-  }, [customers]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('suppliers', suppliers);
-  }, [suppliers]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('orders', orders);
-  }, [orders]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('invoices', invoices);
-  }, [invoices]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('receivables', receivables);
-  }, [receivables]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('payables', payables);
-  }, [payables]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('purchaseEntries', purchaseEntries);
-  }, [purchaseEntries]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('users', users);
-  }, [users]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('categories', categories);
-  }, [categories]);
-  useEffect(() => {
-    if (offlineSyncReadyRef.current) offlineSyncService.enqueueSnapshot('units', units);
-  }, [units]);
+  const enqueueCloudSnapshot = (entity: Parameters<typeof offlineSyncService.enqueueSnapshot>[0], data: unknown) => {
+    if (!offlineSyncReadyRef.current || !tursoService.isConfigured()) return;
+    offlineSyncService.enqueueSnapshot(entity, data);
+    if (navigator.onLine) {
+      offlineSyncService.flush().catch((error) => console.warn('Error guardando cambios en Turso:', error));
+    }
+  };
+
+  useEffect(() => { enqueueCloudSnapshot('settings', settings); }, [settings]);
+  useEffect(() => { enqueueCloudSnapshot('products', products); }, [products]);
+  useEffect(() => { enqueueCloudSnapshot('customers', customers); }, [customers]);
+  useEffect(() => { enqueueCloudSnapshot('suppliers', suppliers); }, [suppliers]);
+  useEffect(() => { enqueueCloudSnapshot('orders', orders); }, [orders]);
+  useEffect(() => { enqueueCloudSnapshot('invoices', invoices); }, [invoices]);
+  useEffect(() => { enqueueCloudSnapshot('receivables', receivables); }, [receivables]);
+  useEffect(() => { enqueueCloudSnapshot('payables', payables); }, [payables]);
+  useEffect(() => { enqueueCloudSnapshot('purchaseEntries', purchaseEntries); }, [purchaseEntries]);
+  useEffect(() => { enqueueCloudSnapshot('users', users); }, [users]);
+  useEffect(() => { enqueueCloudSnapshot('categories', categories); }, [categories]);
+  useEffect(() => { enqueueCloudSnapshot('units', units); }, [units]);
 
   // --- Real-time multi-client / cross-tab stock synchronization ---
   const [lastStockUpdateEvent, setLastStockUpdateEvent] = useState<{
@@ -1046,6 +1030,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       },
     };
     setCustomers((prev) => [newCustomer, ...prev]);
+    // Registro de cliente: persistencia inmediata en Turso, sin esperar al siguiente ciclo de sincronización.
+    if (tursoService.isConfigured() && navigator.onLine) {
+      tursoService.saveCustomer(newCustomer).catch((error) => console.warn('No se pudo registrar el cliente en Turso:', error));
+    }
     setCurrentCustomer(newCustomer);
     localStorage.setItem('omni_active_customer_id', newCustomer.id);
     setIsAdminActive(false);
