@@ -1555,6 +1555,12 @@ class TursoService {
     });
   }
 
+  public async deleteUser(id: string) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({ sql: 'DELETE FROM system_users WHERE id = ?', args: [id] });
+  }
+
   public async saveUser(u: User) {
     const client = this.getClient();
     if (!client) return;
