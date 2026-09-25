@@ -234,9 +234,38 @@ class TursoService {
           password TEXT,
           avatar TEXT,
           notification_preferences TEXT,
+          verification_status TEXT DEFAULT 'pending',
+          is_first_time INTEGER DEFAULT 1,
+          registered_at TEXT,
+          verified_at TEXT,
+          verified_by TEXT,
+          verification_notes TEXT,
+          rejection_reason TEXT,
+          credit_status TEXT,
+          assigned_price_tier TEXT,
           created_at TEXT
         );
-      `);
+      `;
+      // Migración de instalaciones existentes: conservar datos y añadir estado de verificación.
+      const customerColumns = await client.execute("PRAGMA table_info(customers)");
+      const existingCustomerColumns = new Set(customerColumns.rows.map((row: any) => String(row.name)));
+      const customerMigrations: Array<[string, string]> = [
+        ['verification_status', "TEXT DEFAULT 'pending'"],
+        ['is_first_time', 'INTEGER DEFAULT 1'],
+        ['registered_at', 'TEXT'],
+        ['verified_at', 'TEXT'],
+        ['verified_by', 'TEXT'],
+        ['verification_notes', 'TEXT'],
+        ['rejection_reason', 'TEXT'],
+        ['credit_status', 'TEXT'],
+        ['assigned_price_tier', 'TEXT'],
+      ];
+      for (const [column, definition] of customerMigrations) {
+        if (!existingCustomerColumns.has(column)) {
+          await client.execute(`ALTER TABLE customers ADD COLUMN ${column} ${definition}`);
+        }
+      }
+
       tablesCreated.push('customers');
 
       // 6. suppliers
@@ -664,6 +693,15 @@ class TursoService {
           password: row.password ? String(row.password) : undefined,
           avatar: row.avatar ? String(row.avatar) : undefined,
           notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
+          verificationStatus: (row.verification_status as any) || 'pending',
+          isFirstTime: row.is_first_time === undefined || row.is_first_time === null ? true : Boolean(row.is_first_time),
+          registeredAt: row.registered_at ? String(row.registered_at) : undefined,
+          verifiedAt: row.verified_at ? String(row.verified_at) : undefined,
+          verifiedBy: row.verified_by ? String(row.verified_by) : undefined,
+          verificationNotes: row.verification_notes ? String(row.verification_notes) : undefined,
+          rejectionReason: row.rejection_reason ? String(row.rejection_reason) : undefined,
+          creditStatus: row.credit_status ? String(row.credit_status) as any : undefined,
+          assignedPriceTier: row.assigned_price_tier ? String(row.assigned_price_tier) as any : undefined,
         });
       }
     } catch (e) {
@@ -1054,24 +1092,20 @@ class TursoService {
       sql: `
         INSERT OR REPLACE INTO customers (
           id, name, rif, email, phone, address, has_credit, credit_days,
-          credit_limit_usd, current_debt_usd, password, avatar, notification_preferences, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          credit_limit_usd, current_debt_usd, password, avatar, notification_preferences,
+          verification_status, is_first_time, registered_at, verified_at, verified_by,
+          verification_notes, rejection_reason, credit_status, assigned_price_tier, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
-        c.id,
-        c.name,
-        c.rif,
-        c.email,
-        c.phone,
-        c.address,
-        c.hasCredit ? 1 : 0,
-        c.creditDays || 15,
-        c.creditLimitUSD || 0,
-        c.currentDebtUSD || 0,
-        c.password || null,
-        c.avatar || null,
+        c.id, c.name, c.rif, c.email, c.phone, c.address,
+        c.hasCredit ? 1 : 0, c.creditDays || 15, c.creditLimitUSD || 0, c.currentDebtUSD || 0,
+        c.password || null, c.avatar || null,
         c.notificationPreferences ? JSON.stringify(c.notificationPreferences) : null,
-        new Date().toISOString(),
+        c.verificationStatus || 'pending', c.isFirstTime === false ? 0 : 1,
+        c.registeredAt || null, c.verifiedAt || null, c.verifiedBy || null,
+        c.verificationNotes || null, c.rejectionReason || null,
+        c.creditStatus || null, c.assignedPriceTier || null, new Date().toISOString(),
       ],
     });
   }
