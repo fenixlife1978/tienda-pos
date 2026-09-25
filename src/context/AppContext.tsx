@@ -2446,6 +2446,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
+    const customerAfterApproval = customers.find((c) => c.id === customerId);
+    if (tursoService.isConfigured() && navigator.onLine && customerAfterApproval) {
+      const updatedCustomer = {
+        ...customerAfterApproval,
+        verificationStatus: 'verified' as const,
+        isFirstTime: false,
+        hasCredit: options.hasCredit,
+        creditDays: options.hasCredit ? options.creditDays : 0,
+        creditLimitUSD: options.hasCredit ? options.creditLimitUSD : 0,
+        creditStatus: options.hasCredit ? 'approved' as const : 'none' as const,
+        verifiedAt: new Date().toISOString(),
+        verifiedBy: currentUser.name,
+        assignedPriceTier: options.assignedPriceTier || 'mayorista',
+        verificationNotes: options.notes || customerAfterApproval.verificationNotes,
+      };
+      tursoService.saveCustomer(updatedCustomer).catch((error) => console.warn('No se pudo guardar la aprobación en Turso:', error));
+    }
+
     const creditMsg = options.hasCredit
       ? ` y se le asignó línea de crédito de $${options.creditLimitUSD.toFixed(2)} (${options.creditDays} días).`
       : ' en modalidad de Contado.';
@@ -2480,6 +2498,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return c;
       })
     );
+
+    const customerAfterRejection = customers.find((c) => c.id === customerId);
+    if (tursoService.isConfigured() && navigator.onLine && customerAfterRejection) {
+      const updatedCustomer = {
+        ...customerAfterRejection,
+        verificationStatus: 'rejected' as const,
+        hasCredit: false,
+        creditStatus: 'rejected' as const,
+        verifiedAt: new Date().toISOString(),
+        verifiedBy: currentUser.name,
+        rejectionReason: reason,
+      };
+      tursoService.saveCustomer(updatedCustomer).catch((error) => console.warn('No se pudo guardar el rechazo en Turso:', error));
+    }
 
     triggerPushNotification({
       title: '❌ Solicitud de Registro Rechazada',
@@ -3048,11 +3080,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
     const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
     setUsers((prev) => [...prev, newUser]);
+    if (tursoService.isConfigured() && navigator.onLine) {
+      tursoService.saveUser(newUser).catch((error) => console.warn('No se pudo guardar el usuario en Turso:', error));
+    }
     triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
   };
 
   const updateUser = (user: User) => {
     setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
+    if (tursoService.isConfigured() && navigator.onLine) {
+      tursoService.saveUser(user).catch((error) => console.warn('No se pudo actualizar el usuario en Turso:', error));
+    }
     if (currentUser.id === user.id) setCurrentUser(user);
   };
 
@@ -3068,6 +3106,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (remainingAdmin) setCurrentUser(remainingAdmin);
     }
     setUsers((prev) => prev.filter((u) => u.id !== userId));
+    if (tursoService.isConfigured() && navigator.onLine) {
+      tursoService.deleteUser(userId).catch((error) => console.warn('No se pudo eliminar el usuario de Turso:', error));
+    }
     triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
     return { success: true, message: 'Usuario eliminado exitosamente' };
   };
