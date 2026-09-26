@@ -21,7 +21,9 @@ export const ErpDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ErpTab>('dashboard');
 
   // Count badges for the ERP tabs
-  const pendingOrdersCount = orders.filter((o) => o.orderStatus === 'pendiente').length;
+  const pendingOrdersCount = orders.filter(
+    (o) => o.orderStatus === 'pendiente' || o.orderStatus === 'en_tramite'
+  ).length;
   const pendingRequestsCount = customers.filter(
     (c) =>
       c.verificationStatus === 'pending' ||

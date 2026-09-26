@@ -407,7 +407,9 @@ export const Header: React.FC = () => {
               >
                 <Bell className="w-4 h-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white animate-pulse" />
+                  <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ring-2 ring-white animate-pulse min-w-[18px] text-center">
+                    {unreadCount}
+                  </span>
                 )}
               </button>
 

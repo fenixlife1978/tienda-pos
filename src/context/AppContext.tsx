@@ -826,15 +826,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               (notif.targetRole === 'client' || notif.targetRole === 'all') &&
               (!notif.targetCustomerId || (currentCustomer && notif.targetCustomerId === currentCustomer.id));
             const isForAdmin =
-              (notif.targetRole === 'seller' || notif.targetRole === 'all') &&
-              (isAdminActive || mode === 'erp');
+              notif.targetRole === 'seller' ||
+              notif.targetRole === 'all' ||
+              !notif.targetRole ||
+              isAdminActive ||
+              mode === 'erp';
 
             if (isForClient || isForAdmin) {
-              setActivePushToasts((prev) => [notif, ...prev.slice(0, 2)]);
+              setActivePushToasts((prev) => [notif, ...prev.filter((t) => t.id !== notif.id).slice(0, 2)]);
               playNotificationSound(notif.type === 'order_status' ? 'order_status' : 'alert');
               setTimeout(() => {
                 dismissPushToast(notif.id);
-              }, 6000);
+              }, 7000);
             }
           }
         }

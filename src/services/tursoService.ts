@@ -1039,8 +1039,21 @@ class TursoService {
   public async getCloudChangeToken(): Promise<number> {
     const client = this.getClient();
     if (!client) throw new Error('Cliente Turso no configurado');
-    const res = await client.execute('SELECT COALESCE(MAX(id), 0) AS token FROM activity_changes');
-    return Number(res.rows[0]?.token || 0);
+    try {
+      const res = await client.execute(`
+        SELECT (
+          COALESCE((SELECT MAX(id) FROM activity_changes), 0) +
+          COALESCE((SELECT COUNT(*) FROM customers), 0) * 100 +
+          COALESCE((SELECT COUNT(*) FROM system_notifications), 0) * 1000 +
+          COALESCE((SELECT COUNT(*) FROM orders), 0) * 10000 +
+          COALESCE((SELECT COUNT(*) FROM system_users), 0) * 100000
+        ) AS token
+      `);
+      return Number(res.rows[0]?.token || 0);
+    } catch {
+      const res = await client.execute('SELECT COALESCE(MAX(id), 0) AS token FROM activity_changes');
+      return Number(res.rows[0]?.token || 0);
+    }
   }
 
   public async hasCloudChangesSince(token: number): Promise<{ changed: boolean; token: number }> {
