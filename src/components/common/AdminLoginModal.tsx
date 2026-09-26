@@ -20,12 +20,12 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
 
   useEffect(() => {
     if (isOpen) {
-      const defaultAdmin = users.find(u => u.isInitialGeneric || u.role === 'admin') || users[0];
-      if (defaultAdmin) {
-        setUsername(defaultAdmin.email || defaultAdmin.name);
-        setPassword('');
-        setSelectedRole(defaultAdmin.role);
-      }
+      // El administrador semilla siempre usa estas credenciales centralizadas.
+      // No depender de users/localStorage: la sincronización con Turso puede cambiar
+      // esa lista mientras el modal está abierto y no debe alterar lo que escribe el usuario.
+      setUsername('admin');
+      setPassword('');
+      setSelectedRole('admin');
       setError('');
     }
   }, [isOpen]);
@@ -37,7 +37,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     setError('');
 
     const trimmedUser = username.trim().toLowerCase();
-    const trimmedPass = password.trim();
+    const trimmedPass = password;
 
     if (!trimmedUser) {
       setError('Por favor ingresa tu usuario o correo.');
@@ -155,11 +155,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
                 onChange={(e) => {
                   const newRole = e.target.value as Role;
                   setSelectedRole(newRole);
-                  const roleUser = users.find(u => u.role === newRole && u.active);
-                  if (roleUser) {
-                    setUsername(roleUser.email || roleUser.name);
-                    setPassword(roleUser.password || 'admin');
-                  }
+                  // Cambiar el rol no debe sobrescribir usuario ni contraseña.
+                  // La autenticación siempre se valida contra Turso en el servidor.
                 }}
                 className="w-full pl-9 pr-8 py-2.5 text-xs font-semibold border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-slate-800 cursor-pointer"
               >
