@@ -3156,8 +3156,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
   const clearAllNotifications = () => setNotifications([]);
 
-  return (
-    {productionTursoMisconfigured ? (
+  return productionTursoMisconfigured ? (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6 text-center">
           <div className="text-4xl mb-3">🔴</div>
@@ -3185,8 +3184,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }}>
       {children}
     </AppContext.Provider>
-    )}
-  );
+    );
 };
 
 export const useApp = () => {
