@@ -89,7 +89,7 @@ class TursoService {
 
   private initFromEnv() {
     const config = this.getStoredConfig();
-    if (config.url) {
+    if (config.url && config.authToken) {
       this.initClient(config);
     }
   }
@@ -103,7 +103,7 @@ class TursoService {
   }
 
   public initClient(config: TursoConfig): Client | null {
-    if (!config.url) {
+    if (!config.url || !config.authToken) {
       this.client = null;
       this.currentConfig = null;
       return null;
@@ -136,7 +136,7 @@ class TursoService {
 
   public isConfigured(): boolean {
     const config = this.getStoredConfig();
-    return Boolean(config.url && config.url.trim().length > 0);
+    return Boolean(config.url && config.url.trim().length > 0 && config.authToken && config.authToken.trim().length > 0);
   }
 
   /**
@@ -167,7 +167,8 @@ class TursoService {
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           description TEXT,
-          created_at TEXT
+          created_at TEXT,
+          payment_history TEXT
         );
       `);
       tablesCreated.push('categories');
@@ -234,38 +235,9 @@ class TursoService {
           password TEXT,
           avatar TEXT,
           notification_preferences TEXT,
-          verification_status TEXT DEFAULT 'pending',
-          is_first_time INTEGER DEFAULT 1,
-          registered_at TEXT,
-          verified_at TEXT,
-          verified_by TEXT,
-          verification_notes TEXT,
-          rejection_reason TEXT,
-          credit_status TEXT,
-          assigned_price_tier TEXT,
           created_at TEXT
         );
-      `;
-      // Migración de instalaciones existentes: conservar datos y añadir estado de verificación.
-      const customerColumns = await client.execute("PRAGMA table_info(customers)");
-      const existingCustomerColumns = new Set(customerColumns.rows.map((row: any) => String(row.name)));
-      const customerMigrations: Array<[string, string]> = [
-        ['verification_status', "TEXT DEFAULT 'pending'"],
-        ['is_first_time', 'INTEGER DEFAULT 1'],
-        ['registered_at', 'TEXT'],
-        ['verified_at', 'TEXT'],
-        ['verified_by', 'TEXT'],
-        ['verification_notes', 'TEXT'],
-        ['rejection_reason', 'TEXT'],
-        ['credit_status', 'TEXT'],
-        ['assigned_price_tier', 'TEXT'],
-      ];
-      for (const [column, definition] of customerMigrations) {
-        if (!existingCustomerColumns.has(column)) {
-          await client.execute(`ALTER TABLE customers ADD COLUMN ${column} ${definition}`);
-        }
-      }
-
+      `);
       tablesCreated.push('customers');
 
       // 6. suppliers
@@ -407,14 +379,16 @@ class TursoService {
           due_date TEXT NOT NULL,
           credit_days INTEGER NOT NULL,
           status TEXT NOT NULL,
-          created_at TEXT
+          created_at TEXT,
+          payment_history TEXT
         );
       `);
       tablesCreated.push('accounts_receivable');
       for (const sql of [
         "ALTER TABLE accounts_receivable ADD COLUMN is_voided INTEGER DEFAULT 0",
         "ALTER TABLE accounts_receivable ADD COLUMN voided_at TEXT",
-        "ALTER TABLE accounts_receivable ADD COLUMN void_reason TEXT"
+        "ALTER TABLE accounts_receivable ADD COLUMN void_reason TEXT",
+        "ALTER TABLE accounts_receivable ADD COLUMN payment_history TEXT"
       ]) {
         try { await client.execute(sql); } catch {}
       }
@@ -437,6 +411,7 @@ class TursoService {
         );
       `);
       tablesCreated.push('accounts_payable');
+      try { await client.execute("ALTER TABLE accounts_payable ADD COLUMN payment_history TEXT"); } catch {}
 
       // 11. purchase_entries
       await client.execute(`
@@ -693,15 +668,6 @@ class TursoService {
           password: row.password ? String(row.password) : undefined,
           avatar: row.avatar ? String(row.avatar) : undefined,
           notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
-          verificationStatus: (row.verification_status as any) || 'pending',
-          isFirstTime: row.is_first_time === undefined || row.is_first_time === null ? true : Boolean(row.is_first_time),
-          registeredAt: row.registered_at ? String(row.registered_at) : undefined,
-          verifiedAt: row.verified_at ? String(row.verified_at) : undefined,
-          verifiedBy: row.verified_by ? String(row.verified_by) : undefined,
-          verificationNotes: row.verification_notes ? String(row.verification_notes) : undefined,
-          rejectionReason: row.rejection_reason ? String(row.rejection_reason) : undefined,
-          creditStatus: row.credit_status ? String(row.credit_status) as any : undefined,
-          assignedPriceTier: row.assigned_price_tier ? String(row.assigned_price_tier) as any : undefined,
         });
       }
     } catch (e) {
@@ -840,6 +806,7 @@ class TursoService {
           isVoided: Boolean(row.is_voided),
           voidedAt: row.voided_at ? String(row.voided_at) : undefined,
           voidReason: row.void_reason ? String(row.void_reason) : undefined,
+          paymentHistory: row.payment_history ? JSON.parse(String(row.payment_history)) : [],
         });
       }
     } catch (e) {
@@ -863,6 +830,7 @@ class TursoService {
           issuedDate: String(row.issued_date),
           dueDate: String(row.due_date),
           status: row.status as any,
+          paymentHistory: row.payment_history ? JSON.parse(String(row.payment_history)) : [],
         });
       }
     } catch (e) {
@@ -971,7 +939,7 @@ class TursoService {
           suppliers_info, highest_supplier_cost, is_composite,
           composite_components, composite_virtual_stock, is_weighable,
           price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
       `,
       args: [
         p.id,
@@ -1092,20 +1060,24 @@ class TursoService {
       sql: `
         INSERT OR REPLACE INTO customers (
           id, name, rif, email, phone, address, has_credit, credit_days,
-          credit_limit_usd, current_debt_usd, password, avatar, notification_preferences,
-          verification_status, is_first_time, registered_at, verified_at, verified_by,
-          verification_notes, rejection_reason, credit_status, assigned_price_tier, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          credit_limit_usd, current_debt_usd, password, avatar, notification_preferences, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
-        c.id, c.name, c.rif, c.email, c.phone, c.address,
-        c.hasCredit ? 1 : 0, c.creditDays || 15, c.creditLimitUSD || 0, c.currentDebtUSD || 0,
-        c.password || null, c.avatar || null,
+        c.id,
+        c.name,
+        c.rif,
+        c.email,
+        c.phone,
+        c.address,
+        c.hasCredit ? 1 : 0,
+        c.creditDays || 15,
+        c.creditLimitUSD || 0,
+        c.currentDebtUSD || 0,
+        c.password || null,
+        c.avatar || null,
         c.notificationPreferences ? JSON.stringify(c.notificationPreferences) : null,
-        c.verificationStatus || 'pending', c.isFirstTime === false ? 0 : 1,
-        c.registeredAt || null, c.verifiedAt || null, c.verifiedBy || null,
-        c.verificationNotes || null, c.rejectionReason || null,
-        c.creditStatus || null, c.assignedPriceTier || null, new Date().toISOString(),
+        new Date().toISOString(),
       ],
     });
   }
@@ -1247,8 +1219,8 @@ class TursoService {
         INSERT OR REPLACE INTO accounts_receivable (
           id, invoice_id, invoice_number, customer_id, customer_name,
           customer_phone, total_amount_usd, amount_paid_usd, balance_usd,
-          issued_date, due_date, credit_days, status, created_at, is_voided, voided_at, void_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          issued_date, due_date, credit_days, status, created_at, is_voided, voided_at, void_reason, payment_history
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         r.id,
@@ -1268,6 +1240,7 @@ class TursoService {
         r.isVoided ? 1 : 0,
         r.voidedAt || null,
         r.voidReason || null,
+        JSON.stringify(r.paymentHistory || []),
       ],
     });
   }
@@ -1280,8 +1253,8 @@ class TursoService {
         INSERT OR REPLACE INTO accounts_payable (
           id, supplier_id, supplier_name, invoice_number, description,
           total_amount_usd, amount_paid_usd, balance_usd, issued_date, due_date,
-          status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          status, created_at, payment_history
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         p.id,
@@ -1296,6 +1269,7 @@ class TursoService {
         p.dueDate,
         p.status,
         new Date().toISOString(),
+        JSON.stringify(p.paymentHistory || []),
       ],
     });
   }
@@ -1426,8 +1400,8 @@ class TursoService {
       if (operation.receivable) {
         const r = operation.receivable;
         await tx.execute({
-          sql: 'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          args: [r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null],
+          sql: 'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          args: [r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null,JSON.stringify(r.paymentHistory||[])],
         });
       }
       await tx.execute({ sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?", args:[new Date().toISOString(),operation.operationId] });
@@ -1463,7 +1437,7 @@ class TursoService {
       const inv=operation.invoice;
       await tx.execute({ sql: 'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args: [inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null] });
       if (operation.customer) { const x=operation.customer; await tx.execute({ sql:'UPDATE customers SET name=?,rif=?,email=?,phone=?,address=?,has_credit=?,credit_days=?,credit_limit_usd=?,current_debt_usd=?,password=?,avatar=?,notification_preferences=? WHERE id=?', args:[x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.password||null,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,x.id] }); }
-      if (operation.receivable) { const r=operation.receivable; await tx.execute({ sql:'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args:[r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null] }); }
+      if (operation.receivable) { const r=operation.receivable; await tx.execute({ sql:'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args:[r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null,JSON.stringify(r.paymentHistory||[])] }); }
       await tx.execute({ sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?", args:[new Date().toISOString(),operation.operationId] });
       await tx.commit(); return 'applied';
     } catch(error) { try { await tx.rollback(); } catch {} throw error; }
@@ -1555,12 +1529,6 @@ class TursoService {
     });
   }
 
-  public async deleteUser(id: string) {
-    const client = this.getClient();
-    if (!client) return;
-    await client.execute({ sql: 'DELETE FROM system_users WHERE id = ?', args: [id] });
-  }
-
   public async saveUser(u: User) {
     const client = this.getClient();
     if (!client) return;
@@ -1582,6 +1550,12 @@ class TursoService {
         u.createdAt || new Date().toISOString(),
       ],
     });
+  }
+
+  public async deleteUser(id: string) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({ sql: 'DELETE FROM system_users WHERE id = ?', args: [id] });
   }
 
   public async saveCategory(c: ProductCategory) {
