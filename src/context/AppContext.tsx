@@ -2250,6 +2250,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const updated = [newProd, ...products];
     setProducts(updated);
+    void tursoService.saveProduct(newProd).catch((error) => console.error('Error saving product to Turso:', error));
     broadcastStockUpdate(updated, {
       productIds: [newProd.id],
       source: 'adjustment',
@@ -2270,6 +2271,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // If the product editor changes stock directly, convert that change into
     // an inventory movement instead of syncing the whole stock snapshot.
+    void tursoService.saveProduct(product, { preserveStock: stockDelta !== 0 }).catch((error) => console.error('Error updating product in Turso:', error));
+
     if (stockDelta !== 0) {
       offlineSyncService.enqueueInventoryMovement({
         productId: product.id,
@@ -2285,6 +2288,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteProduct = (productId: string) => {
     const updated = products.filter((p) => p.id !== productId);
     setProducts(updated);
+    void tursoService.deleteProduct(productId).catch((error) => console.error('Error deleting product from Turso:', error));
     broadcastStockUpdate(updated, {
       productIds: [productId],
       source: 'adjustment',
@@ -3001,13 +3005,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateSupplierCredit = (supplierId: string, creditDays: number, creditLimitUSD?: number, notes?: string) => {
-    setSuppliers((prev) => prev.map((s) => s.id === supplierId ? { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD } : s));
+    setSuppliers((prev) => prev.map((s) => {
+      if (s.id !== supplierId) return s;
+      const updated = { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD };
+      void tursoService.saveSupplier(updated).catch((error) => console.error('Error saving supplier credit to Turso:', error));
+      return updated;
+    }));
     triggerPushNotification({ title: 'Condiciones de Proveedor Actualizadas', message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`, type: 'credit_alert', badge: 'Condiciones CxP' });
   };
 
   const addPayableInvoice = (payable: Omit<PayableItem, 'id'>) => {
     const newPayable: PayableItem = { ...payable, id: `pay-${Date.now()}`, paymentHistory: payable.paymentHistory || [] };
     setPayables((prev) => [newPayable, ...prev]);
+    void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving payable to Turso:', error));
   };
 
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
