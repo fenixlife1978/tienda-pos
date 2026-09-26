@@ -1,4 +1,4 @@
-import { createClient, Client } from '@libsql/client/web';
+type TursoClient = any;
 import {
   BcvHistoryEntry,
   Customer,
@@ -54,89 +54,54 @@ export interface TursoSyncState {
 }
 
 class TursoService {
-  private client: Client | null = null;
+  private client: TursoClient | null = null;
   private currentConfig: TursoConfig | null = null;
 
   constructor() {
-    this.purgeLocalCredentials();
     this.initFromEnv();
   }
 
-  private purgeLocalCredentials() {
-    try {
-      localStorage.removeItem('TURSO_DATABASE_URL');
-      localStorage.removeItem('TURSO_AUTH_TOKEN');
-    } catch {
-      // Ignorar si localStorage no está disponible
-    }
+  private async request(operation: string, payload: Record<string, unknown> = {}) {
+    const response = await fetch('/api/turso', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ operation, ...payload }),
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(data.error || 'Error comunicando con Turso'));
+    return data;
   }
 
   public getStoredConfig(): TursoConfig {
-    const envUrl =
-      (import.meta as any).env?.VITE_TURSO_DATABASE_URL ||
-      (import.meta as any).env?.TURSO_DATABASE_URL ||
-      '';
-    const envToken =
-      (import.meta as any).env?.VITE_TURSO_AUTH_TOKEN ||
-      (import.meta as any).env?.TURSO_AUTH_TOKEN ||
-      '';
-
-    return {
-      url: envUrl ? envUrl.trim() : '',
-      authToken: envToken ? envToken.trim() : '',
-    };
+    return { url: 'server-side', authToken: 'server-side' };
   }
 
   private initFromEnv() {
-    const config = this.getStoredConfig();
-    if (config.url && config.authToken) {
-      this.initClient(config);
-    }
+    this.initClient({ url: 'server-side', authToken: 'server-side' });
   }
 
-  private normalizeUrl(url: string): string {
-    let clean = url.trim();
-    if (clean.startsWith('libsql://')) {
-      clean = clean.replace('libsql://', 'https://');
-    }
-    return clean;
-  }
-
-  public initClient(config: TursoConfig): Client | null {
-    if (!config.url || !config.authToken) {
-      this.client = null;
-      this.currentConfig = null;
-      return null;
-    }
-
-    try {
-      const httpUrl = this.normalizeUrl(config.url);
-      this.client = createClient({
-        url: httpUrl,
-        authToken: config.authToken?.trim() || undefined,
-      });
-      this.currentConfig = config;
-      return this.client;
-    } catch (err) {
-      console.error('Error initializing Turso client:', err);
-      this.client = null;
-      return null;
-    }
-  }
-
-  public getClient(): Client | null {
-    if (!this.client) {
-      const config = this.getStoredConfig();
-      if (config.url) {
-        return this.initClient(config);
-      }
-    }
+  public initClient(config: TursoConfig): TursoClient | null {
+    this.client = {
+      execute: async (statement: any) => this.request('execute', {
+        sql: typeof statement === 'string' ? statement : statement.sql,
+        args: typeof statement === 'string' ? [] : (statement.args || []),
+      }),
+      transaction: async () => {
+        throw new Error('Las transacciones críticas deben ejecutarse mediante una operación server-side.');
+      },
+    };
+    this.currentConfig = config;
     return this.client;
   }
 
+  public getClient(): TursoClient | null {
+    return this.client || this.initClient({ url: 'server-side', authToken: 'server-side' });
+  }
+
   public isConfigured(): boolean {
-    const config = this.getStoredConfig();
-    return Boolean(config.url && config.url.trim().length > 0 && config.authToken && config.authToken.trim().length > 0);
+    return true;
   }
 
   /**
