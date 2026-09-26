@@ -594,33 +594,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
   }, [suppliers]);
 
-  // Once the initial local snapshot has been persisted, subsequent business
-  // state changes are also marked dirty for cloud replay. This keeps the
-  // existing UI untouched while making the ERP resilient to network outages.
-  // Durante el bootstrap inicial Turso es la fuente de verdad. No debemos
-  // generar snapshots desde localStorage antes de haber descargado la nube.
-  const offlineSyncReadyRef = useRef(false);
-
-  const enqueueCloudSnapshot = (entity: Parameters<typeof offlineSyncService.enqueueSnapshot>[0], data: unknown) => {
-    if (!offlineSyncReadyRef.current || !tursoService.isConfigured()) return;
-    offlineSyncService.enqueueSnapshot(entity, data);
-    if (navigator.onLine) {
-      offlineSyncService.flush().catch((error) => console.warn('Error guardando cambios en Turso:', error));
-    }
-  };
-
-  useEffect(() => { enqueueCloudSnapshot('settings', settings); }, [settings]);
-  useEffect(() => { enqueueCloudSnapshot('products', products); }, [products]);
-  useEffect(() => { enqueueCloudSnapshot('customers', customers); }, [customers]);
-  useEffect(() => { enqueueCloudSnapshot('suppliers', suppliers); }, [suppliers]);
-  useEffect(() => { enqueueCloudSnapshot('orders', orders); }, [orders]);
-  useEffect(() => { enqueueCloudSnapshot('invoices', invoices); }, [invoices]);
-  useEffect(() => { enqueueCloudSnapshot('receivables', receivables); }, [receivables]);
-  useEffect(() => { enqueueCloudSnapshot('payables', payables); }, [payables]);
-  useEffect(() => { enqueueCloudSnapshot('purchaseEntries', purchaseEntries); }, [purchaseEntries]);
-  useEffect(() => { enqueueCloudSnapshot('users', users); }, [users]);
-  useEffect(() => { enqueueCloudSnapshot('categories', categories); }, [categories]);
-  useEffect(() => { enqueueCloudSnapshot('units', units); }, [units]);
+  // Turso es la fuente de verdad. No usamos snapshots completos de estado para sincronizar
+  // entre dispositivos: una instantánea completa de un terminal podría sobrescribir
+  // cambios más recientes hechos desde otro terminal. Las operaciones de negocio
+  // y el maestro se persisten directamente en Turso; la cola offline queda reservada
+  // para operaciones transaccionales POS (ventas/reversos/movimientos de inventario).
 
   // --- Real-time multi-client / cross-tab stock synchronization ---
   const [lastStockUpdateEvent, setLastStockUpdateEvent] = useState<{
