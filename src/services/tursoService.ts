@@ -200,6 +200,19 @@ class TursoService {
           password TEXT,
           avatar TEXT,
           notification_preferences TEXT,
+          verification_status TEXT DEFAULT 'pending',
+          is_first_time INTEGER DEFAULT 1,
+          registered_at TEXT,
+          business_type TEXT,
+          trade_name TEXT,
+          contact_person TEXT,
+          credit_status TEXT DEFAULT 'none',
+          credit_requested_limit_usd REAL DEFAULT 0,
+          credit_requested_days INTEGER DEFAULT 0,
+          credit_requested_at TEXT,
+          assigned_price_tier TEXT,
+          verification_notes TEXT,
+          extra_data TEXT,
           created_at TEXT
         );
       `);
@@ -323,7 +336,21 @@ class TursoService {
         "ALTER TABLE invoices ADD COLUMN is_returned INTEGER DEFAULT 0",
         "ALTER TABLE invoices ADD COLUMN returned_at TEXT",
         "ALTER TABLE invoices ADD COLUMN returned_by TEXT",
-        "ALTER TABLE invoices ADD COLUMN return_reason TEXT"
+        "ALTER TABLE invoices ADD COLUMN return_reason TEXT",
+
+        "ALTER TABLE customers ADD COLUMN verification_status TEXT DEFAULT 'pending'",
+        "ALTER TABLE customers ADD COLUMN is_first_time INTEGER DEFAULT 1",
+        "ALTER TABLE customers ADD COLUMN registered_at TEXT",
+        "ALTER TABLE customers ADD COLUMN business_type TEXT",
+        "ALTER TABLE customers ADD COLUMN trade_name TEXT",
+        "ALTER TABLE customers ADD COLUMN contact_person TEXT",
+        "ALTER TABLE customers ADD COLUMN credit_status TEXT DEFAULT 'none'",
+        "ALTER TABLE customers ADD COLUMN credit_requested_limit_usd REAL DEFAULT 0",
+        "ALTER TABLE customers ADD COLUMN credit_requested_days INTEGER DEFAULT 0",
+        "ALTER TABLE customers ADD COLUMN credit_requested_at TEXT",
+        "ALTER TABLE customers ADD COLUMN assigned_price_tier TEXT",
+        "ALTER TABLE customers ADD COLUMN verification_notes TEXT",
+        "ALTER TABLE customers ADD COLUMN extra_data TEXT"
       ]) {
         try { await client.execute(sql); } catch {}
       }
@@ -748,8 +775,9 @@ class TursoService {
     // 5. Customers
     const customers: Customer[] = [];
     try {
-      const res = await client.execute('SELECT * FROM customers ORDER BY name ASC');
+      const res = await client.execute('SELECT * FROM customers ORDER BY created_at DESC');
       for (const row of res.rows) {
+        const extra = row.extra_data ? JSON.parse(String(row.extra_data)) : {};
         customers.push({
           id: String(row.id),
           name: String(row.name),
@@ -764,6 +792,23 @@ class TursoService {
           password: row.password ? String(row.password) : undefined,
           avatar: row.avatar ? String(row.avatar) : undefined,
           notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
+          verificationStatus: (row.verification_status ? String(row.verification_status) : 'pending') as any,
+          isFirstTime: row.is_first_time !== undefined && row.is_first_time !== null ? Boolean(row.is_first_time) : true,
+          registeredAt: String(row.registered_at || row.created_at || new Date().toISOString()),
+          businessType: row.business_type ? String(row.business_type) : undefined,
+          tradeName: row.trade_name ? String(row.trade_name) : undefined,
+          contactPerson: row.contact_person ? String(row.contact_person) : undefined,
+          creditStatus: (row.credit_status ? String(row.credit_status) : 'none') as any,
+          creditRequestedLimitUSD: row.credit_requested_limit_usd ? Number(row.credit_requested_limit_usd) : 0,
+          creditRequestedDays: row.credit_requested_days ? Number(row.credit_requested_days) : 0,
+          creditRequestedAt: row.credit_requested_at ? String(row.credit_requested_at) : undefined,
+          assignedPriceTier: row.assigned_price_tier ? String(row.assigned_price_tier) as any : 'mayorista',
+          verificationNotes: row.verification_notes ? String(row.verification_notes) : undefined,
+          attachedDocRif: extra.attachedDocRif,
+          attachedCommercialRef: extra.attachedCommercialRef,
+          rejectionReason: extra.rejectionReason,
+          verifiedAt: extra.verifiedAt,
+          verifiedBy: extra.verifiedBy,
         });
       }
     } catch (e) {
@@ -1205,8 +1250,11 @@ class TursoService {
       sql: `
         INSERT OR REPLACE INTO customers (
           id, name, rif, email, phone, address, has_credit, credit_days,
-          credit_limit_usd, current_debt_usd, password, avatar, notification_preferences, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          credit_limit_usd, current_debt_usd, password, avatar, notification_preferences,
+          verification_status, is_first_time, registered_at, business_type, trade_name,
+          contact_person, credit_status, credit_requested_limit_usd, credit_requested_days,
+          credit_requested_at, assigned_price_tier, verification_notes, extra_data, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         c.id,
@@ -1222,7 +1270,26 @@ class TursoService {
         c.password || null,
         c.avatar || null,
         c.notificationPreferences ? JSON.stringify(c.notificationPreferences) : null,
-        new Date().toISOString(),
+        c.verificationStatus || 'pending',
+        c.isFirstTime !== false ? 1 : 0,
+        c.registeredAt || new Date().toISOString(),
+        c.businessType || null,
+        c.tradeName || null,
+        c.contactPerson || null,
+        c.creditStatus || 'none',
+        c.creditRequestedLimitUSD || 0,
+        c.creditRequestedDays || 0,
+        c.creditRequestedAt || null,
+        c.assignedPriceTier || 'mayorista',
+        c.verificationNotes || null,
+        JSON.stringify({
+          attachedDocRif: c.attachedDocRif,
+          attachedCommercialRef: c.attachedCommercialRef,
+          rejectionReason: c.rejectionReason,
+          verifiedAt: c.verifiedAt,
+          verifiedBy: c.verifiedBy,
+        }),
+        c.registeredAt || new Date().toISOString(),
       ],
     });
   }
