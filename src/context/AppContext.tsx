@@ -696,6 +696,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // --- Turso Cloud DB State & Sync Engine ---
+  const cloudChangeTokenRef = useRef<number>(0);
+
   const [tursoState, setTursoState] = useState<TursoSyncState>({
     isConnected: false,
     isSyncing: false,
@@ -748,7 +750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const syncWithTurso = async () => {
+  const syncWithTurso = async (forceReload = false) => {
     if (!tursoService.isConfigured()) return;
     setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
     try {
@@ -767,6 +769,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }));
         return;
       }
+      // La señal de cambio es barata: primero consultamos únicamente el
+      // token de actividad. Si no cambió, no descargamos datos ni tocamos el
+      // módulo visible. Esto evita refrescos innecesarios en cada navegador.
+      const changeState = await tursoService.hasCloudChangesSince(cloudChangeTokenRef.current);
+      if (!forceReload && !changeState.changed) {
+        setTursoState((prev) => ({
+          ...prev,
+          isConnected: true,
+          isSyncing: false,
+          statusText: 'Sin cambios nuevos en Turso',
+          errorMessage: null,
+        }));
+        return;
+      }
+
       const cloudData = await tursoService.loadAllData();
 
       // Turso es la fuente de verdad cuando está configurado. Incluso una
@@ -789,6 +806,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         setSettings(EMPTY_SYSTEM_SETTINGS);
       }
+
+      // Capturamos el token DESPUÉS de leer el snapshot. Si otra operación
+      // ocurre durante la lectura, el siguiente ciclo la detectará.
+      cloudChangeTokenRef.current = await tursoService.getCloudChangeToken();
 
       setTursoState({
         isConnected: true,
@@ -821,7 +842,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (tursoService.isConfigured()) {
         offlineSyncService.clearPendingSnapshots();
         await bootstrapTursoSchema();
-        await syncWithTurso();
+        await syncWithTurso(true);
         offlineSyncReadyRef.current = true;
       } else {
         offlineSyncReadyRef.current = true;
@@ -864,9 +885,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tursoService.isConfigured()) return;
     const intervalId = window.setInterval(() => {
       if (navigator.onLine && offlineSyncReadyRef.current && document.visibilityState !== 'hidden') {
-        syncWithTurso().catch((error) => console.warn('Periodic Turso sync failed:', error));
+        syncWithTurso().catch((error) => console.warn('Periodic Turso change check failed:', error));
       }
-    }, 3000);
+    }, 2000);
     return () => window.clearInterval(intervalId);
   }, []);
 
