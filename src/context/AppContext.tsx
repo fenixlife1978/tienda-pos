@@ -800,6 +800,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPayables(cloudData.payables);
       setPurchaseEntries(cloudData.purchaseEntries);
       setUsers(cloudData.users);
+      if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
+        setNotifications((prev) => {
+          const prevKey = JSON.stringify(prev);
+          const newKey = JSON.stringify(cloudData.notifications);
+          return prevKey === newKey ? prev : cloudData.notifications;
+        });
+      }
 
       if (cloudData.settings) {
         setSettings(cloudData.settings);
@@ -877,14 +884,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sincronización cloud frecuente mientras la aplicación está abierta y conectada.
   // Turso es la fuente de verdad para todos los dispositivos.
-  // Además del token general, los USUARIOS se consultan directamente cada 2 segundos.
-  // Esto evita que un alta de administrador dependa de señales/triggers intermedios:
-  // cada navegador obtiene la lista autoritativa de system_users desde Turso.
+  // Se consulta el token de actividad y system_users cada 1.5 segundos continuamente,
+  // permitiendo reflejar de inmediato altas de usuarios, pedidos o notificaciones en todos los equipos.
   useEffect(() => {
     if (!tursoService.isConfigured()) return;
 
     const intervalId = window.setInterval(() => {
-      if (!navigator.onLine || !offlineSyncReadyRef.current || document.visibilityState === 'hidden') {
+      if (!navigator.onLine || !offlineSyncReadyRef.current) {
         return;
       }
 
@@ -899,7 +905,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
         })
         .catch((error) => console.warn('Periodic Turso users sync failed:', error));
-    }, 2000);
+    }, 1500);
 
     return () => window.clearInterval(intervalId);
   }, []);
@@ -951,6 +957,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setNotifications((prev) => [newNotif, ...prev]);
+    void tursoService.saveNotification(newNotif).catch((e) => console.warn('Error saving notification to Turso:', e));
 
     // Check sound preference
     const soundAllowed =
@@ -1049,15 +1056,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCustomers((prev) => [newCustomer, ...prev]);
     // Registro de cliente: persistencia inmediata en Turso, sin esperar al siguiente ciclo de sincronización.
     if (tursoService.isConfigured() && navigator.onLine) {
-      tursoService.saveCustomer(newCustomer).catch((error) => console.warn('No se pudo registrar el cliente en Turso:', error));
+      tursoService.saveCustomer(newCustomer)
+        .then(() => syncWithTurso(true))
+        .catch((error) => console.warn('No se pudo registrar el cliente en Turso:', error));
     }
     setCurrentCustomer(newCustomer);
     localStorage.setItem('omni_active_customer_id', newCustomer.id);
     setIsAdminActive(false);
     triggerPushNotification({
-      title: `¡Bienvenido a nuestro Portal!`,
-      message: `Hola ${newCustomer.name}, tu registro ha sido recibido. Tu cuenta está en proceso de verificación por la gerencia.`,
-      type: 'promotion',
+      title: `Nuevo Cliente Registrado`,
+      message: `El cliente ${newCustomer.name} (${newCustomer.rif}) se ha registrado desde el portal. Verificación pendiente.`,
+      type: 'credit_alert',
+      targetRole: 'seller',
       badge: 'Nuevo Registro',
     });
     return newCustomer;
@@ -3117,7 +3127,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
     const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
     setUsers((prev) => [...prev, newUser]);
-    void tursoService.saveUser(newUser).catch((error) => console.error('Error saving user to Turso:', error));
+    tursoService.saveUser(newUser)
+      .then(() => {
+        syncWithTurso(true).catch(() => {});
+      })
+      .catch((error) => console.error('Error saving user to Turso:', error));
     triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
   };
 
