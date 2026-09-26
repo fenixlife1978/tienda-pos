@@ -50,7 +50,6 @@ export default async function handler(req: any, res: any) {
           role: row.role,
           avatar: row.avatar ? String(row.avatar) : undefined,
           active: Boolean(row.active),
-          password: row.password ? String(row.password) : undefined,
           isInitialGeneric: Boolean(row.is_initial_generic),
           createdAt: String(row.created_at || new Date().toISOString()),
         }
