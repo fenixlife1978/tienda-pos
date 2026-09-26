@@ -2575,7 +2575,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cashSessionId,
         receiptNumber,
       };
-      return { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+      const updatedRec = { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+      void tursoService.saveReceivable(updatedRec).catch((error) => console.error('Error saving CxC payment to Turso:', error));
+      return updatedRec;
     }));
 
     if (customerId) {
@@ -2707,6 +2709,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     setReceivables(updatedReceivables);
+    for (const rec of updatedReceivables) {
+      if (allocations.has(rec.id)) void tursoService.saveReceivable(rec).catch((error) => console.error('Error saving global CxC payment to Turso:', error));
+    }
 
     // Solo descuenta lo realmente aplicado. Si el pago supera toda la deuda,
     // el sobrante queda sin aplicar y no reduce la deuda por debajo de cero.
@@ -2828,13 +2833,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           balanceAfterUSD: newBalance,
           isFullSettlement: isSettled,
         };
-        return {
+        const updatedPay = {
           ...pay,
           amountPaidUSD: newPaid,
           balanceUSD: newBalance,
           status: isSettled ? 'pagado' : pay.status,
           paymentHistory: [record, ...(pay.paymentHistory || [])],
         };
+        void tursoService.savePayable(updatedPay).catch((error) => console.error('Error saving CxP payment to Turso:', error));
+        return updatedPay;
       })
     );
 
@@ -2977,6 +2984,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     setPayables(updatedPayables);
+    for (const pay of updatedPayables) {
+      if (allocations.has(pay.id)) void tursoService.savePayable(pay).catch((error) => console.error('Error saving global CxP payment to Turso:', error));
+    }
 
     const supObj = suppliers.find((s) => s.id === supplierId);
     const supName = supObj ? supObj.name : 'Proveedor';
