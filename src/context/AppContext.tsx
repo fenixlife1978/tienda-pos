@@ -594,33 +594,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
   }, [suppliers]);
 
-  // Once the initial local snapshot has been persisted, subsequent business
-  // state changes are also marked dirty for cloud replay. This keeps the
-  // existing UI untouched while making the ERP resilient to network outages.
-  // Durante el bootstrap inicial Turso es la fuente de verdad. No debemos
-  // generar snapshots desde localStorage antes de haber descargado la nube.
-  const offlineSyncReadyRef = useRef(false);
-
-  const enqueueCloudSnapshot = (entity: Parameters<typeof offlineSyncService.enqueueSnapshot>[0], data: unknown) => {
-    if (!offlineSyncReadyRef.current || !tursoService.isConfigured()) return;
-    offlineSyncService.enqueueSnapshot(entity, data);
-    if (navigator.onLine) {
-      offlineSyncService.flush().catch((error) => console.warn('Error guardando cambios en Turso:', error));
-    }
-  };
-
-  useEffect(() => { enqueueCloudSnapshot('settings', settings); }, [settings]);
-  useEffect(() => { enqueueCloudSnapshot('products', products); }, [products]);
-  useEffect(() => { enqueueCloudSnapshot('customers', customers); }, [customers]);
-  useEffect(() => { enqueueCloudSnapshot('suppliers', suppliers); }, [suppliers]);
-  useEffect(() => { enqueueCloudSnapshot('orders', orders); }, [orders]);
-  useEffect(() => { enqueueCloudSnapshot('invoices', invoices); }, [invoices]);
-  useEffect(() => { enqueueCloudSnapshot('receivables', receivables); }, [receivables]);
-  useEffect(() => { enqueueCloudSnapshot('payables', payables); }, [payables]);
-  useEffect(() => { enqueueCloudSnapshot('purchaseEntries', purchaseEntries); }, [purchaseEntries]);
-  useEffect(() => { enqueueCloudSnapshot('users', users); }, [users]);
-  useEffect(() => { enqueueCloudSnapshot('categories', categories); }, [categories]);
-  useEffect(() => { enqueueCloudSnapshot('units', units); }, [units]);
+  // Turso es la fuente de verdad. No usamos snapshots completos de estado para sincronizar
+  // entre dispositivos: una instantánea completa de un terminal podría sobrescribir
+  // cambios más recientes hechos desde otro terminal. Las operaciones de negocio
+  // y el maestro se persisten directamente en Turso; la cola offline queda reservada
+  // para operaciones transaccionales POS (ventas/reversos/movimientos de inventario).
 
   // --- Real-time multi-client / cross-tab stock synchronization ---
   const [lastStockUpdateEvent, setLastStockUpdateEvent] = useState<{
@@ -889,6 +867,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.clearInterval(intervalId);
   }, []);
 
+  const productionTursoMisconfigured = import.meta.env.PROD && !tursoService.isConfigured();
+
   // Active push notification toasts floating on screen
   const [activePushToasts, setActivePushToasts] = useState<AppNotification[]>([]);
 
@@ -1070,6 +1050,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cat-${Date.now()}`,
     };
     setCategories((prev) => [...prev, newCat]);
+    void tursoService.saveCategory(newCat).catch((error) => console.error('Error saving category to Turso:', error));
     pushNotification('Categoría Creada', `Categoría "${newCat.name}" agregada exitosamente.`, 'promotion');
   };
 
@@ -1089,6 +1070,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+    void tursoService.deleteCategory(categoryId).catch((error) => console.error('Error deleting category from Turso:', error));
     pushNotification('Categoría Eliminada', `Categoría "${target.name}" eliminada del sistema.`, 'inventory_alert');
     return { success: true, message: `Categoría "${target.name}" eliminada correctamente.` };
   };
@@ -1096,6 +1078,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateCategory = (cat: ProductCategory) => {
     const old = categories.find((c) => c.id === cat.id);
     setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+    void tursoService.saveCategory(cat).catch((error) => console.error('Error updating category in Turso:', error));
     if (old && old.name !== cat.name) {
       setProducts((prev) =>
         prev.map((p) =>
@@ -1113,6 +1096,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `unit-${Date.now()}`,
     };
     setUnits((prev) => [...prev, newUnit]);
+    void tursoService.saveUnit(newUnit).catch((error) => console.error('Error saving unit to Turso:', error));
     pushNotification('Unidad Creada', `Unidad de medida "${newUnit.name} (${newUnit.abbreviation})" registrada.`, 'promotion');
   };
 
@@ -1134,12 +1118,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setUnits((prev) => prev.filter((u) => u.id !== unitId));
+    void tursoService.deleteUnit(unitId).catch((error) => console.error('Error deleting unit from Turso:', error));
     pushNotification('Unidad Eliminada', `Unidad "${target.name}" eliminada del sistema.`, 'inventory_alert');
     return { success: true, message: `Unidad "${target.name}" eliminada correctamente.` };
   };
 
   const updateUnit = (unit: ProductUnit) => {
     setUnits((prev) => prev.map((u) => (u.id === unit.id ? unit : u)));
+    void tursoService.saveUnit(unit).catch((error) => console.error('Error updating unit in Turso:', error));
   };
 
   // Cart operations
@@ -1607,7 +1593,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       : undefined;
     const syncedCustomer = isCredit
-      ? customers.find((c) => c.id === orderInput.customerId)
+      ? (() => {
+          const baseCustomer = customers.find((c) => c.id === orderInput.customerId);
+          return baseCustomer ? { ...baseCustomer, currentDebtUSD: baseCustomer.currentDebtUSD + totalUSD } : undefined;
+        })()
       : undefined;
 
     offlineSyncService.enqueueSale({
@@ -1688,6 +1677,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((o) => {
         if (o.id === orderId) {
           const updated = { ...o, orderStatus: status };
+          void tursoService.saveOrder(updated).catch((error) => console.error('Error saving order status to Turso:', error));
+          const relatedInvoice = invoices.find((inv) => inv.orderId === o.id);
+          if (relatedInvoice) {
+            void tursoService.saveInvoice(relatedInvoice).catch((error) => console.error('Error saving related invoice to Turso:', error));
+          }
           triggerPushNotification({
             title: `${statusTitles[status]} (${o.orderNumber})`,
             message: statusMessages[status],
@@ -1703,12 +1697,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updatePaymentStatus = (orderId: string, paymentStatus: PaymentStatus) => {
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, paymentStatus } : o))
-    );
-    setInvoices((prev) =>
-      prev.map((inv) => (inv.orderId === orderId ? { ...inv, paymentStatus } : inv))
-    );
+    const order = orders.find((o) => o.id === orderId);
+    const invoice = invoices.find((inv) => inv.orderId === orderId);
+    if (order) {
+      const updatedOrder = { ...order, paymentStatus };
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
+      void tursoService.saveOrder(updatedOrder).catch((error) => console.error('Error saving payment status to Turso:', error));
+    }
+    if (invoice) {
+      const updatedInvoice = { ...invoice, paymentStatus };
+      setInvoices((prev) => prev.map((inv) => (inv.orderId === orderId ? updatedInvoice : inv)));
+      void tursoService.saveInvoice(updatedInvoice).catch((error) => console.error('Error saving invoice payment status to Turso:', error));
+    }
   };
 
 
@@ -2242,6 +2242,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const updated = [newProd, ...products];
     setProducts(updated);
+    void tursoService.saveProduct(newProd).catch((error) => console.error('Error saving product to Turso:', error));
     broadcastStockUpdate(updated, {
       productIds: [newProd.id],
       source: 'adjustment',
@@ -2262,6 +2263,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // If the product editor changes stock directly, convert that change into
     // an inventory movement instead of syncing the whole stock snapshot.
+    void tursoService.saveProduct(product, { preserveStock: stockDelta !== 0 }).catch((error) => console.error('Error updating product in Turso:', error));
+
     if (stockDelta !== 0) {
       offlineSyncService.enqueueInventoryMovement({
         productId: product.id,
@@ -2277,6 +2280,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteProduct = (productId: string) => {
     const updated = products.filter((p) => p.id !== productId);
     setProducts(updated);
+    void tursoService.deleteProduct(productId).catch((error) => console.error('Error deleting product from Turso:', error));
     broadcastStockUpdate(updated, {
       productIds: [productId],
       source: 'adjustment',
@@ -2317,10 +2321,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cust-${Date.now()}`,
     };
     setCustomers((prev) => [newCust, ...prev]);
+    void tursoService.saveCustomer(newCust).catch((error) => console.error('Error saving customer to Turso:', error));
   };
 
   const updateCustomer = (customer: Customer) => {
     setCustomers((prev) => prev.map((c) => (c.id === customer.id ? customer : c)));
+    void tursoService.saveCustomer(customer).catch((error) => console.error('Error updating customer in Turso:', error));
   };
 
   const updateCustomerCredit = (
@@ -2342,6 +2348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving customer credit to Turso:', error));
           return updated;
         }
         return c;
@@ -2372,13 +2379,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving approved customer credit to Turso:', error));
           return updated;
         }
         return c;
       })
     );
     triggerPushNotification({
-      title: '🎉 ¡Crédito Comercial Aprobado!',
+      title: '⚠️ Solicitud de Crédito Revisada',
       message: `Línea de crédito activada: $${approvedLimitUSD.toFixed(2)} por ${approvedCreditDays} días de plazo.`,
       type: 'credit_alert',
       targetCustomerId: customerId,
@@ -2440,29 +2448,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving customer verification to Turso:', error));
           return updated;
         }
         return c;
       })
     );
-
-    const customerAfterApproval = customers.find((c) => c.id === customerId);
-    if (tursoService.isConfigured() && navigator.onLine && customerAfterApproval) {
-      const updatedCustomer = {
-        ...customerAfterApproval,
-        verificationStatus: 'verified' as const,
-        isFirstTime: false,
-        hasCredit: options.hasCredit,
-        creditDays: options.hasCredit ? options.creditDays : 0,
-        creditLimitUSD: options.hasCredit ? options.creditLimitUSD : 0,
-        creditStatus: options.hasCredit ? 'approved' as const : 'none' as const,
-        verifiedAt: new Date().toISOString(),
-        verifiedBy: currentUser.name,
-        assignedPriceTier: options.assignedPriceTier || 'mayorista',
-        verificationNotes: options.notes || customerAfterApproval.verificationNotes,
-      };
-      tursoService.saveCustomer(updatedCustomer).catch((error) => console.warn('No se pudo guardar la aprobación en Turso:', error));
-    }
 
     const creditMsg = options.hasCredit
       ? ` y se le asignó línea de crédito de $${options.creditLimitUSD.toFixed(2)} (${options.creditDays} días).`
@@ -2493,25 +2484,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving rejected customer verification to Turso:', error));
           return updated;
         }
         return c;
       })
     );
-
-    const customerAfterRejection = customers.find((c) => c.id === customerId);
-    if (tursoService.isConfigured() && navigator.onLine && customerAfterRejection) {
-      const updatedCustomer = {
-        ...customerAfterRejection,
-        verificationStatus: 'rejected' as const,
-        hasCredit: false,
-        creditStatus: 'rejected' as const,
-        verifiedAt: new Date().toISOString(),
-        verifiedBy: currentUser.name,
-        rejectionReason: reason,
-      };
-      tursoService.saveCustomer(updatedCustomer).catch((error) => console.warn('No se pudo guardar el rechazo en Turso:', error));
-    }
 
     triggerPushNotification({
       title: '❌ Solicitud de Registro Rechazada',
@@ -2593,7 +2571,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cashSessionId,
         receiptNumber,
       };
-      return { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+      const updatedRec = { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+      void tursoService.saveReceivable(updatedRec).catch((error) => console.error('Error saving CxC payment to Turso:', error));
+      return updatedRec;
     }));
 
     if (customerId) {
@@ -2725,6 +2705,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     setReceivables(updatedReceivables);
+    for (const rec of updatedReceivables) {
+      if (allocations.has(rec.id)) void tursoService.saveReceivable(rec).catch((error) => console.error('Error saving global CxC payment to Turso:', error));
+    }
 
     // Solo descuenta lo realmente aplicado. Si el pago supera toda la deuda,
     // el sobrante queda sin aplicar y no reduce la deuda por debajo de cero.
@@ -2846,13 +2829,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           balanceAfterUSD: newBalance,
           isFullSettlement: isSettled,
         };
-        return {
+        const updatedPay = {
           ...pay,
           amountPaidUSD: newPaid,
           balanceUSD: newBalance,
           status: isSettled ? 'pagado' : pay.status,
           paymentHistory: [record, ...(pay.paymentHistory || [])],
         };
+        void tursoService.savePayable(updatedPay).catch((error) => console.error('Error saving CxP payment to Turso:', error));
+        return updatedPay;
       })
     );
 
@@ -2995,6 +2980,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     setPayables(updatedPayables);
+    for (const pay of updatedPayables) {
+      if (allocations.has(pay.id)) void tursoService.savePayable(pay).catch((error) => console.error('Error saving global CxP payment to Turso:', error));
+    }
 
     const supObj = suppliers.find((s) => s.id === supplierId);
     const supName = supObj ? supObj.name : 'Proveedor';
@@ -3023,18 +3011,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateSupplierCredit = (supplierId: string, creditDays: number, creditLimitUSD?: number, notes?: string) => {
-    setSuppliers((prev) => prev.map((s) => s.id === supplierId ? { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD } : s));
+    setSuppliers((prev) => prev.map((s) => {
+      if (s.id !== supplierId) return s;
+      const updated = { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD };
+      void tursoService.saveSupplier(updated).catch((error) => console.error('Error saving supplier credit to Turso:', error));
+      return updated;
+    }));
     triggerPushNotification({ title: 'Condiciones de Proveedor Actualizadas', message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`, type: 'credit_alert', badge: 'Condiciones CxP' });
   };
 
   const addPayableInvoice = (payable: Omit<PayableItem, 'id'>) => {
     const newPayable: PayableItem = { ...payable, id: `pay-${Date.now()}`, paymentHistory: payable.paymentHistory || [] };
     setPayables((prev) => [newPayable, ...prev]);
+    void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving payable to Turso:', error));
   };
 
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
     const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}` };
     setSuppliers((prev) => [newSup, ...prev]);
+    void tursoService.saveSupplier(newSup).catch((error) => console.error('Error saving supplier to Turso:', error));
   };
 
   const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
@@ -3069,29 +3064,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         paymentHistory: initialHistory,
       };
       setPayables((prev) => [newPayable, ...prev]);
+      void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving purchase payable to Turso:', error));
     }
     setPurchaseEntries((prev) => [newEntry, ...prev]);
+    void tursoService.savePurchaseEntry(newEntry).catch((error) => console.error('Error saving purchase entry to Turso:', error));
     triggerPushNotification({ title: `Entrada ${entryNumber} Registrada con Éxito`, message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`, type: 'inventory_alert', badge: 'Entrada por Compra', sound: true });
     return { success: true, purchaseEntry: newEntry };
   };
 
-  const updateSupplier = (supplier: Supplier) => setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
+  const updateSupplier = (supplier: Supplier) => {
+    setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
+    void tursoService.saveSupplier(supplier).catch((error) => console.error('Error updating supplier in Turso:', error));
+  };
 
   const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
     const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
     setUsers((prev) => [...prev, newUser]);
-    if (tursoService.isConfigured() && navigator.onLine) {
-      tursoService.saveUser(newUser).catch((error) => console.warn('No se pudo guardar el usuario en Turso:', error));
-    }
+    void tursoService.saveUser(newUser).catch((error) => console.error('Error saving user to Turso:', error));
     triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
   };
 
   const updateUser = (user: User) => {
     setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
-    if (tursoService.isConfigured() && navigator.onLine) {
-      tursoService.saveUser(user).catch((error) => console.warn('No se pudo actualizar el usuario en Turso:', error));
-    }
     if (currentUser.id === user.id) setCurrentUser(user);
+    void tursoService.saveUser(user).catch((error) => console.error('Error updating user in Turso:', error));
   };
 
   const deleteUser = (userId: string): { success: boolean; message: string } => {
@@ -3106,9 +3102,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (remainingAdmin) setCurrentUser(remainingAdmin);
     }
     setUsers((prev) => prev.filter((u) => u.id !== userId));
-    if (tursoService.isConfigured() && navigator.onLine) {
-      tursoService.deleteUser(userId).catch((error) => console.warn('No se pudo eliminar el usuario de Turso:', error));
-    }
+    void tursoService.deleteUser(userId).catch((error) => console.error('Error deleting user from Turso:', error));
     triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
     return { success: true, message: 'Usuario eliminado exitosamente' };
   };
@@ -3146,11 +3140,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
 
-  const updateSettings = (newSettings: Partial<SystemSettings>) => setSettings((prev) => ({ ...prev, ...newSettings }));
+  const updateSettings = (newSettings: Partial<SystemSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...newSettings };
+      void tursoService.saveSettings(next).catch((error) => console.error('Error saving settings to Turso:', error));
+      return next;
+    });
+  };
   const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
   const clearAllNotifications = () => setNotifications([]);
 
-  return (
+  return productionTursoMisconfigured ? (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6 text-center">
+        <div className="text-4xl mb-3">🔴</div>
+        <h1 className="text-lg font-extrabold text-slate-900">Base de datos no configurada</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Esta versión de producción requiere Turso. Configure TURSO_DATABASE_URL y TURSO_AUTH_TOKEN en Vercel y vuelva a cargar la aplicación.
+        </p>
+      </div>
+    </div>
+  ) : (
     <AppContext.Provider value={{
       mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
