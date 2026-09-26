@@ -5,18 +5,8 @@ import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
-  // Vercel/GitHub Actions provide TURSO_* without the VITE_ prefix.
-  // Vite does not expose non-VITE env vars to import.meta.env by default,
-  // so explicitly bridge them for the client bundle used by the browser/Electron app.
-  const tursoDatabaseUrl = process.env.TURSO_DATABASE_URL || process.env.VITE_TURSO_DATABASE_URL || '';
-  const tursoAuthToken = process.env.TURSO_AUTH_TOKEN || process.env.VITE_TURSO_AUTH_TOKEN || '';
+  // Turso is server-side only. Never inject TURSO_* into the browser bundle.
   return {
-    define: {
-      'import.meta.env.TURSO_DATABASE_URL': JSON.stringify(tursoDatabaseUrl),
-      'import.meta.env.TURSO_AUTH_TOKEN': JSON.stringify(tursoAuthToken),
-      'import.meta.env.VITE_TURSO_DATABASE_URL': JSON.stringify(tursoDatabaseUrl),
-      'import.meta.env.VITE_TURSO_AUTH_TOKEN': JSON.stringify(tursoAuthToken),
-    },
     base: './',
     plugins: [
       react(),
