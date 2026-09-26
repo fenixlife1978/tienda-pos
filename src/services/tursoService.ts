@@ -1485,9 +1485,18 @@ class TursoService {
 
   public async authenticateUser(username: string, password: string, role: string): Promise<User | null> {
     try {
-      const result = await this.request({ operation: 'authenticateUser', username, password, role });
-      return result?.user || null;
-    } catch {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ username, password, role }),
+        cache: 'no-store',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(data.error || 'Error de autenticación'));
+      return data?.user || null;
+    } catch (error) {
+      console.error('Error de autenticación Turso:', error);
       return null;
     }
   }
