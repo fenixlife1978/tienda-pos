@@ -850,11 +850,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setTursoState({
           isConnected: false,
           isSyncing: false,
-          statusText: import.meta.env.PROD ? 'Turso no configurado' : 'Modo desarrollo sin Turso',
+          statusText: 'Modo Local (Sin configurar)',
           lastSyncTime: null,
-          errorMessage: import.meta.env.PROD
-            ? 'La aplicación de producción requiere TURSO_DATABASE_URL y TURSO_AUTH_TOKEN configurados en Vercel.'
-            : null,
+          errorMessage: null,
           tablesCreated: [],
           totalRecordsInCloud: 0,
         });
