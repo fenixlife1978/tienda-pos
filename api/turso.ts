@@ -19,6 +19,44 @@ export default async function handler(req: any, res: any) {
     const body = req.body || {};
     const client = db();
 
+    if (body.operation === 'health') {
+      await client.execute('SELECT 1 AS ok');
+      return res.status(200).json({ configured: true });
+    }
+
+    if (body.operation === 'authenticateUser') {
+      const username = String(body.username || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      const role = String(body.role || '').trim();
+      if (!username || !password) return res.status(400).json({ error: 'Credenciales incompletas' });
+
+      const result = await client.execute({
+        sql: `SELECT * FROM system_users
+               WHERE active = 1
+                 AND (LOWER(email) = ? OR LOWER(name) = ? OR (? IN ('admin','administrador') AND (is_initial_generic = 1 OR role = 'admin')))
+               ORDER BY CASE WHEN role = ? THEN 0 ELSE 1 END, is_initial_generic DESC, name ASC
+               LIMIT 1`,
+        args: [username, username, username, role],
+      });
+      const row: any = result.rows[0];
+      if (!row || String(row.password || '') !== password) {
+        return res.status(401).json({ error: 'Usuario o credenciales no encontradas' });
+      }
+      return res.status(200).json({
+        user: {
+          id: String(row.id),
+          name: String(row.name),
+          email: String(row.email),
+          role: row.role,
+          avatar: row.avatar ? String(row.avatar) : undefined,
+          active: Boolean(row.active),
+          password: row.password ? String(row.password) : undefined,
+          isInitialGeneric: Boolean(row.is_initial_generic),
+          createdAt: String(row.created_at || new Date().toISOString()),
+        }
+      });
+    }
+
     if (body.operation === 'execute') {
       const result = await client.execute({ sql: String(body.sql || ''), args: argsOf(body.args) as any });
       return res.status(200).json({
