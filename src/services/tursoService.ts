@@ -89,7 +89,7 @@ class TursoService {
 
   private initFromEnv() {
     const config = this.getStoredConfig();
-    if (config.url) {
+    if (config.url && config.authToken) {
       this.initClient(config);
     }
   }
@@ -103,7 +103,7 @@ class TursoService {
   }
 
   public initClient(config: TursoConfig): Client | null {
-    if (!config.url) {
+    if (!config.url || !config.authToken) {
       this.client = null;
       this.currentConfig = null;
       return null;
@@ -136,7 +136,7 @@ class TursoService {
 
   public isConfigured(): boolean {
     const config = this.getStoredConfig();
-    return Boolean(config.url && config.url.trim().length > 0);
+    return Boolean(config.url && config.url.trim().length > 0 && config.authToken && config.authToken.trim().length > 0);
   }
 
   /**
