@@ -697,6 +697,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // --- Turso Cloud DB State & Sync Engine ---
   const cloudChangeTokenRef = useRef<number>(0);
+  const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+  const isInitialSyncDoneRef = useRef<boolean>(false);
 
   const [tursoState, setTursoState] = useState<TursoSyncState>({
     isConnected: false,
@@ -801,12 +803,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPurchaseEntries(cloudData.purchaseEntries);
       setUsers(cloudData.users);
       if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
+        const incoming = cloudData.notifications;
+        const brandNewFromCloud: AppNotification[] = [];
+
+        for (const n of incoming) {
+          if (!seenNotificationIdsRef.current.has(n.id)) {
+            seenNotificationIdsRef.current.add(n.id);
+            brandNewFromCloud.push(n);
+          }
+        }
+
         setNotifications((prev) => {
           const prevKey = JSON.stringify(prev);
-          const newKey = JSON.stringify(cloudData.notifications);
-          return prevKey === newKey ? prev : cloudData.notifications;
+          const newKey = JSON.stringify(incoming);
+          return prevKey === newKey ? prev : incoming;
         });
+
+        // Emerger toasts flotantes y sonido si no es la carga inicial
+        if (isInitialSyncDoneRef.current && brandNewFromCloud.length > 0) {
+          for (const notif of brandNewFromCloud) {
+            const isForClient =
+              (notif.targetRole === 'client' || notif.targetRole === 'all') &&
+              (!notif.targetCustomerId || (currentCustomer && notif.targetCustomerId === currentCustomer.id));
+            const isForAdmin =
+              (notif.targetRole === 'seller' || notif.targetRole === 'all') &&
+              (isAdminActive || mode === 'erp');
+
+            if (isForClient || isForAdmin) {
+              setActivePushToasts((prev) => [notif, ...prev.slice(0, 2)]);
+              playNotificationSound(notif.type === 'order_status' ? 'order_status' : 'alert');
+              setTimeout(() => {
+                dismissPushToast(notif.id);
+              }, 6000);
+            }
+          }
+        }
       }
+      isInitialSyncDoneRef.current = true;
 
       if (cloudData.settings) {
         setSettings(cloudData.settings);
@@ -957,6 +990,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setNotifications((prev) => [newNotif, ...prev]);
+    seenNotificationIdsRef.current.add(newNotif.id);
     void tursoService.saveNotification(newNotif).catch((e) => console.warn('Error saving notification to Turso:', e));
 
     // Check sound preference
@@ -995,6 +1029,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       title: options.title,
       message: options.message,
       type: options.type,
+      targetRole: options.targetRole || 'client',
+      targetCustomerId: options.targetCustomerId,
       badge: options.badge,
     });
   };
