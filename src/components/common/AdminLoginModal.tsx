@@ -28,7 +28,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       }
       setError('');
     }
-  }, [isOpen, users]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
