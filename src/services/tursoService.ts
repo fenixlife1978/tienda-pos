@@ -1627,9 +1627,26 @@ class TursoService {
     });
   }
 
-  public async saveUser(u: User) {
+  public async loadUsers(): Promise<User[]> {
     const client = this.getClient();
-    if (!client) return;
+    if (!client) throw new Error('Cliente Turso no configurado');
+    const res = await client.execute('SELECT * FROM system_users ORDER BY name ASC');
+    return res.rows.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      email: String(row.email),
+      role: row.role as any,
+      avatar: row.avatar ? String(row.avatar) : undefined,
+      active: Boolean(row.active),
+      password: row.password ? String(row.password) : undefined,
+      isInitialGeneric: Boolean(row.is_initial_generic),
+      createdAt: String(row.created_at || new Date().toISOString()),
+    }));
+  }
+
+  public async saveUser(u: User): Promise<User> {
+    const client = this.getClient();
+    if (!client) throw new Error('Cliente Turso no configurado');
     await client.execute({
       sql: `
         INSERT OR REPLACE INTO system_users (
@@ -1648,12 +1665,31 @@ class TursoService {
         u.createdAt || new Date().toISOString(),
       ],
     });
+    const verified = await client.execute({
+      sql: 'SELECT * FROM system_users WHERE id = ?',
+      args: [u.id],
+    });
+    if (!verified.rows.length) {
+      throw new Error(`Turso no confirmó la creación del usuario ${u.name}`);
+    }
+    return {
+      ...u,
+      active: Boolean(verified.rows[0].active),
+      createdAt: String(verified.rows[0].created_at || u.createdAt),
+    };
   }
 
   public async deleteUser(id: string) {
     const client = this.getClient();
-    if (!client) return;
+    if (!client) throw new Error('Cliente Turso no configurado');
     await client.execute({ sql: 'DELETE FROM system_users WHERE id = ?', args: [id] });
+    const verified = await client.execute({
+      sql: 'SELECT 1 FROM system_users WHERE id = ?',
+      args: [id],
+    });
+    if (verified.rows.length) {
+      throw new Error(`Turso no confirmó la eliminación del usuario ${id}`);
+    }
   }
 
   public async saveCategory(c: ProductCategory) {
