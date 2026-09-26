@@ -563,6 +563,35 @@ class TursoService {
       `);
       tablesCreated.push('bcv_history');
 
+      // Reasegurar los triggers después de crear TODAS las tablas. Esto permite
+      // que una base existente reciba las señales aunque alguna tabla todavía
+      // no existiera durante un bootstrap anterior.
+      const activityTablesFinal = [
+        'system_settings', 'categories', 'units', 'products', 'customers', 'suppliers',
+        'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
+        'inventory_movements', 'cash_sessions', 'cash_movements', 'system_users', 'bcv_history'
+      ];
+      for (const table of activityTablesFinal) {
+        const idColumn = table === 'system_settings' ? "'main'" : 'NEW.id';
+        const oldIdColumn = table === 'system_settings' ? "'main'" : 'OLD.id';
+        for (const [operation, timing, idExpr] of [
+          ['insert', 'INSERT', idColumn],
+          ['update', 'UPDATE', idColumn],
+          ['delete', 'DELETE', oldIdColumn],
+        ] as const) {
+          try {
+            await client.execute(`
+              CREATE TRIGGER IF NOT EXISTS activity_${table}_${operation}
+              AFTER ${timing} ON ${table}
+              BEGIN
+                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+                VALUES ('${table}', ${idExpr}, '${operation}', datetime('now'));
+              END;
+            `);
+          } catch {}
+        }
+      }
+
       return { success: true, tables: tablesCreated };
     } catch (err: any) {
       console.error('Error in Turso autoBootstrapSchema:', err);
