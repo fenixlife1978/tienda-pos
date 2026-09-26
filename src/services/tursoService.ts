@@ -939,7 +939,7 @@ class TursoService {
           suppliers_info, highest_supplier_cost, is_composite,
           composite_components, composite_virtual_stock, is_weighable,
           price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
       `,
       args: [
         p.id,
@@ -1401,7 +1401,7 @@ class TursoService {
         const r = operation.receivable;
         await tx.execute({
           sql: 'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          args: [r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null],
+          args: [r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null,JSON.stringify(r.paymentHistory||[])],
         });
       }
       await tx.execute({ sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?", args:[new Date().toISOString(),operation.operationId] });
