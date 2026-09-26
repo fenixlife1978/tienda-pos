@@ -889,6 +889,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.clearInterval(intervalId);
   }, []);
 
+  const productionTursoMisconfigured = import.meta.env.PROD && !tursoService.isConfigured();
+
   // Active push notification toasts floating on screen
   const [activePushToasts, setActivePushToasts] = useState<AppNotification[]>([]);
 
@@ -3109,7 +3111,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
   const clearAllNotifications = () => setNotifications([]);
 
-  return (
+  return productionTursoMisconfigured ? (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6 text-center">
+        <div className="text-4xl mb-3">🔴</div>
+        <h1 className="text-lg font-extrabold text-slate-900">Base de datos no configurada</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Esta versión de producción requiere Turso. Configure TURSO_DATABASE_URL y TURSO_AUTH_TOKEN en Vercel y vuelva a cargar la aplicación.
+        </p>
+      </div>
+    </div>
+  ) : (
     <AppContext.Provider value={{
       mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
