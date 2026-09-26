@@ -850,9 +850,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setTursoState({
           isConnected: false,
           isSyncing: false,
-          statusText: 'Modo Local (Sin configurar)',
+          statusText: import.meta.env.PROD ? 'Turso no configurado' : 'Modo desarrollo sin Turso',
           lastSyncTime: null,
-          errorMessage: null,
+          errorMessage: import.meta.env.PROD
+            ? 'La aplicación de producción requiere TURSO_DATABASE_URL y TURSO_AUTH_TOKEN configurados en Vercel.'
+            : null,
           tablesCreated: [],
           totalRecordsInCloud: 0,
         });
@@ -888,6 +890,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 15000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  // Production is Turso-only: the deployed application must never silently
+  // operate as an independent local database when Vercel variables are missing.
+  const productionTursoMisconfigured = import.meta.env.PROD && !tursoService.isConfigured();
 
   // Active push notification toasts floating on screen
   const [activePushToasts, setActivePushToasts] = useState<AppNotification[]>([]);
@@ -3151,6 +3157,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearAllNotifications = () => setNotifications([]);
 
   return (
+    {productionTursoMisconfigured ? (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6 text-center">
+          <div className="text-4xl mb-3">🔴</div>
+          <h1 className="text-lg font-extrabold text-slate-900">Base de datos no configurada</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Esta versión de producción requiere Turso. Configure TURSO_DATABASE_URL y TURSO_AUTH_TOKEN en Vercel y vuelva a cargar la aplicación.
+          </p>
+        </div>
+      </div>
+    ) : (
     <AppContext.Provider value={{
       mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
@@ -3168,6 +3185,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }}>
       {children}
     </AppContext.Provider>
+    )}
   );
 };
 
