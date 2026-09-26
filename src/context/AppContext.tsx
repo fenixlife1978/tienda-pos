@@ -1615,7 +1615,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       : undefined;
     const syncedCustomer = isCredit
-      ? customers.find((c) => c.id === orderInput.customerId)
+      ? (() => {
+          const baseCustomer = customers.find((c) => c.id === orderInput.customerId);
+          return baseCustomer ? { ...baseCustomer, currentDebtUSD: baseCustomer.currentDebtUSD + totalUSD } : undefined;
+        })()
       : undefined;
 
     offlineSyncService.enqueueSale({
@@ -3083,6 +3086,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         paymentHistory: initialHistory,
       };
       setPayables((prev) => [newPayable, ...prev]);
+      void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving purchase payable to Turso:', error));
     }
     setPurchaseEntries((prev) => [newEntry, ...prev]);
     void tursoService.savePurchaseEntry(newEntry).catch((error) => console.error('Error saving purchase entry to Turso:', error));
