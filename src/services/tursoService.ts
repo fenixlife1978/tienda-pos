@@ -1338,173 +1338,26 @@ class TursoService {
   }
 
   public async applyInventoryMovement(movement: {
-    movementId: string;
-    productId: string;
-    quantityDelta: number;
-    movementType: string;
-    sourceOperationId: string;
-    terminalId: string;
-    createdAt: string;
+    movementId: string; productId: string; quantityDelta: number; movementType: string;
+    sourceOperationId: string; terminalId: string; createdAt: string;
   }): Promise<'applied' | 'already_applied'> {
-    const client = this.getClient();
-    if (!client) throw new Error('Cliente Turso no configurado');
-
-    const tx = await client.transaction('write');
-    try {
-      const insert = await tx.execute({
-        sql: `INSERT OR IGNORE INTO inventory_movements
-          (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          movement.movementId,
-          movement.productId,
-          movement.quantityDelta,
-          movement.movementType,
-          movement.sourceOperationId,
-          movement.terminalId,
-          movement.createdAt,
-        ],
-      });
-
-      if (Number(insert.rowsAffected || 0) === 0) {
-        await tx.rollback();
-        return 'already_applied';
-      }
-
-      const updated = await tx.execute({
-        sql: `UPDATE products
-          SET stock = MAX(0, ROUND(stock + ?, 3)), updated_at = ?
-          WHERE id = ?`,
-        args: [movement.quantityDelta, movement.createdAt, movement.productId],
-      });
-
-      if (Number(updated.rowsAffected || 0) === 0) {
-        throw new Error(`Producto no encontrado para movimiento de inventario: ${movement.productId}`);
-      }
-
-      await tx.commit();
-      return 'applied';
-    } catch (error) {
-      try { await tx.rollback(); } catch {}
-      throw error;
-    }
+    const result = await this.request('inventoryMovement', { movement });
+    return result.result as 'applied' | 'already_applied';
   }
 
-  /** Aplica una venta offline completa de forma atómica y con control de concurrencia.
-   * Si varias terminales venden el mismo producto offline, la base central valida el stock
-   * dentro de la misma transacción que registra los movimientos y la venta. */
-  public async applyOfflineSale(operation: {
-    operationId: string; terminalId: string; order: Order; invoice: Invoice;
-    inventoryMovements: Array<{ movementId: string; productId: string; quantityDelta: number; movementType: string; sourceOperationId: string; terminalId: string; createdAt: string }>;
-    receivable?: ReceivableItem; customer?: Customer;
-  }): Promise<'applied' | 'already_applied'> {
-    const client = this.getClient();
-    if (!client) throw new Error('Cliente Turso no configurado');
-    const tx = await client.transaction('write');
-    try {
-      await tx.execute({
-        sql: "INSERT OR IGNORE INTO sync_operations (operation_id, terminal_id, operation_type, entity_id, payload, status, created_at) VALUES (?, ?, 'sale', ?, ?, 'pending', ?)",
-        args: [operation.operationId, operation.terminalId, operation.order.id, JSON.stringify({ orderId: operation.order.id, invoiceId: operation.invoice.id, inventoryMovements: operation.inventoryMovements.length }), operation.order.createdAt],
-      });
-      const existing = await tx.execute({ sql: 'SELECT status FROM sync_operations WHERE operation_id = ?', args: [operation.operationId] });
-      if (String(existing.rows[0]?.status || '') === 'processed') {
-        await tx.rollback();
-        return 'already_applied';
-      }
 
-      // Solo los movimientos que aún no fueron aplicados forman parte de este intento.
-      const pendingMovements: typeof operation.inventoryMovements = [];
-      for (const movement of operation.inventoryMovements) {
-        const inserted = await tx.execute({
-          sql: 'INSERT OR IGNORE INTO inventory_movements (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          args: [movement.movementId, movement.productId, movement.quantityDelta, movement.movementType, movement.sourceOperationId, movement.terminalId, movement.createdAt],
-        });
-        if (Number(inserted.rowsAffected || 0) > 0) pendingMovements.push(movement);
-      }
-
-      // Agrupar por producto evita aceptar dos líneas que, en conjunto, exceden el stock.
-      const deltas = new Map<string, number>();
-      for (const movement of pendingMovements) {
-        deltas.set(movement.productId, (deltas.get(movement.productId) || 0) + movement.quantityDelta);
-      }
-      for (const [productId, delta] of deltas) {
-        const product = await tx.execute({ sql: 'SELECT stock FROM products WHERE id = ?', args: [productId] });
-        if (!product.rows.length) throw new Error(`Producto no encontrado para movimiento de inventario: ${productId}`);
-        const stock = Number(product.rows[0].stock || 0);
-        if (delta < 0 && stock + delta < -0.000001) {
-          throw new Error(`Conflicto de stock en venta offline para producto ${productId}: disponible ${stock}, solicitado ${Math.abs(delta)}.`);
-        }
-      }
-      for (const [productId, delta] of deltas) {
-        const updated = await tx.execute({
-          sql: 'UPDATE products SET stock = ROUND(stock + ?, 3), updated_at = ? WHERE id = ?',
-          args: [delta, operation.order.createdAt, productId],
-        });
-        if (!Number(updated.rowsAffected || 0)) throw new Error(`Producto no encontrado para actualización de inventario: ${productId}`);
-      }
-
-      const o = operation.order;
-      await tx.execute({
-        sql: 'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,document_series,document_sequence,return_number,void_number,payment_status,order_status,payment_reference,channel,created_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        args: [o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.cashSessionId||null,o.documentSeries||null,o.documentSequence??null,o.returnNumber||null,o.voidNumber||null,o.paymentStatus,o.orderStatus,o.paymentReference||null,o.channel,o.createdAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null],
-      });
-      const inv = operation.invoice;
-      await tx.execute({
-        sql: 'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,document_series,document_sequence,return_number,void_number,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        args: [inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.cashSessionId||null,inv.documentSeries||null,inv.documentSequence??null,inv.returnNumber||null,inv.voidNumber||null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null],
-      });
-      if (operation.customer) {
-        const x = operation.customer;
-        await tx.execute({
-          sql: 'INSERT OR REPLACE INTO customers (id,name,rif,email,phone,address,has_credit,credit_days,credit_limit_usd,current_debt_usd,password,avatar,notification_preferences,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          args: [x.id,x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.password||null,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,new Date().toISOString()],
-        });
-      }
-      if (operation.receivable) {
-        const r = operation.receivable;
-        await tx.execute({
-          sql: 'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          args: [r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null,JSON.stringify(r.paymentHistory||[])],
-        });
-      }
-      await tx.execute({ sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?", args:[new Date().toISOString(),operation.operationId] });
-      await tx.commit();
-      return 'applied';
-    } catch (error) {
-      try { await tx.rollback(); } catch {}
-      throw error;
-    }
+  public async applyOfflineSale(operation: any): Promise<'applied' | 'already_applied'> {
+    const result = await this.request('offlineSale', { payload: operation });
+    return result.result as 'applied' | 'already_applied';
   }
 
-  /** Persiste una devolución/anulación y su inventario en una sola transacción. */
-  public async applySaleReversal(operation: {
-    operationId: string; terminalId: string; order: Order; invoice: Invoice;
-    inventoryMovements: Array<{ movementId: string; productId: string; quantityDelta: number; movementType: string; sourceOperationId: string; terminalId: string; createdAt: string }>;
-    receivable?: ReceivableItem; customer?: Customer;
-  }): Promise<'applied' | 'already_applied'> {
-    const client = this.getClient(); if (!client) throw new Error('Cliente Turso no configurado');
-    const tx = await client.transaction('write');
-    try {
-      await tx.execute({ sql: "INSERT OR IGNORE INTO sync_operations (operation_id, terminal_id, operation_type, entity_id, payload, status, created_at) VALUES (?, ?, 'sale_reversal', ?, ?, 'pending', ?)", args: [operation.operationId, operation.terminalId, operation.order.id, JSON.stringify({ orderId: operation.order.id, invoiceId: operation.invoice.id }), operation.order.createdAt] });
-      const existing = await tx.execute({ sql: 'SELECT status FROM sync_operations WHERE operation_id = ?', args: [operation.operationId] });
-      if (String(existing.rows[0]?.status || '') === 'processed') { await tx.rollback(); return 'already_applied'; }
-      for (const m of operation.inventoryMovements) {
-        const ins = await tx.execute({ sql: 'INSERT OR IGNORE INTO inventory_movements (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', args: [m.movementId,m.productId,m.quantityDelta,m.movementType,m.sourceOperationId,m.terminalId,m.createdAt] });
-        if (Number(ins.rowsAffected || 0) > 0) {
-          const up = await tx.execute({ sql: 'UPDATE products SET stock = MAX(0, ROUND(stock + ?, 3)), updated_at = ? WHERE id = ?', args: [m.quantityDelta,m.createdAt,m.productId] });
-          if (!Number(up.rowsAffected || 0)) throw new Error('Producto no encontrado para movimiento de inventario: '+m.productId);
-        }
-      }
-      const o=operation.order;
-      await tx.execute({ sql: 'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,payment_status,order_status,payment_reference,channel,created_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args: [o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.paymentStatus,o.orderStatus,o.paymentReference||null,o.channel,o.createdAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null] });
-      const inv=operation.invoice;
-      await tx.execute({ sql: 'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args: [inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null] });
-      if (operation.customer) { const x=operation.customer; await tx.execute({ sql:'UPDATE customers SET name=?,rif=?,email=?,phone=?,address=?,has_credit=?,credit_days=?,credit_limit_usd=?,current_debt_usd=?,password=?,avatar=?,notification_preferences=? WHERE id=?', args:[x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.password||null,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,x.id] }); }
-      if (operation.receivable) { const r=operation.receivable; await tx.execute({ sql:'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', args:[r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null,JSON.stringify(r.paymentHistory||[])] }); }
-      await tx.execute({ sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?", args:[new Date().toISOString(),operation.operationId] });
-      await tx.commit(); return 'applied';
-    } catch(error) { try { await tx.rollback(); } catch {} throw error; }
+
+  public async applySaleReversal(operation: any): Promise<'applied' | 'already_applied'> {
+    const result = await this.request('saleReversal', { payload: operation });
+    return result.result as 'applied' | 'already_applied';
   }
+
+
   public async beginSyncOperation(operation: SyncOperationRecord): Promise<'new' | 'processed'> {
     const client = this.getClient();
     if (!client) throw new Error('Cliente Turso no configurado');
