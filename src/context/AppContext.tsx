@@ -1696,6 +1696,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((o) => {
         if (o.id === orderId) {
           const updated = { ...o, orderStatus: status };
+          void tursoService.saveOrder(updated).catch((error) => console.error('Error saving order status to Turso:', error));
+          const relatedInvoice = invoices.find((inv) => inv.orderId === o.id);
+          if (relatedInvoice) {
+            void tursoService.saveInvoice(relatedInvoice).catch((error) => console.error('Error saving related invoice to Turso:', error));
+          }
           triggerPushNotification({
             title: `${statusTitles[status]} (${o.orderNumber})`,
             message: statusMessages[status],
@@ -1711,12 +1716,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updatePaymentStatus = (orderId: string, paymentStatus: PaymentStatus) => {
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, paymentStatus } : o))
-    );
-    setInvoices((prev) =>
-      prev.map((inv) => (inv.orderId === orderId ? { ...inv, paymentStatus } : inv))
-    );
+    const order = orders.find((o) => o.id === orderId);
+    const invoice = invoices.find((inv) => inv.orderId === orderId);
+    if (order) {
+      const updatedOrder = { ...order, paymentStatus };
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
+      void tursoService.saveOrder(updatedOrder).catch((error) => console.error('Error saving payment status to Turso:', error));
+    }
+    if (invoice) {
+      const updatedInvoice = { ...invoice, paymentStatus };
+      setInvoices((prev) => prev.map((inv) => (inv.orderId === orderId ? updatedInvoice : inv)));
+      void tursoService.saveInvoice(updatedInvoice).catch((error) => console.error('Error saving invoice payment status to Turso:', error));
+    }
   };
 
 
@@ -2356,6 +2367,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving customer credit to Turso:', error));
           return updated;
         }
         return c;
@@ -2386,13 +2398,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving approved customer credit to Turso:', error));
           return updated;
         }
         return c;
       })
     );
     triggerPushNotification({
-      title: '🎉 ¡Crédito Comercial Aprobado!',
+      title: '⚠️ Solicitud de Crédito Revisada',
       message: `Línea de crédito activada: $${approvedLimitUSD.toFixed(2)} por ${approvedCreditDays} días de plazo.`,
       type: 'credit_alert',
       targetCustomerId: customerId,
@@ -2454,6 +2467,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving customer verification to Turso:', error));
           return updated;
         }
         return c;
@@ -2489,6 +2503,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
+          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving rejected customer verification to Turso:', error));
           return updated;
         }
         return c;
@@ -3033,6 +3048,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
     const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}` };
     setSuppliers((prev) => [newSup, ...prev]);
+    void tursoService.saveSupplier(newSup).catch((error) => console.error('Error saving supplier to Turso:', error));
   };
 
   const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
@@ -3069,21 +3085,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPayables((prev) => [newPayable, ...prev]);
     }
     setPurchaseEntries((prev) => [newEntry, ...prev]);
+    void tursoService.savePurchaseEntry(newEntry).catch((error) => console.error('Error saving purchase entry to Turso:', error));
     triggerPushNotification({ title: `Entrada ${entryNumber} Registrada con Éxito`, message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`, type: 'inventory_alert', badge: 'Entrada por Compra', sound: true });
     return { success: true, purchaseEntry: newEntry };
   };
 
-  const updateSupplier = (supplier: Supplier) => setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
+  const updateSupplier = (supplier: Supplier) => {
+    setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
+    void tursoService.saveSupplier(supplier).catch((error) => console.error('Error updating supplier in Turso:', error));
+  };
 
   const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
     const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
     setUsers((prev) => [...prev, newUser]);
+    void tursoService.saveUser(newUser).catch((error) => console.error('Error saving user to Turso:', error));
     triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
   };
 
   const updateUser = (user: User) => {
     setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
     if (currentUser.id === user.id) setCurrentUser(user);
+    void tursoService.saveUser(user).catch((error) => console.error('Error updating user in Turso:', error));
   };
 
   const deleteUser = (userId: string): { success: boolean; message: string } => {
@@ -3098,6 +3120,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (remainingAdmin) setCurrentUser(remainingAdmin);
     }
     setUsers((prev) => prev.filter((u) => u.id !== userId));
+    void tursoService.deleteUser(userId).catch((error) => console.error('Error deleting user from Turso:', error));
     triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
     return { success: true, message: 'Usuario eliminado exitosamente' };
   };
