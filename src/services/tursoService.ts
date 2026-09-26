@@ -1219,8 +1219,8 @@ class TursoService {
         INSERT OR REPLACE INTO accounts_receivable (
           id, invoice_id, invoice_number, customer_id, customer_name,
           customer_phone, total_amount_usd, amount_paid_usd, balance_usd,
-          issued_date, due_date, credit_days, status, created_at, is_voided, voided_at, void_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          issued_date, due_date, credit_days, status, created_at, is_voided, voided_at, void_reason, payment_history
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         r.id,
@@ -1253,8 +1253,8 @@ class TursoService {
         INSERT OR REPLACE INTO accounts_payable (
           id, supplier_id, supplier_name, invoice_number, description,
           total_amount_usd, amount_paid_usd, balance_usd, issued_date, due_date,
-          status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          status, created_at, payment_history
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         p.id,
