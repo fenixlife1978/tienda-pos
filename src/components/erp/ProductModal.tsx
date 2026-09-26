@@ -14,7 +14,6 @@ import {
   X,
   Package,
   DollarSign,
-  Truck,
   Layers,
   Camera,
   Upload,
@@ -57,6 +56,8 @@ import {
   SKUStrategy,
 } from '../../utils/skuGenerator';
 import { CameraBarcodeScanner } from './CameraBarcodeScanner';
+
+const isEditableDecimalText = (value: string): boolean => /^-?\d*(?:[.,]\d*)?$/.test(value);
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -527,12 +528,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     return suppliersInfo.reduce((prev, curr) => (curr.costUSD > prev.costUSD ? curr : prev), suppliersInfo[0]);
   }, [suppliersInfo]);
 
-  useEffect(() => {
-    if (highestSupplierCost !== null && highestSupplierCost > 0) {
-      setCostUSDStr(formatPlainNumber(highestSupplierCost, 6));
-    }
-  }, [highestSupplierCost]);
-
   // Handlers para Presentaciones adicionales
   const handleAddPresentation = () => {
     if (!newPresName.trim()) return;
@@ -929,19 +924,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           >
             <Layers className="w-4 h-4" />
             Pestaña 4: Presentaciones & Venta
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('suppliers')}
-            className={`pb-3 px-3 font-bold border-b-2 transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'suppliers'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            Proveedores ({suppliersInfo.length})
           </button>
 
           <button
@@ -1424,7 +1406,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         required
                         value={costUSDStr}
                         onChange={(e) => {
-                          if (isValidDecimalInput(e.target.value)) {
+                          if (isEditableDecimalText(e.target.value)) {
                             setCostUSDStr(e.target.value);
                           }
                         }}
@@ -1447,7 +1429,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         inputMode="decimal"
                         value={additionalExpensesPercentStr}
                         onChange={(e) => {
-                          if (isValidDecimalInput(e.target.value)) {
+                          if (isEditableDecimalText(e.target.value)) {
                             setAdditionalExpensesPercentStr(e.target.value);
                           }
                         }}
@@ -1482,7 +1464,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         inputMode="decimal"
                         value={lastCostUSDStr}
                         onChange={(e) => {
-                          if (isValidDecimalInput(e.target.value)) {
+                          if (isEditableDecimalText(e.target.value)) {
                             setLastCostUSDStr(e.target.value);
                           }
                         }}
@@ -1581,7 +1563,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                             inputMode="decimal"
                             value={profitMarginPercentStr}
                             onChange={(e) => {
-                              if (isValidDecimalInput(e.target.value)) {
+                              if (isEditableDecimalText(e.target.value)) {
                                 setProfitMarginPercentStr(e.target.value);
                               }
                             }}
@@ -1605,7 +1587,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                             inputMode="decimal"
                             value={gapPercentStr}
                             onChange={(e) => {
-                              if (isValidDecimalInput(e.target.value)) {
+                              if (isEditableDecimalText(e.target.value)) {
                                 setGapPercentStr(e.target.value);
                               }
                             }}
@@ -1629,7 +1611,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                             inputMode="decimal"
                             value={manualPriceUSDStr}
                             onChange={(e) => {
-                              if (isValidDecimalInput(e.target.value)) {
+                              if (isEditableDecimalText(e.target.value)) {
                                 setManualPriceUSDStr(e.target.value);
                               }
                             }}
@@ -1809,7 +1791,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixPublicoMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixPublicoMarginStr(e.target.value);
+                                if (isEditableDecimalText(e.target.value)) setMatrixPublicoMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
@@ -1849,7 +1831,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixMayoristaMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixMayoristaMarginStr(e.target.value);
+                                if (isEditableDecimalText(e.target.value)) setMatrixMayoristaMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
@@ -1889,7 +1871,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixDistribuidorMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixDistribuidorMarginStr(e.target.value);
+                                if (isEditableDecimalText(e.target.value)) setMatrixDistribuidorMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
@@ -1929,7 +1911,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixEspecialMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixEspecialMarginStr(e.target.value);
+                                if (isEditableDecimalText(e.target.value)) setMatrixEspecialMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
@@ -2159,7 +2141,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       inputMode="decimal"
                       value={contentQuantityStr}
                       onChange={(e) => {
-                        if (isValidDecimalInput(e.target.value)) setContentQuantityStr(e.target.value);
+                        if (isEditableDecimalText(e.target.value)) setContentQuantityStr(e.target.value);
                       }}
                       placeholder="1"
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
@@ -2186,7 +2168,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       inputMode="decimal"
                       value={conversionFactorStr}
                       onChange={(e) => {
-                        if (isValidDecimalInput(e.target.value)) setConversionFactorStr(e.target.value);
+                        if (isEditableDecimalText(e.target.value)) setConversionFactorStr(e.target.value);
                       }}
                       placeholder="1"
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-indigo-700"
@@ -2328,8 +2310,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       onChange={(e) => {
                         if (e.target.value === '' || /^\d+$/.test(e.target.value)) {
                           setNewPresFactorStr(e.target.value);
-                          const fac = parseInt(e.target.value) || 1;
-                          setNewPresPriceUSDStr(formatPlainNumber(finalPriceUSD * fac * 0.95, 6));
                         }
                       }}
                       placeholder="12"
@@ -2344,7 +2324,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       inputMode="decimal"
                       value={newPresPriceUSDStr}
                       onChange={(e) => {
-                        if (isValidDecimalInput(e.target.value)) setNewPresPriceUSDStr(e.target.value);
+                        if (isEditableDecimalText(e.target.value)) setNewPresPriceUSDStr(e.target.value);
                       }}
                       placeholder={formatPlainNumber(finalPriceUSD * (parseInt(newPresFactorStr) || 1) * 0.95, 6)}
                       className="w-full px-2.5 py-1 border border-slate-300 rounded font-mono text-xs font-bold text-emerald-700"
@@ -2423,160 +2403,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </div>
           )}
 
-          {/* ==================== TAB 5: PROVEEDORES ==================== */}
-          {activeTab === 'suppliers' && (
-            <div className="space-y-5 animate-in fade-in duration-150">
-              <div className="p-4 bg-blue-50/80 rounded-2xl border border-blue-200 flex items-start gap-3">
-                <Truck className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
-                <div className="text-xs text-blue-950 space-y-1">
-                  <p className="font-bold text-sm">Proveedores del Producto y Regla del Costo Más Alto</p>
-                  <p className="text-blue-800">
-                    Asocia los distintos proveedores que suministran este artículo. <strong>El sistema tomará automáticamente el costo más alto entre ellos</strong> para blindar tus márgenes de reposición.
-                  </p>
-                </div>
-              </div>
-
-              {/* Form to link supplier */}
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <h4 className="font-bold text-slate-800 text-xs flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-indigo-600" />
-                  Vincular Proveedor a este Producto
-                </h4>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                      Selector de Proveedores Registrados *
-                    </label>
-                    <select
-                      value={selectedSupplierId}
-                      onChange={(e) => setSelectedSupplierId(e.target.value)}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium"
-                    >
-                      {suppliers.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({s.rif})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                      Precio Costo Proveedor (USD) *
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={supplierCostUSDStr}
-                      onChange={(e) => {
-                        if (isValidDecimalInput(e.target.value)) setSupplierCostUSDStr(e.target.value);
-                      }}
-                      placeholder="10.00"
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono text-xs font-bold"
-                    />
-                  </div>
-
-                  <div className="flex flex-col justify-end">
-                    <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                      Código de barras del proveedor
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBarcodeCameraTarget('supplier');
-                        setIsBarcodeCameraOpen(true);
-                      }}
-                      className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5"
-                      title="Capturar el código del proveedor con la cámara trasera"
-                    >
-                      <Camera className="w-3.5 h-3.5" />
-                      Capturar con cámara
-                    </button>
-                    <span className="mt-1 text-[9px] text-slate-400">Sin campo manual: se asigna al proveedor seleccionado.</span>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="button"
-                    onClick={handleAddSupplier}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Asociar Proveedor
-                  </button>
-                </div>
-              </div>
-
-              {/* Linked suppliers list */}
-              <div className="space-y-2">
-                <h4 className="font-bold text-slate-800 text-xs">Proveedores Asociados ({suppliersInfo.length})</h4>
-
-                {suppliersInfo.length === 0 ? (
-                  <div className="text-center py-6 border-2 border-dashed border-slate-200 rounded-xl text-slate-400">
-                    <Truck className="w-8 h-8 mx-auto mb-1.5 text-slate-300" />
-                    <p className="font-semibold text-xs">No hay proveedores vinculados aún.</p>
-                    <p className="text-[11px]">Asocia al menos un proveedor para habilitar la regla de costo más alto.</p>
-                  </div>
-                ) : (
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                        <tr>
-                          <th className="py-2.5 px-3">Proveedor</th>
-                          <th className="py-2.5 px-3">Cód. Barras Proveedor</th>
-                          <th className="py-2.5 px-3 text-right">Costo Ofrecido (USD)</th>
-                          <th className="py-2.5 px-3 text-center">Estado Regla</th>
-                          <th className="py-2.5 px-3 text-right">Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {suppliersInfo.map((s) => {
-                          const isHighest = s.costUSD === highestSupplierCost;
-                          return (
-                            <tr key={s.id} className={isHighest ? 'bg-blue-50/50 font-medium' : 'hover:bg-slate-50'}>
-                              <td className="py-2.5 px-3 font-bold text-slate-900">{s.supplierName}</td>
-                              <td className="py-2.5 px-3 font-mono text-slate-600">
-                                <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded font-bold text-[11px]">
-                                  <Barcode className="w-3 h-3 text-slate-400" />
-                                  {s.barcode}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                                {formatUSD(s.costUSD)} USD
-                              </td>
-                              <td className="py-2.5 px-3 text-center">
-                                {isHighest ? (
-                                  <span className="inline-flex items-center gap-1 bg-blue-600 text-white px-2 py-0.5 rounded-full text-[10px] font-black">
-                                    <ShieldCheck className="w-3 h-3" />
-                                    Costo Máximo (Activo)
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-slate-400 font-medium">Costo menor</span>
-                                )}
-                              </td>
-                              <td className="py-2.5 px-3 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteSupplier(s.id)}
-                                  className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 cursor-pointer"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ==================== TAB 6: COMBO / KIT COMPUESTO ==================== */}
+          {/* ==================== TAB 5: COMBO / KIT COMPUESTO ==================== */}
           {activeTab === 'composite' && (
             <div className="space-y-5 animate-in fade-in duration-150">
               <div className="p-4 bg-purple-50/80 rounded-2xl border border-purple-200 flex items-center justify-between">
