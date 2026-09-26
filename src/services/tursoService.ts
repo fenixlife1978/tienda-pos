@@ -1445,6 +1445,24 @@ class TursoService {
     });
   }
 
+  public async checkServerHealth(): Promise<boolean> {
+    try {
+      await this.request({ operation: 'health' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async authenticateUser(username: string, password: string, role: string): Promise<User | null> {
+    try {
+      const result = await this.request({ operation: 'authenticateUser', username, password, role });
+      return result?.user || null;
+    } catch {
+      return null;
+    }
+  }
+
   public async loadUsers(): Promise<User[]> {
     const client = this.getClient();
     if (!client) throw new Error('Cliente Turso no configurado');
