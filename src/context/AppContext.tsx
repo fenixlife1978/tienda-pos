@@ -854,16 +854,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('online', handleOnline);
   }, []);
 
-  // Sincronización periódica mientras la aplicación está abierta y conectada.
-  // Esto permite que web y .exe recojan cambios hechos en otro terminal sin
-  // depender de cerrar/reabrir la aplicación.
+  // Sincronización cloud frecuente mientras la aplicación está abierta y conectada.
+  // Turso es la fuente de verdad para todos los dispositivos. Cada cliente web
+  // consulta periódicamente el estado cloud para que productos publicados y
+  // solicitudes de registro aparezcan sin cerrar/reabrir la aplicación.
+  // Se usa una ventana corta de 3 segundos para dar comportamiento prácticamente
+  // en tiempo real sin depender de localStorage/BroadcastChannel entre equipos.
   useEffect(() => {
     if (!tursoService.isConfigured()) return;
     const intervalId = window.setInterval(() => {
-      if (navigator.onLine && offlineSyncReadyRef.current) {
+      if (navigator.onLine && offlineSyncReadyRef.current && document.visibilityState !== 'hidden') {
         syncWithTurso().catch((error) => console.warn('Periodic Turso sync failed:', error));
       }
-    }, 15000);
+    }, 3000);
     return () => window.clearInterval(intervalId);
   }, []);
 
