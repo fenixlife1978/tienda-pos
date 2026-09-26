@@ -876,18 +876,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Sincronización cloud frecuente mientras la aplicación está abierta y conectada.
-  // Turso es la fuente de verdad para todos los dispositivos. Cada cliente web
-  // consulta periódicamente el estado cloud para que productos publicados y
-  // solicitudes de registro aparezcan sin cerrar/reabrir la aplicación.
-  // Se usa una ventana corta de 3 segundos para dar comportamiento prácticamente
-  // en tiempo real sin depender de localStorage/BroadcastChannel entre equipos.
+  // Turso es la fuente de verdad para todos los dispositivos.
+  // Además del token general, los USUARIOS se consultan directamente cada 2 segundos.
+  // Esto evita que un alta de administrador dependa de señales/triggers intermedios:
+  // cada navegador obtiene la lista autoritativa de system_users desde Turso.
   useEffect(() => {
     if (!tursoService.isConfigured()) return;
+
     const intervalId = window.setInterval(() => {
-      if (navigator.onLine && offlineSyncReadyRef.current && document.visibilityState !== 'hidden') {
-        syncWithTurso().catch((error) => console.warn('Periodic Turso change check failed:', error));
+      if (!navigator.onLine || !offlineSyncReadyRef.current || document.visibilityState === 'hidden') {
+        return;
       }
+
+      syncWithTurso().catch((error) => console.warn('Periodic Turso change check failed:', error));
+
+      tursoService.loadUsers()
+        .then((cloudUsers) => {
+          setUsers((currentUsers) => {
+            const currentKey = JSON.stringify(currentUsers);
+            const cloudKey = JSON.stringify(cloudUsers);
+            return currentKey === cloudKey ? currentUsers : cloudUsers;
+          });
+        })
+        .catch((error) => console.warn('Periodic Turso users sync failed:', error));
     }, 2000);
+
     return () => window.clearInterval(intervalId);
   }, []);
 
