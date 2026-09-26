@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Lock, User as UserIcon, X, AlertCircle, Eye, EyeOff, LogIn, Shield } from 'lucide-react';
 import { Role } from '../../types';
+import { tursoService } from '../../services/tursoService';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -31,7 +32,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -47,39 +48,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       return;
     }
 
-    // Find user matching username/email and role, or username/email
-    let matchedUser = users.find((u) => {
-      const emailMatch = u.email.toLowerCase() === trimmedUser;
-      const nameMatch = u.name.toLowerCase() === trimmedUser;
-      const adminAlias = (trimmedUser === 'admin' || trimmedUser === 'administrador') && (u.isInitialGeneric || u.role === 'admin');
-      return (emailMatch || nameMatch || adminAlias) && u.role === selectedRole;
-    });
-
-    // Fallback match if user typed valid username with different role
-    if (!matchedUser) {
-      matchedUser = users.find((u) => {
-        const emailMatch = u.email.toLowerCase() === trimmedUser;
-        const nameMatch = u.name.toLowerCase() === trimmedUser;
-        const adminAlias = (trimmedUser === 'admin' || trimmedUser === 'administrador') && (u.isInitialGeneric || u.role === 'admin');
-        return emailMatch || nameMatch || adminAlias;
-      });
-    }
-
-    // Fallback for initial admin
-    if (!matchedUser && (trimmedUser === 'admin' || trimmedUser === 'administrador' || selectedRole === 'admin')) {
-      matchedUser = users.find(u => u.isInitialGeneric || u.role === 'admin');
-    }
-
-    if (!matchedUser) {
-      setError('Usuario o credenciales no encontradas para el rol seleccionado.');
+    // Authentication is verified against centralized Turso, not this browser's cached users.
+    const cloudUser = await tursoService.authenticateUser(trimmedUser, trimmedPass, selectedRole);
+    if (!cloudUser) {
+      setError('Usuario o contraseña incorrectos, o usuario inactivo.');
       return;
     }
+    const matchedUser = cloudUser;
 
-    // Check only the password stored for the selected user. No demo/fallback passwords are accepted.
-    if (!matchedUser.password || matchedUser.password !== trimmedPass) {
-      setError('Contraseña incorrecta.');
-      return;
-    }
 
     setCurrentUser(matchedUser);
     setIsAdminActive(true);
