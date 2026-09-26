@@ -1072,6 +1072,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cat-${Date.now()}`,
     };
     setCategories((prev) => [...prev, newCat]);
+    void tursoService.saveCategory(newCat).catch((error) => console.error('Error saving category to Turso:', error));
     pushNotification('Categoría Creada', `Categoría "${newCat.name}" agregada exitosamente.`, 'promotion');
   };
 
@@ -1091,6 +1092,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+    void tursoService.deleteCategory(categoryId).catch((error) => console.error('Error deleting category from Turso:', error));
     pushNotification('Categoría Eliminada', `Categoría "${target.name}" eliminada del sistema.`, 'inventory_alert');
     return { success: true, message: `Categoría "${target.name}" eliminada correctamente.` };
   };
@@ -1098,6 +1100,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateCategory = (cat: ProductCategory) => {
     const old = categories.find((c) => c.id === cat.id);
     setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+    void tursoService.saveCategory(cat).catch((error) => console.error('Error updating category in Turso:', error));
     if (old && old.name !== cat.name) {
       setProducts((prev) =>
         prev.map((p) =>
@@ -1115,6 +1118,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `unit-${Date.now()}`,
     };
     setUnits((prev) => [...prev, newUnit]);
+    void tursoService.saveUnit(newUnit).catch((error) => console.error('Error saving unit to Turso:', error));
     pushNotification('Unidad Creada', `Unidad de medida "${newUnit.name} (${newUnit.abbreviation})" registrada.`, 'promotion');
   };
 
@@ -1136,12 +1140,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setUnits((prev) => prev.filter((u) => u.id !== unitId));
+    void tursoService.deleteUnit(unitId).catch((error) => console.error('Error deleting unit from Turso:', error));
     pushNotification('Unidad Eliminada', `Unidad "${target.name}" eliminada del sistema.`, 'inventory_alert');
     return { success: true, message: `Unidad "${target.name}" eliminada correctamente.` };
   };
 
   const updateUnit = (unit: ProductUnit) => {
     setUnits((prev) => prev.map((u) => (u.id === unit.id ? unit : u)));
+    void tursoService.saveUnit(unit).catch((error) => console.error('Error updating unit in Turso:', error));
   };
 
   // Cart operations
@@ -2319,10 +2325,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cust-${Date.now()}`,
     };
     setCustomers((prev) => [newCust, ...prev]);
+    void tursoService.saveCustomer(newCust).catch((error) => console.error('Error saving customer to Turso:', error));
   };
 
   const updateCustomer = (customer: Customer) => {
     setCustomers((prev) => prev.map((c) => (c.id === customer.id ? customer : c)));
+    void tursoService.saveCustomer(customer).catch((error) => console.error('Error updating customer in Turso:', error));
   };
 
   const updateCustomerCredit = (
@@ -3107,7 +3115,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
 
-  const updateSettings = (newSettings: Partial<SystemSettings>) => setSettings((prev) => ({ ...prev, ...newSettings }));
+  const updateSettings = (newSettings: Partial<SystemSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...newSettings };
+      void tursoService.saveSettings(next).catch((error) => console.error('Error saving settings to Turso:', error));
+      return next;
+    });
+  };
   const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
   const clearAllNotifications = () => setNotifications([]);
 
