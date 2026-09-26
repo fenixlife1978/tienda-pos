@@ -458,6 +458,61 @@ class TursoService {
       `);
       tablesCreated.push('inventory_movements');
 
+      // 13b. activity_changes — señal centralizada de cambios para sincronización
+      // en tiempo casi real entre todos los navegadores/equipos.
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS activity_changes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          table_name TEXT NOT NULL,
+          entity_id TEXT,
+          operation TEXT NOT NULL,
+          changed_at TEXT NOT NULL
+        );
+      `);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_activity_changes_id ON activity_changes(id)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_activity_changes_changed_at ON activity_changes(changed_at)`);
+
+      const activityTables = [
+        'system_settings', 'categories', 'units', 'products', 'customers', 'suppliers',
+        'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
+        'inventory_movements', 'cash_sessions', 'cash_movements', 'system_users', 'bcv_history'
+      ];
+      for (const table of activityTables) {
+        const idColumn = table === 'system_settings' ? "'main'" : 'NEW.id';
+        const oldIdColumn = table === 'system_settings' ? "'main'" : 'OLD.id';
+        try {
+          await client.execute(`
+            CREATE TRIGGER IF NOT EXISTS activity_${table}_insert
+            AFTER INSERT ON ${table}
+            BEGIN
+              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+              VALUES ('${table}', ${idColumn}, 'insert', datetime('now'));
+            END;
+          `);
+        } catch {}
+        try {
+          await client.execute(`
+            CREATE TRIGGER IF NOT EXISTS activity_${table}_update
+            AFTER UPDATE ON ${table}
+            BEGIN
+              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+              VALUES ('${table}', ${idColumn}, 'update', datetime('now'));
+            END;
+          `);
+        } catch {}
+        try {
+          await client.execute(`
+            CREATE TRIGGER IF NOT EXISTS activity_${table}_delete
+            AFTER DELETE ON ${table}
+            BEGIN
+              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+              VALUES ('${table}', ${oldIdColumn}, 'delete', datetime('now'));
+            END;
+          `);
+        } catch {}
+      }
+      tablesCreated.push('activity_changes');
+
       // 14. cash_sessions / cash_movements — caja persistente por terminal
       await client.execute(`
         CREATE TABLE IF NOT EXISTS cash_sessions (
@@ -914,6 +969,20 @@ class TursoService {
       purchaseEntries,
       users,
     };
+  }
+
+  // Token monotónico de cambios centralizados. El navegador solo descarga
+  // el estado completo cuando este token cambia.
+  public async getCloudChangeToken(): Promise<number> {
+    const client = this.getClient();
+    if (!client) throw new Error('Cliente Turso no configurado');
+    const res = await client.execute('SELECT COALESCE(MAX(id), 0) AS token FROM activity_changes');
+    return Number(res.rows[0]?.token || 0);
+  }
+
+  public async hasCloudChangesSince(token: number): Promise<{ changed: boolean; token: number }> {
+    const currentToken = await this.getCloudChangeToken();
+    return { changed: currentToken > token, token: currentToken };
   }
 
   // --- SAVE INDIVIDUAL ENTITIES ---
