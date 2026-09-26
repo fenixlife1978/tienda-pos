@@ -528,34 +528,63 @@ class TursoService {
       `);
       tablesCreated.push('bcv_history');
 
-      // Reasegurar los triggers después de crear TODAS las tablas. Esto permite
-      // que una base existente reciba las señales aunque alguna tabla todavía
-      // no existiera durante un bootstrap anterior.
-      const activityTablesFinal = [
-        'system_settings', 'categories', 'units', 'products', 'customers', 'suppliers',
-        'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
-        'inventory_movements', 'cash_sessions', 'cash_movements', 'system_users', 'bcv_history'
+      // Reinstalar los triggers de actividad con las columnas reales de cada tabla.
+      // Algunas tablas históricas no usan una columna llamada "id" (por ejemplo
+      // system_settings.key e inventory_movements.movement_id). Los triggers
+      // anteriores podían quedar creados con NEW.id y romper cualquier escritura.
+      const activityDefinitions = [
+        { table: 'system_settings', id: "'main'", oldId: "'main'" },
+        { table: 'categories', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'units', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'products', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'customers', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'suppliers', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'orders', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'invoices', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'accounts_receivable', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'accounts_payable', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'purchase_entries', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'inventory_movements', id: 'NEW.movement_id', oldId: 'OLD.movement_id' },
+        { table: 'cash_sessions', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'cash_movements', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'system_users', id: 'NEW.id', oldId: 'OLD.id' },
+        { table: 'bcv_history', id: 'NEW.id', oldId: 'OLD.id' },
       ];
-      for (const table of activityTablesFinal) {
-        const idColumn = table === 'system_settings' ? "'main'" : 'NEW.id';
-        const oldIdColumn = table === 'system_settings' ? "'main'" : 'OLD.id';
-        for (const [operation, timing, idExpr] of [
-          ['insert', 'INSERT', idColumn],
-          ['update', 'UPDATE', idColumn],
-          ['delete', 'DELETE', oldIdColumn],
-        ] as const) {
-          try {
-            await client.execute(`
-              CREATE TRIGGER IF NOT EXISTS activity_${table}_${operation}
-              AFTER ${timing} ON ${table}
-              BEGIN
-                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-                VALUES ('${table}', ${idExpr}, '${operation}', datetime('now'));
-              END;
-            `);
-          } catch {}
-        }
+
+      for (const { table, id, oldId } of activityDefinitions) {
+        // El DROP es intencional: corrige triggers antiguos que ya existan en Turso.
+        await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_insert`);
+        await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_update`);
+        await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_delete`);
+
+        await client.execute(`
+          CREATE TRIGGER activity_${table}_insert
+          AFTER INSERT ON ${table}
+          BEGIN
+            INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+            VALUES ('${table}', ${id}, 'insert', datetime('now'));
+          END;
+        `);
+
+        await client.execute(`
+          CREATE TRIGGER activity_${table}_update
+          AFTER UPDATE ON ${table}
+          BEGIN
+            INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+            VALUES ('${table}', ${id}, 'update', datetime('now'));
+          END;
+        `);
+
+        await client.execute(`
+          CREATE TRIGGER activity_${table}_delete
+          AFTER DELETE ON ${table}
+          BEGIN
+            INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+            VALUES ('${table}', ${oldId}, 'delete', datetime('now'));
+          END;
+        `);
       }
+      tablesCreated.push('activity_triggers');
 
       return { success: true, tables: tablesCreated };
     } catch (err: any) {
