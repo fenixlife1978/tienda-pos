@@ -3177,7 +3177,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateUser = (user: User) => {
     setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
     if (currentUser.id === user.id) setCurrentUser(user);
-    void tursoService.saveUser(user).catch((error) => console.error('Error updating user in Turso:', error));
+    tursoService.saveUser(user)
+      .then(() => syncWithTurso(true))
+      .catch((error) => console.error('Error updating user in Turso:', error));
   };
 
   const deleteUser = (userId: string): { success: boolean; message: string } => {
@@ -3192,7 +3194,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (remainingAdmin) setCurrentUser(remainingAdmin);
     }
     setUsers((prev) => prev.filter((u) => u.id !== userId));
-    void tursoService.deleteUser(userId).catch((error) => console.error('Error deleting user from Turso:', error));
+    tursoService.deleteUser(userId)
+      .then(() => syncWithTurso(true))
+      .catch((error) => console.error('Error deleting user from Turso:', error));
     triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
     return { success: true, message: 'Usuario eliminado exitosamente' };
   };
