@@ -3166,7 +3166,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // puede aparecer como creado si la escritura cloud falló.
     await tursoService.saveSupplier(newSup);
     setSuppliers((prev) => [newSup, ...prev.filter((s) => s.id !== newSup.id)]);
-    await syncWithTurso(true);
+    // No hacemos un reload inmediato aquí: una lectura de Turso ya iniciada
+    // podría traer un snapshot anterior y volver a ocultar el proveedor recién guardado.
+    // El evento activity_changes hará que el siguiente ciclo descargue el snapshot nuevo.
     return newSup;
   };
 
@@ -3225,7 +3227,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateSupplier = async (supplier: Supplier): Promise<void> => {
     await tursoService.saveSupplier(supplier);
     setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
-    await syncWithTurso(true);
   };
 
   const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
