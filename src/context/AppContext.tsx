@@ -697,6 +697,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // --- Turso Cloud DB State & Sync Engine ---
   const cloudChangeTokenRef = useRef<number>(0);
+  const offlineSyncReadyRef = useRef<boolean>(false);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
   const isInitialSyncDoneRef = useRef<boolean>(false);
 
@@ -756,13 +757,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tursoService.isConfigured()) return;
     setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
     try {
-      // Intentar procesar operaciones pendientes locales en segundo plano
-      try {
-        await offlineSyncService.flush();
-      } catch (flushErr) {
-        console.warn('Advertencia al procesar operaciones locales:', flushErr);
-      }
-
+      // El ciclo automático es SOLO de lectura. Las operaciones pendientes
+      // se vacían al recuperar conexión o cuando se registra la operación.
+      // No debemos hacer flush de escrituras en cada latido de sincronización.
       // Cursor global centralizado en Turso, igual que sistema-gestion:
       // primero consultamos solamente el último ID de activity_changes.
       const changeState = await tursoService.readCloudSyncVersion(cloudChangeTokenRef.current);
