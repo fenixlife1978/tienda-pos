@@ -701,6 +701,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const offlineSyncReadyRef = useRef<boolean>(false);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
   const isInitialSyncDoneRef = useRef<boolean>(false);
+  // Evita que dos snapshots de Turso se solapen y que una lectura iniciada antes
+  // de una escritura termine sobrescribiendo en pantalla los datos recién guardados.
+  const syncInFlightRef = useRef<Promise<void> | null>(null);
 
   const [tursoState, setTursoState] = useState<TursoSyncState>({
     isConnected: false,
@@ -754,116 +757,126 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const syncWithTurso = async (forceReload = false) => {
-    if (!tursoService.isConfigured()) return;
-    setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
-    try {
-      // El ciclo automático es SOLO de lectura. Las operaciones pendientes
-      // se vacían al recuperar conexión o cuando se registra la operación.
-      // No debemos hacer flush de escrituras en cada latido de sincronización.
-      // Cursor global centralizado en Turso, igual que sistema-gestion:
-      // primero consultamos solamente el último ID de activity_changes.
-      const changeState = await tursoService.readCloudSyncVersion(cloudChangeTokenRef.current);
-      if (!forceReload && !changeState.changed) {
-        setTursoState((prev) => ({
-          ...prev,
-          isConnected: true,
-          isSyncing: false,
-          statusText: 'Sin cambios nuevos en Turso DB',
-          errorMessage: null,
-        }));
-        return;
-      }
+  const syncWithTurso = (forceReload = false): Promise<void> => {
+    if (syncInFlightRef.current) return syncInFlightRef.current;
 
-      const cloudData = await tursoService.loadAllData();
-
-      // Turso es la fuente de verdad cuando está configurado. Incluso una
-      // tabla vacía debe reemplazar el snapshot local para impedir que datos
-      // antiguos/demo de localStorage reaparezcan en una base nueva o limpia.
-      setProducts(cloudData.products);
-      setCategories(cloudData.categories);
-      setUnits(cloudData.units);
-      setCustomers(cloudData.customers);
-      setSuppliers(cloudData.suppliers);
-      setOrders(cloudData.orders);
-      setInvoices(cloudData.invoices);
-      setReceivables(cloudData.receivables);
-      setPayables(cloudData.payables);
-      setPurchaseEntries(cloudData.purchaseEntries);
-      setUsers(cloudData.users);
-      if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
-        const incoming = cloudData.notifications;
-        const brandNewFromCloud: AppNotification[] = [];
-
-        for (const n of incoming) {
-          if (!seenNotificationIdsRef.current.has(n.id)) {
-            seenNotificationIdsRef.current.add(n.id);
-            brandNewFromCloud.push(n);
-          }
+    const run = (async () => {
+      if (!tursoService.isConfigured()) return;
+      setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
+      try {
+        // El ciclo automático es SOLO de lectura. Las operaciones pendientes
+        // se vacían al recuperar conexión o cuando se registra la operación.
+        // No debemos hacer flush de escrituras en cada latido de sincronización.
+        // Cursor global centralizado en Turso, igual que sistema-gestion:
+        // primero consultamos solamente el último ID de activity_changes.
+        const changeState = await tursoService.readCloudSyncVersion(cloudChangeTokenRef.current);
+        if (!forceReload && !changeState.changed) {
+          setTursoState((prev) => ({
+            ...prev,
+            isConnected: true,
+            isSyncing: false,
+            statusText: 'Sin cambios nuevos en Turso DB',
+            errorMessage: null,
+          }));
+          return;
         }
-
-        setNotifications((prev) => {
-          const prevKey = JSON.stringify(prev);
-          const newKey = JSON.stringify(incoming);
-          return prevKey === newKey ? prev : incoming;
-        });
-
-        // Emerger toasts flotantes y sonido si no es la carga inicial
-        if (isInitialSyncDoneRef.current && brandNewFromCloud.length > 0) {
-          for (const notif of brandNewFromCloud) {
-            const isForClient =
-              (notif.targetRole === 'client' || notif.targetRole === 'all') &&
-              (!notif.targetCustomerId || (currentCustomer && notif.targetCustomerId === currentCustomer.id));
-            const isForAdmin =
-              notif.targetRole === 'seller' ||
-              notif.targetRole === 'all' ||
-              !notif.targetRole ||
-              isAdminActive ||
-              mode === 'erp';
-
-            if (isForClient || isForAdmin) {
-              setActivePushToasts((prev) => [notif, ...prev.filter((t) => t.id !== notif.id).slice(0, 2)]);
-              playNotificationSound(notif.type === 'order_status' ? 'order_status' : 'alert');
-              setTimeout(() => {
-                dismissPushToast(notif.id);
-              }, 7000);
+  
+        const cloudData = await tursoService.loadAllData();
+  
+        // Turso es la fuente de verdad cuando está configurado. Incluso una
+        // tabla vacía debe reemplazar el snapshot local para impedir que datos
+        // antiguos/demo de localStorage reaparezcan en una base nueva o limpia.
+        setProducts(cloudData.products);
+        setCategories(cloudData.categories);
+        setUnits(cloudData.units);
+        setCustomers(cloudData.customers);
+        setSuppliers(cloudData.suppliers);
+        setOrders(cloudData.orders);
+        setInvoices(cloudData.invoices);
+        setReceivables(cloudData.receivables);
+        setPayables(cloudData.payables);
+        setPurchaseEntries(cloudData.purchaseEntries);
+        setUsers(cloudData.users);
+        if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
+          const incoming = cloudData.notifications;
+          const brandNewFromCloud: AppNotification[] = [];
+  
+          for (const n of incoming) {
+            if (!seenNotificationIdsRef.current.has(n.id)) {
+              seenNotificationIdsRef.current.add(n.id);
+              brandNewFromCloud.push(n);
+            }
+          }
+  
+          setNotifications((prev) => {
+            const prevKey = JSON.stringify(prev);
+            const newKey = JSON.stringify(incoming);
+            return prevKey === newKey ? prev : incoming;
+          });
+  
+          // Emerger toasts flotantes y sonido si no es la carga inicial
+          if (isInitialSyncDoneRef.current && brandNewFromCloud.length > 0) {
+            for (const notif of brandNewFromCloud) {
+              const isForClient =
+                (notif.targetRole === 'client' || notif.targetRole === 'all') &&
+                (!notif.targetCustomerId || (currentCustomer && notif.targetCustomerId === currentCustomer.id));
+              const isForAdmin =
+                notif.targetRole === 'seller' ||
+                notif.targetRole === 'all' ||
+                !notif.targetRole ||
+                isAdminActive ||
+                mode === 'erp';
+  
+              if (isForClient || isForAdmin) {
+                setActivePushToasts((prev) => [notif, ...prev.filter((t) => t.id !== notif.id).slice(0, 2)]);
+                playNotificationSound(notif.type === 'order_status' ? 'order_status' : 'alert');
+                setTimeout(() => {
+                  dismissPushToast(notif.id);
+                }, 7000);
+              }
             }
           }
         }
+        isInitialSyncDoneRef.current = true;
+  
+        if (cloudData.settings) {
+          setSettings(cloudData.settings);
+        } else {
+          setSettings(EMPTY_SYSTEM_SETTINGS);
+        }
+  
+        // Guardamos exactamente el cursor que devolvió el servidor. Si otra
+        // operación ocurre durante la lectura, el siguiente ciclo la detectará.
+        cloudChangeTokenRef.current = changeState.latestId;
+  
+        setTursoState({
+          isConnected: true,
+          isSyncing: false,
+          statusText: 'Sincronizado con Turso DB',
+          lastSyncTime: new Date().toISOString(),
+          errorMessage: null,
+          tablesCreated: [
+            'products', 'categories', 'units', 'customers', 'suppliers',
+            'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
+            'inventory_movements', 'sync_operations', 'system_users', 'system_settings', 'bcv_history'
+          ],
+          totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
+        });
+      } catch (err: any) {
+        console.error('Error syncing with Turso:', err);
+        setTursoState((prev) => ({
+          ...prev,
+          isSyncing: false,
+          errorMessage: err.message || 'Fallo de sincronización',
+        }));
       }
-      isInitialSyncDoneRef.current = true;
+  
+    })();
 
-      if (cloudData.settings) {
-        setSettings(cloudData.settings);
-      } else {
-        setSettings(EMPTY_SYSTEM_SETTINGS);
-      }
-
-      // Guardamos exactamente el cursor que devolvió el servidor. Si otra
-      // operación ocurre durante la lectura, el siguiente ciclo la detectará.
-      cloudChangeTokenRef.current = changeState.latestId;
-
-      setTursoState({
-        isConnected: true,
-        isSyncing: false,
-        statusText: 'Sincronizado con Turso DB',
-        lastSyncTime: new Date().toISOString(),
-        errorMessage: null,
-        tablesCreated: [
-          'products', 'categories', 'units', 'customers', 'suppliers',
-          'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
-          'inventory_movements', 'sync_operations', 'system_users', 'system_settings', 'bcv_history'
-        ],
-        totalRecordsInCloud: (cloudData.products.length || 0) + (cloudData.orders.length || 0),
-      });
-    } catch (err: any) {
-      console.error('Error syncing with Turso:', err);
-      setTursoState((prev) => ({
-        ...prev,
-        isSyncing: false,
-        errorMessage: err.message || 'Fallo de sincronización',
-      }));
-    }
+    syncInFlightRef.current = run.finally(() => {
+      syncInFlightRef.current = null;
+    });
+    return syncInFlightRef.current;
   };
 
   // Initial Turso Auto-Init on component mount.
@@ -3148,7 +3161,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addSupplier = (supplier: Omit<Supplier, 'id'>): Supplier => {
     const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
     setSuppliers((prev) => [newSup, ...prev]);
-    void tursoService.saveSupplier(newSup).then(() => syncWithTurso(true)).catch((error) => console.error('Error saving supplier to Turso:', error));
+
+    // La UI recibe el proveedor inmediatamente, pero la escritura cloud debe
+    // confirmarse antes de pedir un snapshot completo. Así evitamos que una
+    // lectura concurrente vuelva a cargar una versión anterior de suppliers.
+    tursoService.saveSupplier(newSup)
+      .then(() => syncWithTurso(true))
+      .catch((error) => console.error('Error saving supplier to Turso:', error));
+
     return newSup;
   };
 
