@@ -108,16 +108,21 @@ class TursoService {
    * Ejecuta automáticamente todas las sentencias DDL para crear las tablas si no existen.
    */
   public async autoBootstrapSchema(): Promise<{ success: boolean; tables: string[]; error?: string }> {
+    const client = this.getClient();
+    if (!client) {
+      return { success: false, tables: [], error: 'Turso URL no configurada' };
+    }
+
     // Fast path: la base ya fue inicializada. En cada recarga no debemos
     // repetir decenas de CREATE/ALTER/DROP/TRIGGER contra Turso porque eso
     // bloqueaba la entrada durante varios segundos. El marcador vive en Turso,
     // por lo que funciona igual para todos los dispositivos.
-    const schemaMarker = await client.execute(\
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='omni_schema_meta' LIMIT 1`\
+    const schemaMarker = await client.execute(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='omni_schema_meta' LIMIT 1`
     );
     if (schemaMarker.rows.length > 0) {
-      const versionRow = await client.execute(\
-        `SELECT version FROM omni_schema_meta WHERE id='main' LIMIT 1`\
+      const versionRow = await client.execute(
+        `SELECT version FROM omni_schema_meta WHERE id='main' LIMIT 1`
       );
       if (versionRow.rows.length > 0) {
         return {
@@ -125,11 +130,6 @@ class TursoService {
           tables: ['schema_ready'],
         };
       }
-    }
-
-    const client = this.getClient();
-    if (!client) {
-      return { success: false, tables: [], error: 'Turso URL no configurada' };
     }
 
     const tablesCreated: string[] = [];
@@ -651,8 +651,8 @@ class TursoService {
 
       // Marca la versión de esquema ya inicializada. Las siguientes cargas de
       // cualquier dispositivo usarán el fast path y no repetirán el bootstrap.
-      await client.execute(\
-        `CREATE TABLE IF NOT EXISTS omni_schema_meta (id TEXT PRIMARY KEY, version TEXT NOT NULL, updated_at TEXT NOT NULL)`\
+      await client.execute(
+        `CREATE TABLE IF NOT EXISTS omni_schema_meta (id TEXT PRIMARY KEY, version TEXT NOT NULL, updated_at TEXT NOT NULL)`
       );
       await client.execute({
         sql: `INSERT OR REPLACE INTO omni_schema_meta (id, version, updated_at) VALUES ('main', ?, ?)`,
