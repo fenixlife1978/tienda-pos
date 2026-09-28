@@ -21,6 +21,10 @@ import {
   Sparkles,
   Package,
   Layers,
+  Database,
+  AlertTriangle,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -54,10 +58,14 @@ export const Header: React.FC = () => {
     logoutCustomer,
     setIsBcvPanelOpen,
     setIsCategoryUnitModalOpen,
+    tursoState,
+    syncWithTurso,
   } = useApp();
 
   const [isUpdatingBcv, setIsUpdatingBcv] = useState(false);
   const [showBcvModal, setShowBcvModal] = useState(false);
+  const [showTursoModal, setShowTursoModal] = useState(false);
+  const [isForcingSync, setIsForcingSync] = useState(false);
   const [customBcvInput, setCustomBcvInput] = useState(settings.bcvRate.toString());
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
@@ -165,6 +173,32 @@ export const Header: React.FC = () => {
                 >
                   <RefreshCw className="w-3 h-3 text-emerald-700" />
                 </span>
+              </button>
+            </div>
+
+            {/* Turso Cloud Database Status Badge */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowTursoModal(true)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer shadow-2xs ${
+                  tursoState.isSyncing
+                    ? 'bg-amber-50 text-amber-900 border-amber-300'
+                    : tursoState.isConnected
+                    ? 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100'
+                    : 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100 animate-pulse'
+                }`}
+                title="Estado de conexión con la base de datos central en la nube (Turso DB)"
+              >
+                <Database className={`w-3.5 h-3.5 shrink-0 ${tursoState.isConnected ? 'text-indigo-600' : 'text-rose-600'}`} />
+                <span className="hidden sm:inline">
+                  {tursoState.isSyncing
+                    ? 'Sincronizando...'
+                    : tursoState.isConnected
+                    ? 'Turso Cloud: En Línea'
+                    : 'Turso: Modo Local'}
+                </span>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${tursoState.isConnected ? 'bg-emerald-500 animate-ping' : 'bg-rose-500'}`} />
               </button>
             </div>
 
@@ -533,6 +567,93 @@ export const Header: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Turso Cloud DB Connection Status & Diagnostics Modal */}
+      {showTursoModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 relative">
+            <button
+              onClick={() => setShowTursoModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`p-3 rounded-2xl ${tursoState.isConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                <Database className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-slate-900">Estado de Base de Datos Cloud</h3>
+                <p className="text-xs text-slate-500">Turso LibSQL Central Database</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-xs font-semibold text-slate-600">Estado de Conexión:</span>
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${
+                  tursoState.isConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${tursoState.isConnected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  {tursoState.isConnected ? 'En Línea (Conectado)' : 'Desconectado (Modo Local)'}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-500 block">Detalle de Sincronización:</span>
+                <p className="text-xs font-medium text-slate-800">{tursoState.statusText || 'Sin información'}</p>
+                {tursoState.lastSyncTime && (
+                  <p className="text-[10px] text-slate-400">
+                    Última sincronización: {new Date(tursoState.lastSyncTime).toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+
+              {tursoState.errorMessage && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <span>Error de Conexión con la Nube:</span>
+                  </div>
+                  <p className="text-xs font-mono bg-rose-100/60 p-2 rounded-lg text-rose-900 break-words">
+                    {tursoState.errorMessage}
+                  </p>
+                  <p className="text-[10px] text-rose-700 italic pt-1">
+                    Sugerencia: Si estás en Vercel, verifica que las variables TURSO_DATABASE_URL y TURSO_AUTH_TOKEN estén configuradas en las Variables de Entorno del proyecto.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowTursoModal(false)}
+                className="w-1/2 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsForcingSync(true);
+                  try {
+                    await syncWithTurso(true);
+                  } finally {
+                    setIsForcingSync(false);
+                  }
+                }}
+                disabled={isForcingSync}
+                className="w-1/2 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isForcingSync ? 'animate-spin' : ''}`} />
+                <span>{isForcingSync ? 'Sincronizando...' : 'Forzar Sincronización'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
