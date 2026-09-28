@@ -2775,7 +2775,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           {isQuickSupplierOpen && (
             <div className="fixed inset-0 z-[90] bg-slate-950/55 backdrop-blur-sm flex items-center justify-center p-3" onClick={() => setIsQuickSupplierOpen(false)}>
               <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                <form onSubmit={handleCreateQuickSupplier}>
+                <div>
                   <div className="flex items-center justify-between px-5 py-4 bg-indigo-50 border-b border-indigo-100">
                     <div><h3 className="font-black text-slate-900">Nuevo proveedor</h3><p className="text-[11px] text-slate-600">Se crea y queda seleccionado para este producto.</p></div>
                     <button type="button" onClick={() => setIsQuickSupplierOpen(false)} className="p-1.5 rounded-lg hover:bg-indigo-100"><X className="w-5 h-5" /></button>
@@ -2802,9 +2802,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   </div>
                   <div className="px-5 py-4 bg-slate-50 border-t flex justify-end gap-2">
                     <button type="button" onClick={() => setIsQuickSupplierOpen(false)} className="px-4 py-2 rounded-xl border border-slate-300 font-bold text-xs">Cancelar</button>
-                    <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs">Crear y seleccionar</button>
+                    <button type="button" onClick={(e) => { e.preventDefault(); handleCreateQuickSupplier(e as any); }} className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs">Crear y seleccionar</button>
                   </div>
-                </form>
+                </div>
               </div>
             </div>
           )}
