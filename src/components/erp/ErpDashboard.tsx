@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ErpNavbar, ErpTab } from './ErpNavbar';
 import { SalesDashboardView } from './SalesDashboardView';
@@ -18,7 +18,23 @@ import { InventoryTransfersView } from './InventoryTransfersView';
 
 export const ErpDashboard: React.FC = () => {
   const { orders, products, receivables, customers } = useApp();
-  const [activeTab, setActiveTab] = useState<ErpTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<ErpTab>(() => {
+    const saved = localStorage.getItem('omni_erp_active_tab') as ErpTab | null;
+    return saved || 'dashboard';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('omni_erp_active_tab', activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const tab = (event as CustomEvent<string>).detail as ErpTab;
+      if (tab) setActiveTab(tab);
+    };
+    window.addEventListener('omni-restore-erp-tab', handler);
+    return () => window.removeEventListener('omni-restore-erp-tab', handler);
+  }, []);
 
   // Count badges for the ERP tabs
   const pendingOrdersCount = orders.filter(
