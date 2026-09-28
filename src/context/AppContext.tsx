@@ -258,7 +258,7 @@ interface AppContextType {
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: string) => { success: boolean; message: string };
-  resetSystemToFactory: () => void;
+  resetSystemToFactory: () => Promise<void>;
   refreshBcvRate: () => Promise<number>;
   updateSettings: (settings: Partial<SystemSettings>) => void;
   markNotificationAsRead: (id: string) => void;
@@ -425,7 +425,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error('Error al cargar omni_users:', e);
       }
     }
-    return INITIAL_USERS;
+    return [INITIAL_GENERIC_ADMIN];
   });
 
   const [currentUser, setCurrentUser] = useState<User>(() => {
@@ -3231,15 +3231,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: 'Usuario eliminado exitosamente' };
   };
 
-  const resetSystemToFactory = () => {
-    // Local state is immediately returned to a clean installation state.
-    const localKeys = [
-      'omni_users', 'omni_settings', 'omni_customers', 'omni_products', 'omni_categories',
-      'omni_units', 'omni_cart', 'omni_orders', 'omni_invoices', 'omni_receivables',
-      'omni_payables', 'omni_suppliers', 'omni_purchase_entries', 'omni_notifications',
-      'omni_automated_reminders', 'omni_active_customer_id', 'omni_mode',
-    ];
-    localKeys.forEach((key) => localStorage.removeItem(key));
+  const resetSystemToFactory = async () => {
+    // El reinicio es destructivo y primero limpia Turso. Solo después
+    // limpiamos el navegador para impedir que un snapshot local vuelva a aparecer.
+    await tursoService.resetDatabase();
+
+    offlineSyncService.clearPendingSnapshots();
+
+    // Eliminar cualquier dato persistido de esta aplicación, incluso claves
+    // agregadas por módulos nuevos en el futuro.
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('omni_')) {
+        localStorage.removeItem(key);
+      }
+    }
 
     setUsers([INITIAL_GENERIC_ADMIN]);
     setCurrentUser(INITIAL_GENERIC_ADMIN);
@@ -3260,7 +3266,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsAdminActive(false);
     setMode('store');
     setActivePushToasts([]);
+    seenNotificationIdsRef.current.clear();
+    isInitialSyncDoneRef.current = false;
+    cloudChangeTokenRef.current = 0;
 
+    setTursoState({
+      isConnected: true,
+      isSyncing: false,
+      statusText: 'Sistema reiniciado: solo queda el administrador semilla',
+      lastSyncTime: new Date().toISOString(),
+      errorMessage: null,
+      tablesCreated: ['schema_ready'],
+      totalRecordsInCloud: 0,
+    });
   };
 
 
