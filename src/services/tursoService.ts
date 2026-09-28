@@ -268,6 +268,10 @@ class TursoService {
         );
       `);
       tablesCreated.push('suppliers');
+      try { await client.execute('ALTER TABLE suppliers ADD COLUMN contact_name TEXT'); } catch {}
+      try { await client.execute('ALTER TABLE suppliers ADD COLUMN address TEXT'); } catch {}
+      try { await client.execute('ALTER TABLE suppliers ADD COLUMN credit_limit_usd REAL DEFAULT 0'); } catch {}
+
 
       // 7. orders
       await client.execute(`
@@ -891,7 +895,10 @@ class TursoService {
           phone: String(row.phone || ''),
           email: String(row.email || ''),
           contactPerson: String(row.contact_person || ''),
+          contactName: String(row.contact_name || row.contact_person || ''),
+          address: String(row.address || ''),
           creditDays: Number(row.credit_days || 15),
+          creditLimitUSD: Number(row.credit_limit_usd || 0),
         });
       }
     } catch (e) {
@@ -1396,20 +1403,26 @@ class TursoService {
     await client.execute({
       sql: `
         INSERT OR REPLACE INTO suppliers (
-          id, name, rif, phone, email, contact_person, credit_days, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          id, name, rif, phone, email, contact_person, contact_name,
+          address, credit_days, credit_limit_usd, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
-        s.id,
-        s.name,
-        s.rif,
-        s.phone,
-        s.email,
-        s.contactPerson,
+        s.id, s.name, s.rif, s.phone, s.email,
+        s.contactPerson || s.contactName || '',
+        s.contactName || s.contactPerson || '',
+        s.address || '',
         s.creditDays || 15,
+        s.creditLimitUSD || 0,
         new Date().toISOString(),
       ],
     });
+  }
+
+  public async deleteSupplier(supplierId: string) {
+    const client = this.getClient();
+    if (!client) return;
+    await client.execute({ sql: 'DELETE FROM suppliers WHERE id = ?', args: [supplierId] });
   }
 
   public async saveOrder(o: Order) {
