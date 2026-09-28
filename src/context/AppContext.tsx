@@ -872,7 +872,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const initTursoOnMount = async () => {
       if (tursoService.isConfigured()) {
         offlineSyncService.clearPendingSnapshots();
-        await bootstrapTursoSchema();
+
+        // La inicialización del esquema ocurre una sola vez por dispositivo.
+        // En recargas posteriores no bloqueamos la interfaz esperando DDL de Turso.
+        const schemaReady = localStorage.getItem('omni_turso_schema_ready') === '1';
+        if (!schemaReady) {
+          const bootstrap = await bootstrapTursoSchema();
+          if (bootstrap.success) {
+            localStorage.setItem('omni_turso_schema_ready', '1');
+          }
+        }
+
+        // El snapshot de Turso se carga inmediatamente; no se vuelve a crear
+        // tablas ni se espera a que termine un bootstrap en cada F5.
         await syncWithTurso(true);
         offlineSyncReadyRef.current = true;
       } else {
@@ -925,7 +937,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('Automatic Turso change check failed:', error);
         }
       }
-      if (!cancelled) timer = window.setTimeout(tick, 1000);
+      if (!cancelled) timer = window.setTimeout(tick, 500);
     };
 
     timer = window.setTimeout(tick, 1000);
