@@ -249,8 +249,8 @@ interface AppContextType {
     notes?: string
   ) => void;
   addPayableInvoice: (payable: Omit<PayableItem, 'id'>) => void;
-  addSupplier: (supplier: Omit<Supplier, 'id'>) => Supplier;
-  updateSupplier: (supplier: Supplier) => void;
+  addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<Supplier>;
+  updateSupplier: (supplier: Supplier) => Promise<void>;
   deleteSupplier: (supplierId: string) => { success: boolean; message: string };
   processPurchaseEntry: (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>) => {
     success: boolean;
@@ -3158,17 +3158,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving payable to Turso:', error));
   };
 
-  const addSupplier = (supplier: Omit<Supplier, 'id'>): Supplier => {
+  const addSupplier = async (supplier: Omit<Supplier, 'id'>): Promise<Supplier> => {
     const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
-    setSuppliers((prev) => [newSup, ...prev]);
 
-    // La UI recibe el proveedor inmediatamente, pero la escritura cloud debe
-    // confirmarse antes de pedir un snapshot completo. Así evitamos que una
-    // lectura concurrente vuelva a cargar una versión anterior de suppliers.
-    tursoService.saveSupplier(newSup)
-      .then(() => syncWithTurso(true))
-      .catch((error) => console.error('Error saving supplier to Turso:', error));
-
+    // Turso es la fuente de verdad: primero confirmamos la escritura y solo
+    // después publicamos el proveedor en el estado local. Así un proveedor no
+    // puede aparecer como creado si la escritura cloud falló.
+    await tursoService.saveSupplier(newSup);
+    setSuppliers((prev) => [newSup, ...prev.filter((s) => s.id !== newSup.id)]);
+    await syncWithTurso(true);
     return newSup;
   };
 
@@ -3224,9 +3222,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, purchaseEntry: newEntry };
   };
 
-  const updateSupplier = (supplier: Supplier) => {
+  const updateSupplier = async (supplier: Supplier): Promise<void> => {
+    await tursoService.saveSupplier(supplier);
     setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
-    void tursoService.saveSupplier(supplier).catch((error) => console.error('Error updating supplier in Turso:', error));
+    await syncWithTurso(true);
   };
 
   const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
