@@ -627,6 +627,7 @@ export const Header: React.FC = () => {
                     Sugerencia: Si estás en Vercel, verifica que las variables TURSO_DATABASE_URL y TURSO_AUTH_TOKEN estén configuradas en las Variables de Entorno del proyecto.
                   </p>
                 </div>
+              )}
               {offlineSyncService.pendingCount() > 0 && (
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-center justify-between gap-2">
                   <div className="text-xs">
