@@ -794,7 +794,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       costUSD: rawCostUSD,
       additionalExpensesPercent,
       realCostUSD,
-      lastCostUSD: parseFreeTextInput(lastCostUSDStr, rawCostUSD),
+      lastCostUSD: productToEdit ? parseFreeTextInput(lastCostUSDStr, rawCostUSD) : realCostUSD,
 
       // Métodos de fijación de precios y márgenes
       pricingMethod,
@@ -1424,9 +1424,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         required
                         value={costUSDStr}
                         onChange={(e) => {
-                          if (isValidDecimalInput(e.target.value)) {
-                            setCostUSDStr(e.target.value);
-                          }
+                          setCostUSDStr(e.target.value);
                         }}
                         placeholder="10.00"
                         className="w-full pl-6 pr-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500"
@@ -1447,9 +1445,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         inputMode="decimal"
                         value={additionalExpensesPercentStr}
                         onChange={(e) => {
-                          if (isValidDecimalInput(e.target.value)) {
-                            setAdditionalExpensesPercentStr(e.target.value);
-                          }
+                          setAdditionalExpensesPercentStr(e.target.value);
                         }}
                         placeholder="0"
                         className="w-full px-3 py-1.5 border border-amber-300 rounded-lg font-mono font-bold text-amber-900 text-sm focus:ring-2 focus:ring-amber-500"
@@ -1480,12 +1476,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={lastCostUSDStr}
-                        onChange={(e) => {
-                          if (isValidDecimalInput(e.target.value)) {
-                            setLastCostUSDStr(e.target.value);
-                          }
-                        }}
+                        value={productToEdit ? lastCostUSDStr : formatPlainNumber(realCostUSD, 6)}
+                        readOnly
                         placeholder="10.00"
                         className="w-full pl-6 pr-3 py-1.5 border border-slate-300 rounded-lg font-mono font-semibold text-slate-700 text-sm"
                       />
@@ -1581,9 +1573,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                             inputMode="decimal"
                             value={profitMarginPercentStr}
                             onChange={(e) => {
-                              if (isValidDecimalInput(e.target.value)) {
-                                setProfitMarginPercentStr(e.target.value);
-                              }
+                              setProfitMarginPercentStr(e.target.value);
                             }}
                             placeholder="30"
                             className="w-full px-3 py-1.5 border border-emerald-300 rounded-lg font-mono font-bold text-emerald-900 text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
@@ -1605,9 +1595,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                             inputMode="decimal"
                             value={gapPercentStr}
                             onChange={(e) => {
-                              if (isValidDecimalInput(e.target.value)) {
-                                setGapPercentStr(e.target.value);
-                              }
+                              setGapPercentStr(e.target.value);
                             }}
                             placeholder="10"
                             className="w-full px-3 py-1.5 border border-blue-300 rounded-lg font-mono font-bold text-blue-900 text-sm focus:ring-2 focus:ring-blue-500 bg-white"
@@ -1629,9 +1617,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                             inputMode="decimal"
                             value={manualPriceUSDStr}
                             onChange={(e) => {
-                              if (isValidDecimalInput(e.target.value)) {
-                                setManualPriceUSDStr(e.target.value);
-                              }
+                              setManualPriceUSDStr(e.target.value);
                             }}
                             placeholder="13.00"
                             className="w-full pl-6 pr-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
@@ -1809,7 +1795,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixPublicoMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixPublicoMarginStr(e.target.value);
+                                setMatrixPublicoMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
@@ -1849,7 +1835,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixMayoristaMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixMayoristaMarginStr(e.target.value);
+                                setMatrixMayoristaMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
@@ -1889,7 +1875,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixDistribuidorMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixDistribuidorMarginStr(e.target.value);
+                                setMatrixDistribuidorMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
@@ -1929,7 +1915,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                               inputMode="decimal"
                               value={matrixEspecialMarginStr}
                               onChange={(e) => {
-                                if (isValidDecimalInput(e.target.value)) setMatrixEspecialMarginStr(e.target.value);
+                                setMatrixEspecialMarginStr(e.target.value);
                               }}
                               className="w-full px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs"
                             />
