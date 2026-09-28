@@ -871,7 +871,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const initTursoOnMount = async () => {
       if (tursoService.isConfigured()) {
-        offlineSyncService.clearPendingSnapshots();
+        // Un reinicio desde cero no puede dejar ventas/movimientos offline pendientes,
+    // porque podrían volver a Turso después del borrado y recrear los datos.
+    offlineSyncService.clearAllQueue();
 
         // La inicialización del esquema ocurre una sola vez por dispositivo.
         // En recargas posteriores no bloqueamos la interfaz esperando DDL de Turso.
