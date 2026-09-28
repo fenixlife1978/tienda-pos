@@ -1116,6 +1116,28 @@ class TursoService {
     return { changed: currentToken !== token, token: currentToken };
   }
 
+  /**
+   * Cursor global de cambios, siguiendo el patrón probado de sistema-gestion.
+   * Solo consulta el último ID de activity_changes; no depende de contadores
+   * de tablas ni de estado/localStorage del navegador.
+   */
+  public async readCloudSyncVersion(since = 0): Promise<{ changed: boolean; latestId: number }> {
+    const response = await fetch('/api/sync?since=' + encodeURIComponent(String(Math.max(0, since))), {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(data.error || 'Sincronización cloud no disponible'));
+    }
+    return {
+      changed: Boolean(data.changed),
+      latestId: Number(data.latest_id || 0),
+    };
+  }
+
   // --- SAVE INDIVIDUAL ENTITIES ---
 
   public async saveSettings(settings: SystemSettings) {
