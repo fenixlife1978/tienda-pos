@@ -177,32 +177,6 @@ export const Header: React.FC = () => {
               </button>
             </div>
 
-            {/* Turso Cloud Database Status Badge */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowTursoModal(true)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer shadow-2xs ${
-                  tursoState.isSyncing
-                    ? 'bg-amber-50 text-amber-900 border-amber-300'
-                    : tursoState.isConnected
-                    ? 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100'
-                    : 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100 animate-pulse'
-                }`}
-                title="Estado de conexión con la base de datos central en la nube (Turso DB)"
-              >
-                <Database className={`w-3.5 h-3.5 shrink-0 ${tursoState.isConnected ? 'text-indigo-600' : 'text-rose-600'}`} />
-                <span className="hidden sm:inline">
-                  {tursoState.isSyncing
-                    ? 'Sincronizando...'
-                    : tursoState.isConnected
-                    ? 'Turso Cloud: En Línea'
-                    : 'Turso: Modo Local'}
-                </span>
-                <span className={`w-2 h-2 rounded-full shrink-0 ${tursoState.isConnected ? 'bg-emerald-500 animate-ping' : 'bg-rose-500'}`} />
-              </button>
-            </div>
-
             {/* Categorías y Unidades Quick Access (Admin / ERP) */}
             {isAdminActive && (
               <div className="relative hidden md:block">
