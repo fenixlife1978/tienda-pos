@@ -125,11 +125,28 @@ class TursoService {
         `SELECT version FROM omni_schema_meta WHERE id='main' LIMIT 1`
       );
       if (versionRow.rows.length > 0) {
-        return {
-          success: true,
-          tables: ['schema_ready'],
-        };
+        return { success: true, tables: ['schema_ready'] };
       }
+    }
+
+    // Compatibilidad con bases creadas antes del marcador. Si el esquema
+    // operativo ya existe, solo registramos el marcador y evitamos repetir el
+    // bootstrap completo en el primer dispositivo que se conecte tras esta versión.
+    const coreSchema = await client.execute(`
+      SELECT COUNT(*) AS n
+      FROM sqlite_master
+      WHERE type='table'
+        AND name IN ('products','system_users','activity_changes','cash_sessions','cash_movements','system_notifications')
+    `);
+    if (Number(coreSchema.rows[0]?.n || 0) >= 6) {
+      await client.execute(
+        `CREATE TABLE IF NOT EXISTS omni_schema_meta (id TEXT PRIMARY KEY, version TEXT NOT NULL, updated_at TEXT NOT NULL)`
+      );
+      await client.execute({
+        sql: `INSERT OR REPLACE INTO omni_schema_meta (id, version, updated_at) VALUES ('main', ?, ?)`,
+        args: ['realtime-sync-v1', new Date().toISOString()],
+      });
+      return { success: true, tables: ['schema_ready'] };
     }
 
     const tablesCreated: string[] = [];
