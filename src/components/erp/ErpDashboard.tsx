@@ -7,6 +7,7 @@ import { OrdersManagementView } from './OrdersManagementView';
 import { CustomerRequestsManagementView } from './CustomerRequestsManagementView';
 import { InventoryView } from './InventoryView';
 import { PurchasesEntryView } from './PurchasesEntryView';
+import { SupplierManagementView } from './SupplierManagementView';
 import { ProfitabilityMarginView } from './ProfitabilityMarginView';
 import { PromotionsManagementView } from './PromotionsManagementView';
 import { AccountsReceivableView } from './AccountsReceivableView';
@@ -71,6 +72,7 @@ export const ErpDashboard: React.FC = () => {
         {activeTab === 'inventario' && <InventoryView />}
         {activeTab === 'almacenes' && <InventoryTransfersView />}
         {activeTab === 'entradas_compras' && <PurchasesEntryView />}
+        {activeTab === 'proveedores' && <SupplierManagementView />}
         {activeTab === 'rentabilidad' && <ProfitabilityMarginView />}
         {activeTab === 'promociones' && <PromotionsManagementView />}
         {activeTab === 'cxc' && <AccountsReceivableView />}
