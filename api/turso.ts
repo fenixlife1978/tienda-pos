@@ -74,6 +74,69 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    if (body.operation === 'resetDatabase') {
+      // Reinicio destructivo: solo puede ejecutarlo una sesión administrativa válida.
+      const cookieHeader = String(req.headers?.cookie || '');
+      const match = cookieHeader.match(/(?:^|;\\s*)tienda_pos_session=([^;]+)/);
+      const sessionId = match ? decodeURIComponent(match[1]) : '';
+      if (!sessionId) return res.status(401).json({ error: 'Sesión administrativa requerida' });
+
+      const auth = await client.execute({
+        sql: `SELECT u.id, u.role, u.active
+              FROM auth_sessions s
+              JOIN system_users u ON u.id = s.user_id
+              WHERE s.id = ? AND s.revoked_at IS NULL
+                AND s.expires_at > datetime('now')
+                AND u.active = 1
+              LIMIT 1`,
+        args: [sessionId],
+      });
+      const authRow: any = auth.rows[0];
+      if (!authRow || String(authRow.role) !== 'admin') {
+        return res.status(403).json({ error: 'Solo un administrador puede reiniciar el sistema' });
+      }
+
+      const tx = await client.transaction('write');
+      try {
+        const tablesResult = await tx.execute(`
+          SELECT name FROM sqlite_master
+          WHERE type='table'
+            AND name NOT LIKE 'sqlite_%'
+            AND name NOT IN ('omni_schema_meta', 'activity_changes')
+          ORDER BY name
+        `);
+        const tables = tablesResult.rows
+          .map((row: any) => String(row.name))
+          .filter((name) => /^[A-Za-z0-9_]+$/.test(name));
+
+        for (const table of tables) {
+          await tx.execute(`DELETE FROM "${table}"`);
+        }
+
+        // El cursor también se limpia para que el próximo snapshot sea limpio.
+        await tx.execute('DELETE FROM activity_changes');
+
+        // Único dato operativo que permanece después del reinicio.
+        await tx.execute({
+          sql: `INSERT INTO system_users
+            (id, name, email, role, active, password, is_initial_generic, created_at)
+            VALUES ('usr-admin-initial', 'Administrador Principal', 'admin', 'admin', 1, 'Admin123!', 1, ?)`,
+          args: [new Date().toISOString().split('T')[0]],
+        });
+
+        await tx.commit();
+        return res.status(200).json({
+          ok: true,
+          reset: true,
+          preserved: 'usr-admin-initial',
+          deletedTables: tables,
+        });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
     if (body.operation === 'execute') {
       const result = await client.execute({ sql: String(body.sql || ''), args: argsOf(body.args) as any });
       return res.status(200).json({
