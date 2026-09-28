@@ -715,6 +715,25 @@ class TursoService {
     }
   }
 
+  /** Reinicio total de datos: Turso queda vacío salvo el administrador semilla. */
+  public async resetDatabase(): Promise<{ ok: boolean; deletedTables: string[] }> {
+    const response = await fetch('/api/turso', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ operation: 'resetDatabase' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.ok) {
+      throw new Error(String(data?.error || 'No se pudo reiniciar Turso'));
+    }
+    return {
+      ok: true,
+      deletedTables: Array.isArray(data.deletedTables) ? data.deletedTables.map(String) : [],
+    };
+  }
+
   // --- CRUD METHODS FOR ENTITIES ---
 
   public async loadAllData(): Promise<{
