@@ -763,8 +763,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('Advertencia al procesar operaciones locales:', flushErr);
       }
 
-      // La señal de cambio es barata: consultamos el token de actividad.
-      const changeState = await tursoService.hasCloudChangesSince(cloudChangeTokenRef.current);
+      // Cursor global centralizado en Turso, igual que sistema-gestion:
+      // primero consultamos solamente el último ID de activity_changes.
+      const changeState = await tursoService.readCloudSyncVersion(cloudChangeTokenRef.current);
       if (!forceReload && !changeState.changed) {
         setTursoState((prev) => ({
           ...prev,
@@ -840,9 +841,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSettings(EMPTY_SYSTEM_SETTINGS);
       }
 
-      // Capturamos el token DESPUÉS de leer el snapshot. Si otra operación
-      // ocurre durante la lectura, el siguiente ciclo la detectará.
-      cloudChangeTokenRef.current = await tursoService.getCloudChangeToken();
+      // Guardamos exactamente el cursor que devolvió el servidor. Si otra
+      // operación ocurre durante la lectura, el siguiente ciclo la detectará.
+      cloudChangeTokenRef.current = changeState.latestId;
 
       setTursoState({
         isConnected: true,
@@ -922,15 +923,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       syncWithTurso().catch((error) => console.warn('Periodic Turso change check failed:', error));
 
-      tursoService.loadUsers()
-        .then((cloudUsers) => {
-          setUsers((currentUsers) => {
-            const currentKey = JSON.stringify(currentUsers);
-            const cloudKey = JSON.stringify(cloudUsers);
-            return currentKey === cloudKey ? currentUsers : cloudUsers;
-          });
-        })
-        .catch((error) => console.warn('Periodic Turso users sync failed:', error));
+      // loadAllData() ya incluye system_users; no hacemos una segunda consulta
+      // independiente que pueda dejar la UI en un estado intermedio.
     }, 1500);
 
     return () => window.clearInterval(intervalId);
