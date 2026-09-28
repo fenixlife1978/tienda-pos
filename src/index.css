@@ -1,3 +1,82 @@
+/* ==========================================================================
+   Responsive foundation — ERP / POS desktop and laptop
+   ========================================================================== */
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+table {
+  max-width: 100%;
+}
+
+/*
+ * El ERP usa una escala adaptativa para pantallas de escritorio:
+ * - laptops/monitores pequeños: contrae proporcionalmente la interfaz
+ * - 1366px aprox.: escala 1:1
+ * - monitores grandes: permite crecer ligeramente sin dejar grandes márgenes
+ *
+ * No se aplica a teléfonos/tablets para no convertir la UI táctil en una
+ * miniatura. Los componentes siguen usando sus breakpoints responsive.
+ */
+@media (min-width: 768px) and (max-width: 1099px) {
+  #root {
+    zoom: 0.84;
+  }
+}
+
+@media (min-width: 1100px) and (max-width: 1279px) {
+  #root {
+    zoom: 0.92;
+  }
+}
+
+@media (min-width: 1920px) and (max-width: 2559px) {
+  #root {
+    zoom: 1.08;
+  }
+}
+
+@media (min-width: 2560px) {
+  #root {
+    zoom: 1.15;
+  }
+}
+
+/* Evita que tablas, tarjetas o grids fuercen el ancho total del documento. */
+.min-w-0 {
+  min-width: 0 !important;
+}
+
+/* ==========================================================================
+   Thermal Printer & POS Receipt Printing Styles & Media Queries
+   ========================================================================== */
+
 @import "tailwindcss";
 
 /* ==========================================================================
