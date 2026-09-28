@@ -25,7 +25,7 @@ export const SupplierManagementView: React.FC = () => {
     setIsOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = form.name.trim(), rif = form.rif.trim();
     if (!name || !rif) return;
@@ -35,9 +35,14 @@ export const SupplierManagementView: React.FC = () => {
       address: form.address.trim(), creditDays: Math.max(0, Number(form.creditDays) || 0),
       creditLimitUSD: Math.max(0, Number(form.creditLimitUSD.replace(',', '.')) || 0),
     };
-    if (editing) updateSupplier({ ...editing, ...payload });
-    else addSupplier(payload);
-    setIsOpen(false);
+    try {
+      if (editing) await updateSupplier({ ...editing, ...payload });
+      else await addSupplier(payload);
+      setIsOpen(false);
+    } catch (error: any) {
+      console.error('Error guardando proveedor:', error);
+      window.alert(error?.message || 'No se pudo guardar el proveedor en Turso.');
+    }
   };
 
   const handleDelete = (s: Supplier) => {
