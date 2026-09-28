@@ -157,15 +157,23 @@ export default async function handler(req: any, res: any) {
       const tx = await client.transaction('write');
       try {
         await tx.execute({
-          sql: \`INSERT OR REPLACE INTO suppliers
+          sql: `INSERT INTO suppliers
             (id, name, rif, phone, email, contact_person, contact_name, address, credit_days, credit_limit_usd, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM suppliers WHERE id = ?), ?))\`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM suppliers WHERE id = ?), ?))
+            ON CONFLICT(id) DO UPDATE SET
+              name=excluded.name,
+              rif=excluded.rif,
+              phone=excluded.phone,
+              email=excluded.email,
+              contact_person=excluded.contact_person,
+              contact_name=excluded.contact_name,
+              address=excluded.address,
+              credit_days=excluded.credit_days,
+              credit_limit_usd=excluded.credit_limit_usd`,
           args: [id, name, rif, String(s.phone || ''), String(s.email || ''), String(s.contactPerson || s.contactName || ''), String(s.contactName || s.contactPerson || ''), String(s.address || ''), Number(s.creditDays ?? 15), Number(s.creditLimitUSD ?? 0), id, now],
         });
-        await tx.execute({
-          sql: \`INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('suppliers', ?, 'upsert', ?)\`,
-          args: [id, now],
-        });
+        const verify = await tx.execute({ sql: 'SELECT id FROM suppliers WHERE id = ?', args: [id] });
+        if (!verify.rows.length) throw new Error('Proveedor no quedó persistido en Turso');
         await tx.commit();
         return res.status(200).json({ ok: true, supplierId: id });
       } catch (e) {
