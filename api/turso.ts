@@ -153,7 +153,11 @@ export default async function handler(req: any, res: any) {
       const name = String(s.name || '').trim();
       const rif = String(s.rif || '').trim();
       if (!id || !name || !rif) return res.status(400).json({ error: 'Proveedor incompleto' });
+
       const now = new Date().toISOString();
+      // Proveedor = maestro crítico: escritura + evento de sincronización en la
+      // misma transacción. No dependemos de triggers para que el cambio viaje
+      // a los demás dispositivos.
       const tx = await client.transaction('write');
       try {
         await tx.execute({
@@ -170,18 +174,54 @@ export default async function handler(req: any, res: any) {
               address=excluded.address,
               credit_days=excluded.credit_days,
               credit_limit_usd=excluded.credit_limit_usd`,
-          args: [id, name, rif, String(s.phone || ''), String(s.email || ''), String(s.contactPerson || s.contactName || ''), String(s.contactName || s.contactPerson || ''), String(s.address || ''), Number(s.creditDays ?? 15), Number(s.creditLimitUSD ?? 0), id, now],
+          args: [
+            id, name, rif,
+            String(s.phone || ''),
+            String(s.email || ''),
+            String(s.contactPerson || s.contactName || ''),
+            String(s.contactName || s.contactPerson || ''),
+            String(s.address || ''),
+            Number(s.creditDays ?? 15),
+            Number(s.creditLimitUSD ?? 0),
+            id, now,
+          ],
         });
-        const verify = await tx.execute({ sql: 'SELECT id FROM suppliers WHERE id = ?', args: [id] });
+
+        // Registrar el cambio de forma idempotente. Si los triggers de esquema
+        // también existen, no generamos un segundo evento para el mismo instante.
+        await tx.execute({
+          sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+                SELECT 'suppliers', ?, 'upsert', ?
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM activity_changes
+                  WHERE table_name = 'suppliers'
+                    AND entity_id = ?
+                    AND changed_at = ?
+                )`,
+          args: [id, now, id, now],
+        });
+
+        const verify = await tx.execute({
+          sql: 'SELECT id, name, rif FROM suppliers WHERE id = ?',
+          args: [id],
+        });
         if (!verify.rows.length) throw new Error('Proveedor no quedó persistido en Turso');
+
         await tx.commit();
-        return res.status(200).json({ ok: true, supplierId: id });
+
+        // Verificación posterior al COMMIT contra la conexión principal.
+        const persisted = await client.execute({
+          sql: 'SELECT id FROM suppliers WHERE id = ?',
+          args: [id],
+        });
+        if (!persisted.rows.length) throw new Error('Turso confirmó la escritura pero no se encontró el proveedor después del commit');
+
+        return res.status(200).json({ ok: true, supplierId: id, persisted: true });
       } catch (e) {
         try { await tx.rollback(); } catch {}
         throw e;
       }
     }
-
     if (body.operation === 'deleteSupplier') {
       const id = String(body.supplierId || '').trim();
       if (!id) return res.status(400).json({ error: 'Proveedor no indicado' });
