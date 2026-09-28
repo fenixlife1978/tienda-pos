@@ -45,7 +45,7 @@ export const CustomerRequestsManagementView: React.FC = () => {
   // State filters
   const [activeStatusFilter, setActiveStatusFilter] = useState<
     'all' | 'pending' | 'credit_requested' | 'verified' | 'rejected'
-  >('pending');
+  >('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBusinessType, setSelectedBusinessType] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');

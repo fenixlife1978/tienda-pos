@@ -42,12 +42,15 @@ export default async function handler(req: any, res: any) {
       });
 
       if (!seed.rows.length) {
-        await client.execute({
-          sql: `INSERT INTO system_users
-            (id,name,email,role,active,password,is_initial_generic,created_at)
-            VALUES ('usr-admin-initial','Administrador Principal','admin','admin',1,'Admin123!',1,?)`,
-          args: [new Date().toISOString().split('T')[0]]
-        });
+        const anyAdmin = await client.execute({ sql: `SELECT 1 FROM system_users WHERE role = 'admin' AND active = 1 LIMIT 1`, args: [] });
+        if (!anyAdmin.rows.length) {
+          await client.execute({
+            sql: `INSERT INTO system_users
+              (id,name,email,role,active,password,is_initial_generic,created_at)
+              VALUES ('usr-admin-initial','Administrador Principal','admin','admin',1,'Admin123!',1,?)`,
+            args: [new Date().toISOString().split('T')[0]]
+          });
+        }
       } else {
         const row: any = seed.rows[0];
         await client.execute({
