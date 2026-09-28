@@ -188,7 +188,7 @@ export default async function handler(req: any, res: any) {
       const tx = await client.transaction('write');
       try {
         const result = await tx.execute({ sql: 'DELETE FROM suppliers WHERE id = ?', args: [id] });
-        await tx.execute({ sql: \`INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('suppliers', ?, 'delete', ?)\`, args: [id, new Date().toISOString()] });
+        await tx.execute({ sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('suppliers', ?, 'delete', ?)`, args: [id, new Date().toISOString()] });
         await tx.commit();
         return res.status(200).json({ ok: true, deleted: Number(result.rowsAffected || 0) });
       } catch (e) {
