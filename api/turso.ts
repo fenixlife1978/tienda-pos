@@ -147,6 +147,48 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    if (body.operation === 'saveSupplier') {
+      const s = body.supplier || {};
+      const id = String(s.id || '').trim();
+      const name = String(s.name || '').trim();
+      const rif = String(s.rif || '').trim();
+      if (!id || !name || !rif) return res.status(400).json({ error: 'Proveedor incompleto' });
+      const now = new Date().toISOString();
+      const tx = await client.transaction('write');
+      try {
+        await tx.execute({
+          sql: \`INSERT OR REPLACE INTO suppliers
+            (id, name, rif, phone, email, contact_person, contact_name, address, credit_days, credit_limit_usd, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM suppliers WHERE id = ?), ?))\`,
+          args: [id, name, rif, String(s.phone || ''), String(s.email || ''), String(s.contactPerson || s.contactName || ''), String(s.contactName || s.contactPerson || ''), String(s.address || ''), Number(s.creditDays ?? 15), Number(s.creditLimitUSD ?? 0), id, now],
+        });
+        await tx.execute({
+          sql: \`INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('suppliers', ?, 'upsert', ?)\`,
+          args: [id, now],
+        });
+        await tx.commit();
+        return res.status(200).json({ ok: true, supplierId: id });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
+    if (body.operation === 'deleteSupplier') {
+      const id = String(body.supplierId || '').trim();
+      if (!id) return res.status(400).json({ error: 'Proveedor no indicado' });
+      const tx = await client.transaction('write');
+      try {
+        const result = await tx.execute({ sql: 'DELETE FROM suppliers WHERE id = ?', args: [id] });
+        await tx.execute({ sql: \`INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('suppliers', ?, 'delete', ?)\`, args: [id, new Date().toISOString()] });
+        await tx.commit();
+        return res.status(200).json({ ok: true, deleted: Number(result.rowsAffected || 0) });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
     if (body.operation === 'execute') {
       const result = await client.execute({ sql: String(body.sql || ''), args: argsOf(body.args) as any });
       return res.status(200).json({
