@@ -1433,36 +1433,7 @@ class TursoService {
   }
 
   public async saveSupplier(s: Supplier) {
-    const client = this.getClient();
-    if (!client) return;
-    const now = new Date().toISOString();
-    await client.execute({
-      sql: `
-        INSERT OR REPLACE INTO suppliers (
-          id, name, rif, phone, email, contact_person, contact_name,
-          address, credit_days, credit_limit_usd, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      args: [
-        s.id, s.name, s.rif, s.phone, s.email,
-        s.contactPerson || s.contactName || '',
-        s.contactName || s.contactPerson || '',
-        s.address || '',
-        s.creditDays || 15,
-        s.creditLimitUSD || 0,
-        now,
-      ],
-    });
-
-    // No dependemos exclusivamente de triggers antiguos de la base.
-    // Registrar explícitamente el cambio garantiza que /api/sync lo detecte
-    // en todos los dispositivos, incluso si el proveedor se creó antes
-    // de que existieran los triggers de actividad.
-    await client.execute({
-      sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-             VALUES ('suppliers', ?, 'upsert', ?)`,
-      args: [s.id, now],
-    });
+    await this.request('saveSupplier', { supplier: s });
   }
 
   public async deleteSupplier(supplierId: string) {
