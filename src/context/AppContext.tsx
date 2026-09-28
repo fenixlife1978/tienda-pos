@@ -249,8 +249,9 @@ interface AppContextType {
     notes?: string
   ) => void;
   addPayableInvoice: (payable: Omit<PayableItem, 'id'>) => void;
-  addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
+  addSupplier: (supplier: Omit<Supplier, 'id'>) => Supplier;
   updateSupplier: (supplier: Supplier) => void;
+  deleteSupplier: (supplierId: string) => { success: boolean; message: string };
   processPurchaseEntry: (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>) => {
     success: boolean;
     purchaseEntry: PurchaseEntry;
@@ -3144,10 +3145,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving payable to Turso:', error));
   };
 
-  const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
-    const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}` };
+  const addSupplier = (supplier: Omit<Supplier, 'id'>): Supplier => {
+    const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
     setSuppliers((prev) => [newSup, ...prev]);
-    void tursoService.saveSupplier(newSup).catch((error) => console.error('Error saving supplier to Turso:', error));
+    void tursoService.saveSupplier(newSup).then(() => syncWithTurso(true)).catch((error) => console.error('Error saving supplier to Turso:', error));
+    return newSup;
+  };
+
+  const deleteSupplier = (supplierId: string): { success: boolean; message: string } => {
+    const target = suppliers.find((s) => s.id === supplierId);
+    if (!target) return { success: false, message: 'Proveedor no encontrado.' };
+    const linkedProducts = products.some((p) => (p.suppliersInfo || []).some((x) => x.supplierId === supplierId));
+    if (linkedProducts) return { success: false, message: 'No se puede eliminar: el proveedor está vinculado a uno o más productos.' };
+    const usedInPurchases = purchaseEntries.some((p) => p.supplierId === supplierId);
+    if (usedInPurchases) return { success: false, message: 'No se puede eliminar: el proveedor tiene entradas de compra históricas. Puede editar sus datos.' };
+    setSuppliers((prev) => prev.filter((s) => s.id !== supplierId));
+    void tursoService.deleteSupplier(supplierId).then(() => syncWithTurso(true)).catch((error) => console.error('Error eliminando proveedor de Turso:', error));
+    return { success: true, message: 'Proveedor eliminado.' };
   };
 
   const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
@@ -3311,7 +3325,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
       updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
       approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
-      registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, processPurchaseEntry,
+      registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
       activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, updateCustomerPreferences,
       storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
