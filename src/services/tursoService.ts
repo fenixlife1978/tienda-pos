@@ -125,7 +125,42 @@ class TursoService {
         `SELECT version FROM omni_schema_meta WHERE id='main' LIMIT 1`
       );
       if (versionRow.rows.length > 0) {
-        return { success: true, tables: ['schema_ready'] };
+        // Garantía de compatibilidad: bases creadas con versiones anteriores
+        // pueden tener la tabla suppliers pero no su cursor de actividad.
+        // Reinstalamos únicamente estos 3 triggers livianos; no ejecutamos
+        // nuevamente todo el bootstrap del esquema.
+        try {
+          await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_insert`);
+          await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_update`);
+          await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_delete`);
+          await client.execute(`
+            CREATE TRIGGER activity_suppliers_insert
+            AFTER INSERT ON suppliers
+            BEGIN
+              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+              VALUES ('suppliers', NEW.id, 'insert', datetime('now'));
+            END;
+          `);
+          await client.execute(`
+            CREATE TRIGGER activity_suppliers_update
+            AFTER UPDATE ON suppliers
+            BEGIN
+              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+              VALUES ('suppliers', NEW.id, 'update', datetime('now'));
+            END;
+          `);
+          await client.execute(`
+            CREATE TRIGGER activity_suppliers_delete
+            AFTER DELETE ON suppliers
+            BEGIN
+              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+              VALUES ('suppliers', OLD.id, 'delete', datetime('now'));
+            END;
+          `);
+        } catch (triggerError) {
+          console.warn('No se pudieron actualizar los triggers de proveedores:', triggerError);
+        }
+        return { success: true, tables: ['schema_ready', 'supplier_sync_ready'] };
       }
     }
 
@@ -1400,6 +1435,7 @@ class TursoService {
   public async saveSupplier(s: Supplier) {
     const client = this.getClient();
     if (!client) return;
+    const now = new Date().toISOString();
     await client.execute({
       sql: `
         INSERT OR REPLACE INTO suppliers (
@@ -1414,15 +1450,31 @@ class TursoService {
         s.address || '',
         s.creditDays || 15,
         s.creditLimitUSD || 0,
-        new Date().toISOString(),
+        now,
       ],
+    });
+
+    // No dependemos exclusivamente de triggers antiguos de la base.
+    // Registrar explícitamente el cambio garantiza que /api/sync lo detecte
+    // en todos los dispositivos, incluso si el proveedor se creó antes
+    // de que existieran los triggers de actividad.
+    await client.execute({
+      sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+             VALUES ('suppliers', ?, 'upsert', ?)`,
+      args: [s.id, now],
     });
   }
 
   public async deleteSupplier(supplierId: string) {
     const client = this.getClient();
     if (!client) return;
+    const now = new Date().toISOString();
     await client.execute({ sql: 'DELETE FROM suppliers WHERE id = ?', args: [supplierId] });
+    await client.execute({
+      sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+             VALUES ('suppliers', ?, 'delete', ?)`,
+      args: [supplierId, now],
+    });
   }
 
   public async saveOrder(o: Order) {
