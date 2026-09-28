@@ -186,7 +186,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   // ==================== TAB 5: PROVEEDORES ====================
   const [suppliersInfo, setSuppliersInfo] = useState<ProductSupplierInfo[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
-  const [supplierCostUSDStr, setSupplierCostUSDStr] = useState<string>('10.0');
+  const [supplierCostUSDStr, setSupplierCostUSDStr] = useState<string>('');
   const [supplierBarcode, setSupplierBarcode] = useState<string>('');
   const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
   const [quickSupplier, setQuickSupplier] = useState({ name: '', rif: '', phone: '', email: '', contactPerson: '', creditDays: '15' });
@@ -561,23 +561,28 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     setPresentations((prev) => prev.filter((p) => p.id !== id));
   };
 
-  const handleCreateQuickSupplier = (e: React.FormEvent) => {
+  const handleCreateQuickSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickSupplier.name.trim() || !quickSupplier.rif.trim()) return;
-    const created = addSupplier({
-      name: quickSupplier.name.trim(),
-      rif: quickSupplier.rif.trim(),
-      phone: quickSupplier.phone.trim(),
-      email: quickSupplier.email.trim(),
-      contactPerson: quickSupplier.contactPerson.trim(),
-      contactName: quickSupplier.contactPerson.trim(),
-      creditDays: Math.max(0, Number(quickSupplier.creditDays) || 0),
-      creditLimitUSD: 0,
-      address: '',
-    });
-    setSelectedSupplierId(created.id);
-    setQuickSupplier({ name: '', rif: '', phone: '', email: '', contactPerson: '', creditDays: '15' });
-    setIsQuickSupplierOpen(false);
+    try {
+      const created = await addSupplier({
+        name: quickSupplier.name.trim(),
+        rif: quickSupplier.rif.trim(),
+        phone: quickSupplier.phone.trim(),
+        email: quickSupplier.email.trim(),
+        contactPerson: quickSupplier.contactPerson.trim(),
+        contactName: quickSupplier.contactPerson.trim(),
+        creditDays: Math.max(0, Number(quickSupplier.creditDays) || 0),
+        creditLimitUSD: 0,
+        address: '',
+      });
+      setSelectedSupplierId(created.id);
+      setQuickSupplier({ name: '', rif: '', phone: '', email: '', contactPerson: '', creditDays: '15' });
+      setIsQuickSupplierOpen(false);
+    } catch (error: any) {
+      console.error('Error guardando proveedor desde producto:', error);
+      window.alert(error?.message || 'No se pudo guardar el proveedor en Turso.');
+    }
   };
 
   // Handlers para Proveedores
@@ -607,7 +612,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
     setSuppliersInfo((prev) => [...prev, newSupplierItem]);
     setSupplierBarcode('');
-    setSupplierCostUSDStr('10.0');
+    setSupplierCostUSDStr('');
   };
 
   const handleDeleteSupplier = (id: string) => {
@@ -1447,7 +1452,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         onChange={(e) => {
                           setCostUSDStr(e.target.value);
                         }}
-                        placeholder="10.00"
+                        placeholder="Costo real en USD"
                         className="w-full pl-6 pr-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
@@ -2802,7 +2807,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   </div>
                   <div className="px-5 py-4 bg-slate-50 border-t flex justify-end gap-2">
                     <button type="button" onClick={() => setIsQuickSupplierOpen(false)} className="px-4 py-2 rounded-xl border border-slate-300 font-bold text-xs">Cancelar</button>
-                    <button type="button" onClick={(e) => { e.preventDefault(); handleCreateQuickSupplier(e as any); }} className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs">Crear y seleccionar</button>
+                    <button type="button" onClick={(e) => { e.preventDefault(); void handleCreateQuickSupplier(e as any); }} className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs">Crear y seleccionar</button>
                   </div>
                 </div>
               </div>
