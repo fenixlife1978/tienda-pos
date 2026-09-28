@@ -702,12 +702,11 @@ class TursoService {
         return { seeded: false, message: 'La base de datos ya tiene usuarios configurados.' };
       }
 
-      await this.saveSettings(EMPTY_SYSTEM_SETTINGS);
       await this.saveUser(INITIAL_GENERIC_ADMIN);
 
       return {
         seeded: true,
-        message: 'Base de datos inicializada sin datos demo. Administrador semilla creado.',
+        message: 'Base de datos inicializada sin datos demo. Solo se creó el administrador semilla.',
       };
     } catch (err: any) {
       console.error('Error initializing clean Turso DB:', err);
