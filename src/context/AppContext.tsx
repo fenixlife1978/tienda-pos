@@ -909,25 +909,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('online', handleOnline);
   }, []);
 
-  // Sincronización cloud frecuente mientras la aplicación está abierta y conectada.
-  // Turso es la fuente de verdad para todos los dispositivos.
-  // Se consulta el token de actividad y system_users cada 1.5 segundos continuamente,
-  // permitiendo reflejar de inmediato altas de usuarios, pedidos o notificaciones en todos los equipos.
+  // Sincronización automática centralizada. Replica el patrón probado de
+  // sistema-gestion: consulta el cursor global de Turso y, si cambió, descarga
+  // el snapshot sin recargar la página. El ciclo es secuencial para impedir
+  // consultas simultáneas que puedan pisarse entre sí.
   useEffect(() => {
     if (!tursoService.isConfigured()) return;
 
-    const intervalId = window.setInterval(() => {
-      if (!navigator.onLine || !offlineSyncReadyRef.current) {
-        return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (navigator.onLine && offlineSyncReadyRef.current) {
+        try {
+          await syncWithTurso();
+        } catch (error) {
+          console.warn('Automatic Turso change check failed:', error);
+        }
       }
+      if (!cancelled) timer = window.setTimeout(tick, 1000);
+    };
 
-      syncWithTurso().catch((error) => console.warn('Periodic Turso change check failed:', error));
-
-      // loadAllData() ya incluye system_users; no hacemos una segunda consulta
-      // independiente que pueda dejar la UI en un estado intermedio.
-    }, 1500);
-
-    return () => window.clearInterval(intervalId);
+    timer = window.setTimeout(tick, 1000);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
   }, []);
 
   const productionTursoMisconfigured = import.meta.env.PROD && !tursoService.isConfigured();
@@ -1030,6 +1038,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ) => {
     triggerPushNotification({ title, message, type, relatedOrderId });
   };
+
+  // Restauración de sesión administrativa al recargar:
+  // la cookie HttpOnly de /api/auth/login sigue vigente, por lo que el navegador
+  // no debe volver al login ni perder el módulo actual.
+  useEffect(() => {
+    let cancelled = false;
+    const restoreSession = async () => {
+      try {
+        const response = await fetch('/api/auth/session', {
+          method: 'GET',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled || !data?.authenticated || !data?.user) return;
+        setCurrentUser(data.user);
+        setIsAdminActive(true);
+        setMode('erp');
+        const savedTab = localStorage.getItem('omni_erp_active_tab');
+        if (savedTab) window.dispatchEvent(new CustomEvent('omni-restore-erp-tab', { detail: savedTab }));
+      } catch (error) {
+        console.warn('No se pudo restaurar la sesión administrativa:', error);
+      }
+    };
+    void restoreSession();
+    return () => { cancelled = true; };
+  }, []);
 
   // Customer Auth & Preferences logic
   const loginCustomer = (identifier: string, password?: string): boolean => {
