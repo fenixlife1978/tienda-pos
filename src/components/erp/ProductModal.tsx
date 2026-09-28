@@ -71,7 +71,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   productToEdit,
   onSave,
 }) => {
-  const { suppliers, products, settings, categories, units, setIsCategoryUnitModalOpen } = useApp();
+  const { suppliers, products, settings, categories, units, setIsCategoryUnitModalOpen, addSupplier } = useApp();
 
   // Active sub-tab in modal
   const [activeTab, setActiveTab] = useState<'general' | 'pricing' | 'inventory' | 'presentations' | 'suppliers' | 'composite'>('general');
@@ -188,6 +188,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
   const [supplierCostUSDStr, setSupplierCostUSDStr] = useState<string>('10.0');
   const [supplierBarcode, setSupplierBarcode] = useState<string>('');
+  const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
+  const [quickSupplier, setQuickSupplier] = useState({ name: '', rif: '', phone: '', email: '', contactPerson: '', creditDays: '15' });
 
   // ==================== TAB 6: PRODUCTO COMPUESTO (KIT / COMBO) ====================
   const [isComposite, setIsComposite] = useState<boolean>(false);
@@ -557,6 +559,25 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   const handleDeletePresentation = (id: string) => {
     setPresentations((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const handleCreateQuickSupplier = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickSupplier.name.trim() || !quickSupplier.rif.trim()) return;
+    const created = addSupplier({
+      name: quickSupplier.name.trim(),
+      rif: quickSupplier.rif.trim(),
+      phone: quickSupplier.phone.trim(),
+      email: quickSupplier.email.trim(),
+      contactPerson: quickSupplier.contactPerson.trim(),
+      contactName: quickSupplier.contactPerson.trim(),
+      creditDays: Math.max(0, Number(quickSupplier.creditDays) || 0),
+      creditLimitUSD: 0,
+      address: '',
+    });
+    setSelectedSupplierId(created.id);
+    setQuickSupplier({ name: '', rif: '', phone: '', email: '', contactPerson: '', creditDays: '15' });
+    setIsQuickSupplierOpen(false);
   };
 
   // Handlers para Proveedores
@@ -2431,9 +2452,12 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                      Selector de Proveedores Registrados *
-                    </label>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-[11px] font-medium text-slate-700">Selector de Proveedores Registrados *</label>
+                      <button type="button" onClick={() => setIsQuickSupplierOpen(true)} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-[10px] hover:bg-indigo-100" title="Crear proveedor sin salir del producto">
+                        <Plus className="w-3 h-3" /> Nuevo proveedor
+                      </button>
+                    </div>
                     <select
                       value={selectedSupplierId}
                       onChange={(e) => setSelectedSupplierId(e.target.value)}
