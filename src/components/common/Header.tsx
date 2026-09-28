@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { offlineSyncService } from '../../services/offlineSyncService';
 
 export const Header: React.FC = () => {
   const {
@@ -625,6 +626,28 @@ export const Header: React.FC = () => {
                   <p className="text-[10px] text-rose-700 italic pt-1">
                     Sugerencia: Si estás en Vercel, verifica que las variables TURSO_DATABASE_URL y TURSO_AUTH_TOKEN estén configuradas en las Variables de Entorno del proyecto.
                   </p>
+                </div>
+              {offlineSyncService.pendingCount() > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <span className="font-bold block">Cola Local Pendiente:</span>
+                    <span>{offlineSyncService.pendingCount()} operación(es) retenida(s)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      offlineSyncService.clearAllQueue();
+                      setIsForcingSync(true);
+                      try {
+                        await syncWithTurso(true);
+                      } finally {
+                        setIsForcingSync(false);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition shrink-0 cursor-pointer"
+                  >
+                    Descartar Cola
+                  </button>
                 </div>
               )}
             </div>

@@ -756,31 +756,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!tursoService.isConfigured()) return;
     setTursoState((prev) => ({ ...prev, isSyncing: true, statusText: 'Sincronizando con Turso Cloud...' }));
     try {
-      // Flush durable local POS transactions before pulling cloud state.
-      // This prevents an offline sale from being overwritten by a stale cloud snapshot.
-      const flushed = await offlineSyncService.flush();
-      if (flushed.pending > 0) {
-        // Never replace the local POS state with an older cloud snapshot while
-        // an offline sale is still waiting to be uploaded.
-        setTursoState((prev) => ({
-          ...prev,
-          isConnected: false,
-          isSyncing: false,
-          statusText: 'Ventas locales pendientes de sincronización',
-          errorMessage: 'Hay operaciones POS pendientes. Se reintentará automáticamente.',
-        }));
-        return;
+      // Intentar procesar operaciones pendientes locales en segundo plano
+      try {
+        await offlineSyncService.flush();
+      } catch (flushErr) {
+        console.warn('Advertencia al procesar operaciones locales:', flushErr);
       }
-      // La señal de cambio es barata: primero consultamos únicamente el
-      // token de actividad. Si no cambió, no descargamos datos ni tocamos el
-      // módulo visible. Esto evita refrescos innecesarios en cada navegador.
+
+      // La señal de cambio es barata: consultamos el token de actividad.
       const changeState = await tursoService.hasCloudChangesSince(cloudChangeTokenRef.current);
       if (!forceReload && !changeState.changed) {
         setTursoState((prev) => ({
           ...prev,
           isConnected: true,
           isSyncing: false,
-          statusText: 'Sin cambios nuevos en Turso',
+          statusText: 'Sin cambios nuevos en Turso DB',
           errorMessage: null,
         }));
         return;

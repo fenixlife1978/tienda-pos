@@ -218,6 +218,11 @@ export const offlineSyncService = {
     return queue.length;
   },
 
+  clearAllQueue() {
+    writeQueue([]);
+    return 0;
+  },
+
   async flush(): Promise<{ processed: number; pending: number }> {
     if (!tursoService.isConfigured() || !navigator.onLine) {
       return { processed: 0, pending: readQueue().length };
