@@ -31,6 +31,7 @@ export type ErpTab =
   | 'inventario'
   | 'almacenes'
   | 'entradas_compras'
+  | 'proveedores'
   | 'rentabilidad'
   | 'promociones'
   | 'cxc'
@@ -116,6 +117,12 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       id: 'entradas_compras' as ErpTab,
       label: 'Entradas por Compras',
       icon: Truck,
+      badge: null,
+    },
+    {
+      id: 'proveedores' as ErpTab,
+      label: 'Proveedores',
+      icon: Building2,
       badge: null,
     },
     {
