@@ -40,7 +40,7 @@ export function formatPlainNumber(value: number | string | undefined | null, max
 
 export function isValidDecimalInput(val: string): boolean {
   if (val === '' || val === '.') return true;
-  return /^-?\\d*\\.?\\d*$/.test(val);
+  return /^-?\\d*[.,]?\\d*$/.test(val);
 }
 
 export function parseFreeTextInput(val: string, fallback = 0): number {
