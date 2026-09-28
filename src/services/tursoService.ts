@@ -1437,15 +1437,7 @@ class TursoService {
   }
 
   public async deleteSupplier(supplierId: string) {
-    const client = this.getClient();
-    if (!client) return;
-    const now = new Date().toISOString();
-    await client.execute({ sql: 'DELETE FROM suppliers WHERE id = ?', args: [supplierId] });
-    await client.execute({
-      sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-             VALUES ('suppliers', ?, 'delete', ?)`,
-      args: [supplierId, now],
-    });
+    await this.request('deleteSupplier', { supplierId });
   }
 
   public async saveOrder(o: Order) {
