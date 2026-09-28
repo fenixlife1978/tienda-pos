@@ -116,6 +116,14 @@ export default async function handler(req: any, res: any) {
         // El cursor también se limpia para que el próximo snapshot sea limpio.
         await tx.execute('DELETE FROM activity_changes');
 
+        // Verificación obligatoria: ninguna tabla operativa puede conservar filas.
+        const verify = await tx.execute(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('omni_schema_meta', 'activity_changes', 'system_users') ORDER BY name`);
+        for (const row of verify.rows) {
+          const tableName = String(row.name);
+          const count = await tx.execute({ sql: 'SELECT COUNT(*) AS n FROM "' + tableName + '"', args: [] });
+          if (Number(count.rows[0]?.n || 0) !== 0) throw new Error('Reinicio incompleto: la tabla ' + tableName + ' todavía contiene datos');
+        }
+
         // Único dato operativo que permanece después del reinicio.
         await tx.execute({
           sql: `INSERT INTO system_users
@@ -125,6 +133,7 @@ export default async function handler(req: any, res: any) {
         });
 
         await tx.commit();
+        await client.execute('PRAGMA foreign_keys = ON');
         return res.status(200).json({
           ok: true,
           reset: true,
@@ -133,6 +142,7 @@ export default async function handler(req: any, res: any) {
         });
       } catch (e) {
         try { await tx.rollback(); } catch {}
+        try { await client.execute('PRAGMA foreign_keys = ON'); } catch {}
         throw e;
       }
     }
