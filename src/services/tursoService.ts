@@ -129,6 +129,22 @@ class TursoService {
         // pueden tener la tabla suppliers pero no su cursor de actividad.
         // Reinstalamos únicamente estos 3 triggers livianos; no ejecutamos
         // nuevamente todo el bootstrap del esquema.
+        // Compatibilidad de esquema: todas las columnas utilizadas por el
+        // formulario de Proveedores deben existir también en bases ya creadas.
+        // ALTER TABLE es idempotente mediante captura del error "duplicate column".
+        for (const sql of [
+          'ALTER TABLE suppliers ADD COLUMN phone TEXT',
+          'ALTER TABLE suppliers ADD COLUMN email TEXT',
+          'ALTER TABLE suppliers ADD COLUMN contact_person TEXT',
+          'ALTER TABLE suppliers ADD COLUMN contact_name TEXT',
+          'ALTER TABLE suppliers ADD COLUMN address TEXT',
+          'ALTER TABLE suppliers ADD COLUMN credit_days INTEGER DEFAULT 15',
+          'ALTER TABLE suppliers ADD COLUMN credit_limit_usd REAL DEFAULT 0',
+          'ALTER TABLE suppliers ADD COLUMN created_at TEXT'
+        ]) {
+          try { await client.execute(sql); } catch {}
+        }
+
         try {
           await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_insert`);
           await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_update`);
