@@ -55,6 +55,12 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   const isCreditApproved = order.isCreditApproved === true;
   const isApproved = order.orderStatus === 'aprobado' || order.orderStatus === 'despachado_facturado';
   const isAwaitingDispatch = order.orderStatus === 'aprobado';
+  const immediatePaymentReported =
+    order.channel === 'online' &&
+    !isCreditOrder &&
+    order.paymentStatus === 'pagado' &&
+    (Boolean(order.paymentReference?.trim()) || (order.paymentSplits?.length ?? 0) > 0);
+  const canViewFiscalInvoice = isApproved || immediatePaymentReported;
   const whatsappUrl = getOrderWhatsAppUrl(order, settings);
 
   const handleCopySummary = async () => {
@@ -329,7 +335,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 >
                   <FileText className="w-3.5 h-3.5 text-indigo-600" />
                   <span>
-                    {isCreditOrder && !isApproved
+                    {!canViewFiscalInvoice
                       ? 'Ver Orden de Pedido (En Espera)'
                       : isAwaitingDispatch
                         ? 'Ver y Descargar Factura · Pedido Aprobado'
