@@ -158,7 +158,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             <span className="font-bold text-slate-800 text-base">
               {isOrderDocument ? 'Orden de Pedido' : 'Factura Fiscal'} #{invoice.invoiceNumber}
             </span>
-            {isPaid ? (
+            {isOrderDocument ? (
+              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                <Clock className="w-3.5 h-3.5 animate-pulse" /> EN TRÁMITE · NO ES FACTURA FISCAL
+              </span>
+            ) : isPaid ? (
               <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                 <CheckCircle2 className="w-3.5 h-3.5" /> PAGADA
               </span>
@@ -246,7 +250,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         </div>
 
         {/* Credit Approval Notice Banner if pending */}
-        {isCreditPendingApproval && (
+        {isOrderDocument && (
           <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200 flex items-start gap-2.5 text-xs text-amber-900 shrink-0">
             <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
