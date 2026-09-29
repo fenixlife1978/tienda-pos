@@ -539,7 +539,7 @@ export const CustomerDashboard: React.FC = () => {
                         <div className="flex items-center gap-2">
                           {/* Historial siempre abre el formato de Orden de Compra (Pedido). La factura fiscal se consulta en Mis Facturas. */}
                           <button
-                            onClick={() => handleOpenInvoice(order.id)}
+                            onClick={() => handleOpenOrder(order.id)}
                             className="px-3 py-1.5 bg-white hover:bg-slate-100 text-blue-700 border border-slate-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer flex items-center gap-1.5"
                           >
                             <FileText className="w-3.5 h-3.5 text-blue-600" />
