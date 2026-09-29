@@ -53,6 +53,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
   const isCreditOrder = order.paymentMethod === 'credito';
   const isCreditApproved = order.isCreditApproved === true;
+  const isApproved = order.orderStatus === 'aprobado' || order.orderStatus === 'despachado_facturado';
   const whatsappUrl = getOrderWhatsAppUrl(order, settings);
 
   const handleCopySummary = async () => {
