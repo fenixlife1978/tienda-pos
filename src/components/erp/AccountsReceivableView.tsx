@@ -41,6 +41,7 @@ export const AccountsReceivableView: React.FC = () => {
     liquidateCustomerInvoice,
     liquidateCustomerTotalDebt,
     updateCustomerCredit,
+    reviewCustomerPaymentReport,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,6 +77,22 @@ export const AccountsReceivableView: React.FC = () => {
     creditDays: 15,
     creditLimitUSD: 2000,
   });
+
+  const pendingCustomerPaymentReports = useMemo(() =>
+    receivables.flatMap((r) =>
+      (r.paymentHistory || [])
+        .filter((p) => p.reportedByCustomer && p.verificationStatus === 'pendiente')
+        .map((p) => ({ receivable: r, payment: p }))
+    ), [receivables]);
+
+  const handleReviewCustomerPayment = async (receivableId: string, paymentId: string, approved: boolean) => {
+    const notes = approved ? '' : window.prompt('Indica el motivo del rechazo (opcional):') || '';
+    try {
+      await reviewCustomerPaymentReport(receivableId, paymentId, approved, notes);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No fue posible procesar el reporte.');
+    }
+  };
 
   // Handle Quick Date Range Presets
   const handleDatePresetChange = (preset: string) => {
@@ -325,6 +342,29 @@ export const AccountsReceivableView: React.FC = () => {
           Exportar Cartera a Excel
         </button>
       </div>
+
+      {pendingCustomerPaymentReports.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div><h3 className="font-black text-blue-950 flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-blue-700" />Pagos reportados por clientes</h3><p className="text-xs text-blue-800 mt-1">No modifican el saldo hasta ser verificados.</p></div>
+            <span className="bg-blue-700 text-white rounded-full px-2.5 py-1 text-xs font-black">{pendingCustomerPaymentReports.length}</span>
+          </div>
+          {pendingCustomerPaymentReports.map(({ receivable: r, payment: p }) => (
+            <div key={p.id} className="bg-white border border-blue-100 rounded-xl p-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                <div><div className="text-slate-400 font-bold">Cliente / Factura</div><div className="font-bold">{r.customerName} · {r.invoiceNumber}</div></div>
+                <div><div className="text-slate-400 font-bold">Monto</div><div className="font-mono font-black text-blue-700">${p.amountUSD.toFixed(2)} / {p.amountBs.toFixed(2)} Bs</div></div>
+                <div><div className="text-slate-400 font-bold">Método</div><div className="font-bold">{p.paymentMethod}</div><div className="text-slate-500">Ref: {p.reference || '—'}</div></div>
+                <div><div className="text-slate-400 font-bold">Remitente</div><div>{p.senderName || '—'} {p.senderEmail ? '· ' + p.senderEmail : ''}</div><div>{p.senderBank || '—'}</div></div>
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                <button onClick={() => handleReviewCustomerPayment(r.id, p.id, false)} className="px-3 py-2 rounded-xl border border-rose-200 text-rose-700 font-bold text-xs hover:bg-rose-50">Rechazar</button>
+                <button onClick={() => handleReviewCustomerPayment(r.id, p.id, true)} className="px-3 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700">Validar y aplicar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
