@@ -314,6 +314,82 @@ export default async function handler(req: any, res: any) {
           ],
         });
         await tx.execute({
+          sql: `CREATE TABLE IF NOT EXISTS accounting_entries (
+            id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL UNIQUE,
+            invoice_id TEXT NOT NULL,
+            document_number TEXT NOT NULL,
+            entry_date TEXT NOT NULL,
+            description TEXT NOT NULL,
+            source TEXT NOT NULL,
+            lines TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          )`,
+          args: [],
+        });
+
+        const splits = Array.isArray(order.paymentSplits) && order.paymentSplits.length
+          ? order.paymentSplits
+          : [{ method: order.paymentMethod, amountUSD: Number(order.totalUSD || 0), amountBs: Number(order.totalBs || 0) }];
+
+        const lines: any[] = [];
+        if (String(order.paymentMethod) === 'credito') {
+          lines.push({
+            account: 'CUENTAS POR COBRAR - CLIENTES',
+            debitUSD: Number(order.totalUSD || 0),
+            debitBs: Number(order.totalBs || 0),
+            creditUSD: 0,
+            creditBs: 0,
+            paymentMethod: 'credito',
+          });
+        } else {
+          for (const split of splits) {
+            lines.push({
+              account: 'CAJA/BANCO - ' + String(split.method || order.paymentMethod),
+              debitUSD: Number(split.amountUSD || 0),
+              debitBs: Number(split.amountBs || 0),
+              creditUSD: 0,
+              creditBs: 0,
+              paymentMethod: String(split.method || order.paymentMethod),
+              reference: split.reference || order.paymentReference || null,
+            });
+          }
+        }
+        lines.push({
+          account: 'INGRESOS POR VENTAS',
+          debitUSD: 0,
+          debitBs: 0,
+          creditUSD: Number(order.subtotalUSD || order.totalUSD || 0),
+          creditBs: Number((Number(order.subtotalUSD || order.totalUSD || 0) * Number(order.bcvRate || 0)).toFixed(2)),
+        });
+        if (Number(order.taxUSD || 0) > 0) {
+          lines.push({
+            account: 'IVA DÉBITO FISCAL',
+            debitUSD: 0,
+            debitBs: 0,
+            creditUSD: Number(order.taxUSD || 0),
+            creditBs: Number((Number(order.taxUSD || 0) * Number(order.bcvRate || 0)).toFixed(2)),
+          });
+        }
+
+        await tx.execute({
+          sql: `INSERT OR IGNORE INTO accounting_entries
+            (id, order_id, invoice_id, document_number, entry_date, description, source, lines, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            'asiento-' + String(order.id),
+            String(order.id),
+            String(invoice.id),
+            String(invoice.invoiceNumber || order.orderNumber),
+            approvedAt,
+            'Venta aprobada ' + String(order.orderNumber),
+            'customer_order_approval',
+            JSON.stringify(lines),
+            approvedAt,
+          ],
+        });
+
+        await tx.execute({
           sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('orders', ?, 'financial_approval', ?)",
           args: [String(order.id), approvedAt],
         });
