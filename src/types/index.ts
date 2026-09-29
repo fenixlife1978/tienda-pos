@@ -254,7 +254,7 @@ export interface CartItem {
 }
 
 export type OrderStatus = 'en_tramite' | 'aprobado' | 'despachado_facturado';
-export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'credito';
+export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'deudas' | 'credito';
 export type PaymentStatus = 'pendiente' | 'pagado' | 'a_credito';
 export type PaymentMethod =
   | 'efectivo_bs'
@@ -453,6 +453,13 @@ export interface ReceivablePaymentRecord {
   receiptNumber?: string;
   balanceAfterUSD: number;
   isFullSettlement?: boolean;
+  /** Reporte enviado por el cliente; no afecta el saldo hasta validación administrativa. */
+  verificationStatus?: 'pendiente' | 'aprobado' | 'rechazado';
+  senderName?: string;
+  senderEmail?: string;
+  senderBank?: string;
+  senderPhone?: string;
+  reportedByCustomer?: boolean;
 }
 
 export interface ReceivableItem {
