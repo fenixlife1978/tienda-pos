@@ -67,7 +67,14 @@ export const CustomerDashboard: React.FC = () => {
   const customerInvoices = invoices.filter((inv) => {
     if (inv.customerId !== currentCustomer.id) return false;
     const relatedOrder = orders.find((o) => o.id === inv.orderId);
-    return relatedOrder?.orderStatus === 'aprobado' || relatedOrder?.orderStatus === 'despachado_facturado';
+    if (!relatedOrder) return false;
+    const isApproved = relatedOrder.orderStatus === 'aprobado' || relatedOrder.orderStatus === 'despachado_facturado';
+    const immediatePaymentReported =
+      relatedOrder.channel === 'online' &&
+      relatedOrder.paymentMethod !== 'credito' &&
+      relatedOrder.paymentStatus === 'pagado' &&
+      (Boolean(relatedOrder.paymentReference?.trim()) || (relatedOrder.paymentSplits?.length ?? 0) > 0);
+    return isApproved || immediatePaymentReported;
   });
 
   // Filtered orders
