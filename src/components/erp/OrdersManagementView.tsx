@@ -397,17 +397,20 @@ export const OrdersManagementView: React.FC = () => {
 
                           {/* Pipeline action buttons */}
                           {order.orderStatus === 'en_tramite' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                updateOrderStatus(order.id, 'despachado_facturado');
-                                if (order.paymentStatus === 'pendiente') {
-                                  updatePaymentStatus(order.id, 'pagado');
-                                }
-                              }}
+                            <button type="button" onClick={() => updateOrderStatus(order.id, 'aprobado')}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                              title="Aprobar pedido y habilitar la factura fiscal para el cliente">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Aprobar</span>
+                            </button>
+                          )}
+                          {order.orderStatus === 'aprobado' && (
+                            <button type="button" onClick={() => {
+                              updateOrderStatus(order.id, 'despachado_facturado');
+                              if (order.paymentStatus === 'pendiente') updatePaymentStatus(order.id, 'pagado');
+                            }}
                               className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                              title="Marcar como despachado y facturado"
-                            >
+                              title="Marcar como despachado después de entregar el pedido">
                               <Truck className="w-3 h-3" />
                               <span>Despachar</span>
                             </button>
