@@ -30,6 +30,7 @@ const MainLayout: React.FC = () => {
     lastSuccessfulOrder,
     setLastSuccessfulOrder,
     invoices,
+    orders,
     setIsOrdersModalOpen,
     isAuthModalOpen,
     setIsAuthModalOpen,
@@ -93,6 +94,7 @@ const MainLayout: React.FC = () => {
           invoice={selectedInvoiceForModal}
           onClose={() => setSelectedInvoiceForModal(null)}
           customerView={Boolean(currentCustomer)}
+          customerOrderStatus={currentCustomer ? orders.find((o) => o.id === selectedInvoiceForModal.orderId)?.orderStatus : undefined}
         />
       )}
 
