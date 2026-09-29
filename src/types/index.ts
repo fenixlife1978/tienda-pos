@@ -342,6 +342,8 @@ export interface Order {
   paymentReference?: string;
   channel: 'online' | 'pos';
   createdAt: string;
+  /** Momento en que administración aprobó y contabilizó la venta. */
+  approvedAt?: string;
   /** Caja/terminal POS que originó la venta; permite arqueo exacto multi-caja. */
   cashSessionId?: string;
   documentSeries?: string;
@@ -382,6 +384,8 @@ export interface Invoice {
   paymentSplits?: PaymentSplit[];
   paymentStatus: PaymentStatus;
   createdAt: string;
+  /** Momento en que administración aprobó y contabilizó la venta. */
+  approvedAt?: string;
   /** Sesión de caja POS asociada al documento, cuando aplica. */
   cashSessionId?: string;
   documentSeries?: string;
