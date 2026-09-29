@@ -160,21 +160,32 @@ export const CashRegisterView: React.FC = () => {
     [orders, session]
   );
 
-  // Pedidos online aprobados se convierten en ventas contables al momento de la aprobación.
-  // Se incluyen en ventas del período del arqueo/Z aunque no pertenezcan físicamente a una caja POS.
+  // Pedidos online pagados/reportados se contabilizan por la FECHA REAL DEL PAGO,
+  // no por la fecha en que administración presionó "Aprobar". Así el pago cae
+  // en el día correcto para ventas, arqueo y corte Z.
+  const getPaymentDate = (order: typeof orders[number]) => {
+    const dates = (order.paymentSplits || [])
+      .map((split) => split.createdAt)
+      .filter((value): value is string => Boolean(value))
+      .sort();
+    return dates[0] || order.createdAt;
+  };
+
   const approvedOnlineOrders = useMemo(
     () => {
       if (!session) return [];
       const from = new Date(session.openedAt).getTime();
       const to = new Date(session.closedAt || new Date().toISOString()).getTime();
-      return orders.filter((o) =>
-        o.channel === 'online' &&
-        o.orderStatus !== 'cancelado' &&
-        !o.isVoided &&
-        !!o.approvedAt &&
-        new Date(o.approvedAt).getTime() >= from &&
-        new Date(o.approvedAt).getTime() <= to
-      );
+      return orders.filter((o) => {
+        if (
+          o.channel !== 'online' ||
+          o.orderStatus === 'cancelado' ||
+          o.isVoided ||
+          !o.approvedAt
+        ) return false;
+        const paymentDate = new Date(getPaymentDate(o)).getTime();
+        return Number.isFinite(paymentDate) && paymentDate >= from && paymentDate <= to;
+      });
     },
     [orders, session]
   );
@@ -282,7 +293,7 @@ export const CashRegisterView: React.FC = () => {
     let usd = 0;
     let bs = 0;
 
-    for (const order of posOrders) {
+    for (const order of [...posOrders, ...approvedOnlineOrders]) {
       if (order.paymentSplits?.length) {
         for (const split of order.paymentSplits) {
           if (split.method === 'efectivo_usd' || split.method === 'divisas_efectivo') {
@@ -301,7 +312,7 @@ export const CashRegisterView: React.FC = () => {
     }
 
     return { cashSalesUSD: Number(usd.toFixed(2)), cashSalesBs: Number(bs.toFixed(2)) };
-  }, [posOrders]);
+  }, [posOrders, approvedOnlineOrders]);
 
   const refundCash = useMemo(() => {
     if (!session) return { usd: 0, bs: 0 };
