@@ -498,7 +498,9 @@ export const CustomerDashboard: React.FC = () => {
                               <CheckCircle2 className="w-4 h-4" />
                             </div>
                             <span className="text-[11px] font-bold text-slate-900 mt-1">2. Aprobado</span>
-                            <span className="text-[10px] text-slate-500">Factura habilitada</span>
+                            <span className="text-[10px] text-slate-500">
+                              {isAprobado ? 'Factura habilitada' : 'Pendiente de aprobación'}
+                            </span>
                           </div>
 
                           {/* Step 3: Despachado */}
