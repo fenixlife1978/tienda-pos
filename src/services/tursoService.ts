@@ -1218,7 +1218,9 @@ class TursoService {
     // 13. Notifications
     const notifications: AppNotification[] = [];
     try {
-      const res = await client.execute('SELECT * FROM system_notifications ORDER BY created_at DESC LIMIT 200');
+      const res = await client.execute(
+        "SELECT * FROM system_notifications WHERE title != 'Sesión Finalizada' ORDER BY created_at DESC LIMIT 200"
+      );
       for (const row of res.rows) {
         notifications.push({
           id: String(row.id),
