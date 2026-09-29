@@ -43,12 +43,21 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
   if (!invoice) return null;
 
+  // En el portal del cliente, el estado real del pedido manda sobre cualquier
+  // bandera histórica de la factura. Una aprobación del pedido debe verse
+  // inmediatamente como APROBADO, aunque invoice.isCreditApproved siga viejo.
   const isCustomerOrderPending = customerView && customerOrderStatus === 'en_tramite';
-  const isPendingCreditApproval = invoice.isCredit && !invoice.isCreditApproved;
-  const isOrderDocument = isCustomerOrderPending || (customerView && isPendingCreditApproval);
+  const isCustomerOrderApproved = customerView && customerOrderStatus === 'aprobado';
+  const isCustomerOrderDispatched = customerView && customerOrderStatus === 'despachado_facturado';
+  const isPendingCreditApproval = customerView
+    ? isCustomerOrderPending
+    : invoice.isCredit && !invoice.isCreditApproved;
+  const isOrderDocument = customerView ? isCustomerOrderPending : isPendingCreditApproval;
   const isPaid = invoice.paymentStatus === 'pagado';
   const isCredit = invoice.isCredit || invoice.paymentStatus === 'a_credito';
-  const isCreditPendingApproval = isCredit && !invoice.isCreditApproved;
+  const isCreditPendingApproval = customerView
+    ? isCustomerOrderPending
+    : isCredit && !invoice.isCreditApproved;
 
   const handleExportCSV = () => {
     const documentTitle = isPendingCreditApproval
@@ -161,6 +170,14 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             {isOrderDocument ? (
               <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
                 <Clock className="w-3.5 h-3.5 animate-pulse" /> EN TRÁMITE · NO ES FACTURA FISCAL
+              </span>
+            ) : isCustomerOrderApproved ? (
+              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <CheckCircle2 className="w-3.5 h-3.5" /> PEDIDO APROBADO · EN ESPERA DE DESPACHO
+              </span>
+            ) : isCustomerOrderDispatched ? (
+              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                <CheckCircle2 className="w-3.5 h-3.5" /> PEDIDO DESPACHADO
               </span>
             ) : isPaid ? (
               <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
