@@ -287,6 +287,7 @@ interface AppContextType {
   loginCustomer: (identifier: string, password?: string) => boolean;
   registerCustomer: (customerData: Omit<Customer, 'id'>) => Customer;
   logoutCustomer: () => void;
+  logoutAdmin: () => Promise<void>;
   updateCustomerPreferences: (preferences: CustomerNotificationPreferences) => void;
   // Navigation tabs & modals
   storeTab: 'catalog' | 'offers';
@@ -447,7 +448,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(() => {
-    const activeId = localStorage.getItem('omni_active_customer_id');
+    const activeId = sessionStorage.getItem('omni_active_customer_id');
     if (activeId) {
       const saved = localStorage.getItem('omni_customers');
       const list: Customer[] = saved ? JSON.parse(saved) : [];
@@ -1064,26 +1065,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     triggerPushNotification({ title, message, type, relatedOrderId });
   };
 
-  // Restauración de sesión administrativa al recargar:
-  // la cookie HttpOnly de /api/auth/login sigue vigente, por lo que el navegador
-  // no debe volver al login ni perder el módulo actual.
+  // Restauración de sesión administrativa por pestaña.
   useEffect(() => {
     let cancelled = false;
     const restoreSession = async () => {
+      const tabSession = sessionStorage.getItem('tienda_pos_tab_session');
+      if (!tabSession) return;
       try {
         const response = await fetch('/api/auth/session', {
           method: 'GET',
           credentials: 'same-origin',
           cache: 'no-store',
-          headers: { 'Cache-Control': 'no-cache' },
+          headers: { 'Cache-Control': 'no-cache', 'X-Tienda-Pos-Session': tabSession },
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          sessionStorage.removeItem('tienda_pos_tab_session');
+          sessionStorage.removeItem('tienda_pos_admin_user');
+          return;
+        }
         const data = await response.json();
         if (cancelled || !data?.authenticated || !data?.user) return;
+        sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
         setCurrentUser(data.user);
         setIsAdminActive(true);
         setMode('erp');
-        const savedTab = localStorage.getItem('omni_erp_active_tab');
+        const savedTab = sessionStorage.getItem('omni_erp_active_tab');
         if (savedTab) window.dispatchEvent(new CustomEvent('omni-restore-erp-tab', { detail: savedTab }));
       } catch (error) {
         console.warn('No se pudo restaurar la sesión administrativa:', error);
@@ -1092,6 +1098,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void restoreSession();
     return () => { cancelled = true; };
   }, []);
+
+  const logoutAdmin = async (): Promise<void> => {
+    const tabSession = sessionStorage.getItem('tienda_pos_tab_session');
+    try {
+      if (tabSession) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Tienda-Pos-Session': tabSession },
+          credentials: 'same-origin',
+          body: '{}',
+        });
+      }
+    } catch (error) {
+      console.warn('No se pudo revocar la sesión administrativa:', error);
+    } finally {
+      sessionStorage.removeItem('tienda_pos_tab_session');
+      sessionStorage.removeItem('tienda_pos_admin_user');
+      sessionStorage.removeItem('omni_erp_active_tab');
+      setIsAdminActive(false);
+      setMode('store');
+      setCurrentUser(INITIAL_GENERIC_ADMIN);
+      setCurrentCustomer(null);
+    }
+  };
 
   // Customer Auth & Preferences logic
   const loginCustomer = (identifier: string, password?: string): boolean => {
@@ -1110,7 +1140,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return false;
       }
       setCurrentCustomer(found);
-      localStorage.setItem('omni_active_customer_id', found.id);
+      sessionStorage.setItem('omni_active_customer_id', found.id);
       setIsAdminActive(false);
       triggerPushNotification({
         title: `¡Bienvenido de nuevo, ${found.name}!`,
@@ -1146,7 +1176,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .catch((error) => console.warn('No se pudo registrar el cliente en Turso:', error));
     }
     setCurrentCustomer(newCustomer);
-    localStorage.setItem('omni_active_customer_id', newCustomer.id);
+    sessionStorage.setItem('omni_active_customer_id', newCustomer.id);
     setIsAdminActive(false);
     triggerPushNotification({
       title: `Nuevo Cliente Registrado`,
@@ -1160,7 +1190,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logoutCustomer = () => {
     setCurrentCustomer(null);
-    localStorage.removeItem('omni_active_customer_id');
+    sessionStorage.removeItem('omni_active_customer_id');
     triggerPushNotification({
       title: 'Sesión Finalizada',
       message: 'Has salido de tu cuenta de cliente de forma segura.',
@@ -3347,7 +3377,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
-      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, updateCustomerPreferences,
+      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
       storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
       isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
       isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
