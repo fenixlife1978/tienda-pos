@@ -1651,14 +1651,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const effectivePaymentMethod: PaymentMethod =
       paymentSplits.length > 1 ? 'mixto' : (paymentSplits[0]?.method || orderInput.paymentMethod);
     const isCredit = effectivePaymentMethod === 'credito';
-    // En tienda online, una referencia o desglose de pago informado al enviar
-    // el pedido constituye el reporte inmediato del pago. La factura puede
-    // consultarse de inmediato como excepción; la aprobación administrativa
-    // sigue siendo necesaria para el resto del flujo.
-    const immediatePaymentReported =
-      orderInput.channel === 'online' &&
-      !isCredit &&
-      (paymentSplits.length > 0 || Boolean(orderInput.paymentReference?.trim()));
+    // En tienda online, la referencia o el desglose informado por el cliente
+    // se conserva como reporte de pago, pero el cobro permanece pendiente hasta
+    // que administración verifique y apruebe la operación.
     const customer = customers.find((c) => c.id === orderInput.customerId);
     const creditDays = orderInput.customCreditDays || customer?.creditDays || settings.defaultCreditDays;
     const dueDate = isCredit
