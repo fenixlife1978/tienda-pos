@@ -2012,8 +2012,8 @@ class TursoService {
       await client.execute({
         sql: `
           INSERT OR REPLACE INTO bcv_history (
-            id, rate, date, type, updated_by, previous_rate, change_percent
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            id, rate, date, effective_date, type, updated_by, source, previous_rate, change_percent, currencies
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         args: [
           entry.id,
