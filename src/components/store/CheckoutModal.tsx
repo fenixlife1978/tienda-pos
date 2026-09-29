@@ -141,7 +141,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
         <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200">
           <div>
             <h3 className="font-bold text-slate-900 text-lg">Confirmar Pedido y Datos de Entrega</h3>
-            <p className="text-xs text-slate-500">El pedido se enviará a nuestro equipo para validación y despacho inmediato.</p>
+            <p className="text-xs text-slate-500">El pedido se enviará a nuestro equipo para validar el pago, preparar el pedido y posteriormente despacharlo.</p>
           </div>
           <button
             onClick={onClose}
