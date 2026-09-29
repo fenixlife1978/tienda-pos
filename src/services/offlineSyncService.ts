@@ -228,12 +228,12 @@ export const offlineSyncService = {
    * No depende de otras operaciones pendientes en la cola: un pedido nuevo
    * no debe quedar bloqueado por una venta offline antigua que falló.
    */
-  async flushOperation(operationId: string): Promise<{ applied: boolean; pending: boolean }> {
+  async flushOperationForOrder(orderId: string): Promise<{ applied: boolean; pending: boolean }> {
     if (!tursoService.isConfigured() || !navigator.onLine) {
       return { applied: false, pending: true };
     }
 
-    const operation = readQueue().find((item) => item.id === operationId);
+    const operation = readQueue().find((item) => item.type === 'sale' && item.order.id === orderId);
     if (!operation) {
       // Puede haber sido aplicado por el sincronizador automático justo antes
       // de esta llamada. En ese caso ya no existe en la cola y no queda nada
