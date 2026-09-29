@@ -27,6 +27,7 @@ const MainLayout: React.FC = () => {
     authInitialTab,
     selectedInvoiceForModal,
     setSelectedInvoiceForModal,
+    customerInvoiceModalMode,
     lastSuccessfulOrder,
     setLastSuccessfulOrder,
     invoices,
@@ -95,6 +96,7 @@ const MainLayout: React.FC = () => {
           onClose={() => setSelectedInvoiceForModal(null)}
           customerView={Boolean(currentCustomer)}
           customerOrderStatus={currentCustomer ? orders.find((o) => o.id === selectedInvoiceForModal.orderId)?.orderStatus : undefined}
+          customerOrderView={Boolean(currentCustomer && customerInvoiceModalMode === 'order')}
         />
       )}
 
