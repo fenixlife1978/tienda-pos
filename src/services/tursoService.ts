@@ -1519,9 +1519,9 @@ class TursoService {
           id, order_number, customer_id, customer_name, customer_rif, customer_phone,
           customer_address, items, subtotal_usd, tax_usd, total_usd, total_bs,
           bcv_rate, payment_method, payment_splits, cash_session_id, document_series, document_sequence, return_number, void_number, payment_status, order_status, payment_reference,
-          channel, created_at, estimated_delivery, credit_due_date, credit_days, notes,
+          channel, created_at, approved_at, estimated_delivery, credit_due_date, credit_days, notes,
           is_voided, voided_at, voided_by, void_reason, is_returned, returned_at, returned_by, return_reason
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `,
       args: [
         o.id,
@@ -1549,6 +1549,7 @@ class TursoService {
         o.paymentReference || null,
         o.channel,
         o.createdAt,
+        o.approvedAt || null,
         o.estimatedDelivery || null,
         o.creditDueDate || null,
         o.creditDays ?? null,
@@ -1573,10 +1574,10 @@ class TursoService {
         INSERT OR REPLACE INTO invoices (
           id, invoice_number, order_id, customer_id, customer_name, customer_rif,
           customer_address, customer_phone, items, subtotal_usd, tax_usd, total_usd,
-          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, document_series, document_sequence, return_number, void_number, payment_status, created_at, due_date,
+          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, document_series, document_sequence, return_number, void_number, payment_status, created_at, approved_at, due_date,
           is_credit, credit_days, is_voided, voided_at, voided_by, void_reason,
           is_returned, returned_at, returned_by, return_reason
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `,
       args: [
         inv.id,
@@ -1602,6 +1603,7 @@ class TursoService {
         inv.voidNumber || null,
         inv.paymentStatus,
         inv.createdAt,
+        inv.approvedAt || null,
         inv.dueDate || null,
         inv.isCredit ? 1 : 0,
         inv.creditDays ?? null,
@@ -1877,6 +1879,11 @@ class TursoService {
       console.error('Error en autenticación directa contra Turso DB:', directErr);
       return null;
     }
+  }
+
+  /** Contabiliza una aprobación de pedido como una venta real, de forma idempotente. */
+  public async approveOrderFinancially(order: Order, invoice: Invoice, approvedBy: string) {
+    return this.request('approveOrderFinancially', { order, invoice, approvedBy });
   }
 
   public async saveNotification(n: AppNotification) {
