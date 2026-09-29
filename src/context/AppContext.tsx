@@ -1832,28 +1832,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Update order status with real-time customer push notification
+  // Flujo comercial: En trámite -> Aprobado -> Despachado.
+  // La factura fiscal solo se libera al cliente desde el estado Aprobado.
   const updateOrderStatus = (orderId: string, status: OrderStatus) => {
     const statusTitles: Record<OrderStatus, string> = {
       en_tramite: '⏳ Pedido En Trámite',
-      despachado_facturado: '🚚 Pedido Despachado / Facturado',
+      aprobado: '✅ Pedido Aprobado',
+      despachado_facturado: '🚚 Pedido Despachado',
     };
 
     const statusMessages: Record<OrderStatus, string> = {
-      en_tramite: 'Tu pedido está siendo procesado por nuestro equipo de almacén.',
-      despachado_facturado: '¡Tu pedido fue despachado y la factura fiscal ha sido emitida!',
+      en_tramite: 'Tu pedido fue recibido y está en trámite de revisión.',
+      aprobado: '¡Tu pedido fue aprobado por la administración! La factura fiscal ya está disponible.',
+      despachado_facturado: '¡Tu pedido fue despachado y entregado! La factura fiscal permanece disponible.',
     };
 
     const relatedInvoice = invoices.find((inv) => inv.orderId === orderId);
     if (relatedInvoice) {
-      // La aprobación administrativa del pedido también aprueba la factura
-      // de crédito asociada. Antes solo se actualizaba orders, dejando
-      // isCreditApproved=false en invoices y haciendo que el portal cliente
-      // siguiera mostrando "En espera de aprobación".
+      const invoiceReleased = status === 'aprobado' || status === 'despachado_facturado';
       const updatedInvoice = {
         ...relatedInvoice,
-        isCreditApproved: status === 'despachado_facturado'
-          ? true
-          : relatedInvoice.isCreditApproved,
+        isCreditApproved: invoiceReleased ? true : relatedInvoice.isCreditApproved,
       };
       setInvoices((prev) => prev.map((inv) => inv.id === updatedInvoice.id ? updatedInvoice : inv));
       void tursoService.saveInvoice(updatedInvoice).catch((error) => console.error('Error saving related invoice approval to Turso:', error));
@@ -1861,19 +1860,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setOrders((prev) =>
       prev.map((o) => {
-        if (o.id === orderId) {
-          const updated = { ...o, orderStatus: status };
-          void tursoService.saveOrder(updated).catch((error) => console.error('Error saving order status to Turso:', error));
-          triggerPushNotification({
-            title: `${statusTitles[status]} (${o.orderNumber})`,
-            message: statusMessages[status],
-            type: 'order_status',
-            relatedOrderId: o.id,
-            badge: status === 'despachado_facturado' ? 'Despachado' : 'En trámite',
-          });
-          return updated;
-        }
-        return o;
+        if (o.id !== orderId) return o;
+        const updated = {
+          ...o,
+          orderStatus: status,
+          ...(status === 'aprobado' || status === 'despachado_facturado' ? { isCreditApproved: true } : {}),
+        };
+        void tursoService.saveOrder(updated).catch((error) => console.error('Error saving order status to Turso:', error));
+        triggerPushNotification({
+          title: statusTitles[status] + ' (' + o.orderNumber + ')',
+          message: statusMessages[status],
+          type: 'order_status',
+          relatedOrderId: o.id,
+          badge: status === 'en_tramite' ? 'En trámite' : status === 'aprobado' ? 'Aprobado' : 'Despachado',
+          targetRole: 'client',
+          targetCustomerId: o.customerId,
+        });
+        return updated;
       })
     );
   };
