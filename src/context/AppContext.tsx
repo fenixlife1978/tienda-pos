@@ -1157,9 +1157,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         alert('Contraseña incorrecta.');
         return false;
       }
+      // La cuenta del cliente debe quedar reconciliada contra Turso incluso si
+      // el login ocurre mientras el primer snapshot cloud todavía está cargando.
+      // No confiamos en el registro local para decidir si la cuenta está verificada.
       setCurrentCustomer(found);
       sessionStorage.setItem('omni_active_customer_id', found.id);
       setIsAdminActive(false);
+
+      if (tursoService.isConfigured() && navigator.onLine) {
+        void syncWithTurso(true).catch((error) =>
+          console.warn('No se pudo refrescar la cuenta del cliente desde Turso al iniciar sesión:', error)
+        );
+      }
       triggerPushNotification({
         title: `¡Bienvenido de nuevo, ${found.name}!`,
         message: 'Has iniciado sesión exitosamente. Tus notificaciones y crédito comercial están activos.',
