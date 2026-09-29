@@ -347,6 +347,8 @@ interface AppContextType {
   setIsOrdersModalOpen: (open: boolean) => void;
   selectedInvoiceForModal: Invoice | null;
   setSelectedInvoiceForModal: (invoice: Invoice | null) => void;
+  customerInvoiceModalMode: 'invoice' | 'order';
+  setCustomerInvoiceModalMode: (mode: 'invoice' | 'order') => void;
   lastSuccessfulOrder: Order | null;
   setLastSuccessfulOrder: (order: Order | null) => void;
   // Automated Credit and Past-Due Invoice Reminders
@@ -511,6 +513,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isOrdersModalOpen, setIsOrdersModalOpen] = useState(false);
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<Invoice | null>(null);
+  const [customerInvoiceModalMode, setCustomerInvoiceModalMode] = useState<'invoice' | 'order'>('invoice');
   const [lastSuccessfulOrder, setLastSuccessfulOrder] = useState<Order | null>(null);
   const [storeTab, setStoreTab] = useState<'catalog' | 'offers'>('catalog');
   const [customerPortalTab, setCustomerPortalTab] = useState<CustomerPortalTab>('catalogo');
@@ -3414,7 +3417,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
       isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
       isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
-      isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, lastSuccessfulOrder, setLastSuccessfulOrder,
+      isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, customerInvoiceModalMode, setCustomerInvoiceModalMode, lastSuccessfulOrder, setLastSuccessfulOrder,
       automatedReminders, runManualReminderScan, lastStockUpdateEvent, broadcastStockUpdate, tursoState, bootstrapTursoSchema, syncWithTurso,
     }}>
       {children}
