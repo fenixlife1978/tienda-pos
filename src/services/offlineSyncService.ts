@@ -228,16 +228,13 @@ export const offlineSyncService = {
    * No depende de otras operaciones pendientes en la cola: un pedido nuevo
    * no debe quedar bloqueado por una venta offline antigua que falló.
    */
-  async flushOperationForOrder(orderId: string): Promise<{ applied: boolean; pending: boolean }> {
+  async flushOperationForOrder(orderId: string): Promise<{ applied: boolean; pending: boolean; error?: string }> {
     if (!tursoService.isConfigured() || !navigator.onLine) {
-      return { applied: false, pending: true };
+      return { applied: false, pending: true, error: 'El dispositivo figura sin conexión.' };
     }
 
     const operation = readQueue().find((item) => item.type === 'sale' && item.order.id === orderId);
     if (!operation) {
-      // Puede haber sido aplicado por el sincronizador automático justo antes
-      // de esta llamada. En ese caso ya no existe en la cola y no queda nada
-      // pendiente para este pedido.
       return { applied: true, pending: false };
     }
 
@@ -247,20 +244,14 @@ export const offlineSyncService = {
         writeQueue(readQueue().filter((item) => item.id !== operation.id));
         return { applied: true, pending: false };
       }
-
-      if (operation.type === 'sale_reversal') {
-        await tursoService.applySaleReversal({ ...operation, operationId: operation.id });
-        writeQueue(readQueue().filter((item) => item.id !== operation.id));
-        return { applied: true, pending: false };
-      }
-
-      return { applied: false, pending: true };
+      return { applied: false, pending: true, error: 'La operación del pedido no es válida.' };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       try {
         await tursoService.failSyncOperation(operation.id, error);
       } catch {}
-      console.warn('No se pudo aplicar inmediatamente la operación:', error);
-      return { applied: false, pending: true };
+      console.error('No se pudo aplicar inmediatamente la operación:', error);
+      return { applied: false, pending: true, error: message };
     }
   },
 
