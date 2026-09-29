@@ -480,8 +480,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Ref estable para que el polling de Turso no capture un currentCustomer obsoleto.
   const currentCustomerIdRef = useRef<string | null>(currentCustomer?.id || null);
   currentCustomerIdRef.current = currentCustomer?.id || null;
-  const isAdminActiveRef = useRef<boolean>(isAdminActive);
-  isAdminActiveRef.current = isAdminActive;
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('omni_products');
     return saved ? JSON.parse(saved) : [];
@@ -552,6 +550,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [storeTab, setStoreTab] = useState<'catalog' | 'offers'>('catalog');
   const [customerPortalTab, setCustomerPortalTab] = useState<CustomerPortalTab>('catalogo');
   const [isAdminActive, setIsAdminActive] = useState<boolean>(false);
+  const isAdminActiveRef = useRef<boolean>(false);
+  isAdminActiveRef.current = isAdminActive;
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
