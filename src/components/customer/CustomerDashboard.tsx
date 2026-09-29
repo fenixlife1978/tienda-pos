@@ -545,6 +545,18 @@ export const CustomerDashboard: React.FC = () => {
                           <span className="text-xs text-slate-600">
                             Método: <strong>{formatPaymentMethod(order.paymentMethod)}</strong>
                           </span>
+                          {order.paymentStatus === 'pagado' && (
+                            <>
+                              <span className="text-xs text-slate-300">•</span>
+                              <span className="text-xs text-emerald-700">
+                                Pago registrado: <strong>{new Date(
+                                  (order.paymentSplits || []).map((s) => s.createdAt).filter(Boolean).sort()[0] || order.createdAt
+                                ).toLocaleDateString('es-VE')} {new Date(
+                                  (order.paymentSplits || []).map((s) => s.createdAt).filter(Boolean).sort()[0] || order.createdAt
+                                ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>
+                              </span>
+                            </>
+                          )}
                         </div>
 
                         {/* Status Badge: En trámite vs Despachado/Facturado */}
