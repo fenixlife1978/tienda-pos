@@ -172,6 +172,7 @@ interface AppContextType {
       reference?: string;
       notes?: string;
       bcvRate?: number;
+      sourceReportId?: string;
     }
   ) => void;
   reportCustomerReceivablePayment: (
@@ -2936,7 +2937,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cashSessionId,
         receiptNumber,
       };
-      const updatedRec = { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+      const updatedRec = {
+        ...rec,
+        amountPaidUSD: newPaid,
+        balanceUSD: newBalance,
+        status: isSettled ? 'pagado' : rec.status,
+        paymentHistory: [
+          paymentRecord,
+          ...(rec.paymentHistory || []).map((p) =>
+            details?.sourceReportId && p.id === details.sourceReportId
+              ? { ...p, verificationStatus: 'aprobado' as const }
+              : p
+          ),
+        ],
+      };
       void tursoService.saveReceivable(updatedRec).catch((error) => console.error('Error saving CxC payment to Turso:', error));
       return updatedRec;
     }));
@@ -3628,7 +3642,9 @@ export const useApp = () => {
         reference: report.reference,
         notes: 'Pago reportado por cliente y validado por administración.' + (reviewNotes ? ' ' + reviewNotes : ''),
         bcvRate: report.bcvRate,
+        sourceReportId: paymentId,
       });
+      return;
     }
 
     const updated = {
