@@ -145,36 +145,60 @@ class TursoService {
           try { await client.execute(sql); } catch {}
         }
 
+        // Reparar los triggers de actividad en bases existentes. Es crítico que
+        // orders/invoices también generen actividad: de lo contrario el pedido puede
+        // quedar insertado en Turso pero los demás dispositivos no reciben el cambio.
+        const activityDefinitions = [
+          { table: 'system_settings', id: "'main'", oldId: "'main'" },
+          { table: 'categories', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'units', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'products', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'customers', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'suppliers', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'orders', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'invoices', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'accounts_receivable', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'accounts_payable', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'purchase_entries', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'inventory_movements', id: 'NEW.movement_id', oldId: 'OLD.movement_id' },
+          { table: 'cash_sessions', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'cash_movements', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'system_users', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'bcv_history', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'system_notifications', id: 'NEW.id', oldId: 'OLD.id' },
+        ];
         try {
-          await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_insert`);
-          await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_update`);
-          await client.execute(`DROP TRIGGER IF EXISTS activity_suppliers_delete`);
-          await client.execute(`
-            CREATE TRIGGER activity_suppliers_insert
-            AFTER INSERT ON suppliers
-            BEGIN
-              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-              VALUES ('suppliers', NEW.id, 'insert', datetime('now'));
-            END;
-          `);
-          await client.execute(`
-            CREATE TRIGGER activity_suppliers_update
-            AFTER UPDATE ON suppliers
-            BEGIN
-              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-              VALUES ('suppliers', NEW.id, 'update', datetime('now'));
-            END;
-          `);
-          await client.execute(`
-            CREATE TRIGGER activity_suppliers_delete
-            AFTER DELETE ON suppliers
-            BEGIN
-              INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-              VALUES ('suppliers', OLD.id, 'delete', datetime('now'));
-            END;
-          `);
+          for (const { table, id, oldId } of activityDefinitions) {
+            await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_insert`);
+            await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_update`);
+            await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_delete`);
+            await client.execute(`
+              CREATE TRIGGER activity_${table}_insert
+              AFTER INSERT ON ${table}
+              BEGIN
+                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+                VALUES ('${table}', ${id}, 'insert', datetime('now'));
+              END;
+            `);
+            await client.execute(`
+              CREATE TRIGGER activity_${table}_update
+              AFTER UPDATE ON ${table}
+              BEGIN
+                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+                VALUES ('${table}', ${id}, 'update', datetime('now'));
+              END;
+            `);
+            await client.execute(`
+              CREATE TRIGGER activity_${table}_delete
+              AFTER DELETE ON ${table}
+              BEGIN
+                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+                VALUES ('${table}', ${oldId}, 'delete', datetime('now'));
+              END;
+            `);
+          }
         } catch (triggerError) {
-          console.warn('No se pudieron actualizar los triggers de proveedores:', triggerError);
+          console.warn('No se pudieron reparar los triggers de actividad:', triggerError);
         }
         return { success: true, tables: ['schema_ready', 'supplier_sync_ready'] };
       }
