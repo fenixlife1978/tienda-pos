@@ -54,13 +54,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   const isCreditOrder = order.paymentMethod === 'credito';
   const isCreditApproved = order.isCreditApproved === true;
   const isApproved = order.orderStatus === 'aprobado' || order.orderStatus === 'despachado_facturado';
+  const isAwaitingApproval = order.orderStatus === 'en_tramite';
   const isAwaitingDispatch = order.orderStatus === 'aprobado';
   const immediatePaymentReported =
     order.channel === 'online' &&
     !isCreditOrder &&
     order.paymentStatus === 'pagado' &&
     (Boolean(order.paymentReference?.trim()) || (order.paymentSplits?.length ?? 0) > 0);
-  const canViewFiscalInvoice = isApproved || immediatePaymentReported;
+  const canViewFiscalInvoice = isApproved;
   const whatsappUrl = getOrderWhatsAppUrl(order, settings);
 
   const handleCopySummary = async () => {
@@ -101,6 +102,10 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 uppercase tracking-wider mb-1">
                   <Clock className="w-3 h-3 text-amber-600 animate-pulse" /> ORDEN DE PEDIDO A CRÉDITO (PENDIENTE DE APROBACIÓN)
                 </span>
+              ) : isAwaitingApproval ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider mb-1">
+                  <Clock className="w-3 h-3 text-amber-600 animate-pulse" /> PEDIDO ENVIADO · PAGO EN ESPERA DE APROBACIÓN
+                </span>
               ) : isAwaitingDispatch ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider mb-1">
                   <CheckCircle2 className="w-3 h-3 text-emerald-600" /> PEDIDO APROBADO · EN ESPERA DE DESPACHO
@@ -111,7 +116,15 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 </span>
               )}
               <h2 className="text-xl font-extrabold text-slate-900">
-                {isCreditOrder && !isApproved ? '¡Orden a Crédito Enviada con Éxito!' : isAwaitingDispatch ? '¡Pedido Aprobado!' : '¡Pedido Despachado!'}
+                {isCreditOrder && !isApproved
+                  ? '¡Orden a Crédito Enviada con Éxito!'
+                  : isAwaitingApproval && immediatePaymentReported
+                    ? '¡Pedido Enviado!'
+                    : isAwaitingApproval
+                      ? '¡Pedido Enviado con Éxito!'
+                      : isAwaitingDispatch
+                        ? '¡Pedido Aprobado!'
+                        : '¡Pedido Despachado!'}
               </h2>
               <p className="text-xs text-slate-500">
                 Orden N° <strong className="font-mono text-indigo-700">{order.orderNumber}</strong> • {new Date(order.createdAt).toLocaleDateString('es-VE')} {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -131,6 +144,19 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
         {/* Modal Scrollable Body */}
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           
+          {/* Immediate payment report waiting for administrative approval */}
+          {isAwaitingApproval && immediatePaymentReported && !isCreditOrder && (
+            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 space-y-1.5 text-xs">
+              <div className="flex items-center gap-2 font-bold text-amber-950 text-xs uppercase tracking-wider">
+                <ShieldCheck className="w-4 h-4 text-amber-700" />
+                Pago reportado · Pendiente de aprobación
+              </div>
+              <p className="leading-relaxed text-amber-900">
+                <strong>Tu pedido fue enviado correctamente y el pago fue reportado.</strong> La administración verificará el número de referencia, revisará y preparará tu pedido. Una vez aprobado el pago, se emitirá y habilitará la <strong>Factura Fiscal</strong>. Después de preparar y despachar el pedido, su estado cambiará a <strong>Pedido Despachado</strong>.
+              </p>
+            </div>
+          )}
+
           {/* Credit Approval Info Notice for Credit Orders */}
           {isCreditOrder && !isApproved && (
             <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 space-y-1.5 text-xs">
