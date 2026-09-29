@@ -38,7 +38,7 @@ export function exportCustomerDocumentPDF(filename: string, options: CustomerDoc
     const margin = 14;
     let y = 16;
     const title = documentType === 'order' ? 'ORDEN DE PEDIDO' : 'FACTURA FISCAL';
-    const safe = (value: unknown) => String(value ?? '').replace(/[^\\x20-\\x7EÀ-ÿ]/g, ' ');
+    const safe = (value: unknown) => String(value ?? '').replace(/[^\x20-\x7EÀ-ÿ]/g, ' ');
     const money = (value: number) => '$' + Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const moneyBs = (value: number) => Number(value || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Bs';
 
