@@ -28,6 +28,7 @@ interface InvoiceModalProps {
   defaultFormat?: 'a4' | 'thermal';
   customerView?: boolean;
   customerOrderStatus?: OrderStatus;
+  customerOrderView?: boolean;
 }
 
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({
@@ -36,6 +37,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   defaultFormat = 'a4',
   customerView = false,
   customerOrderStatus,
+  customerOrderView = false,
 }) => {
   const { settings } = useApp();
   const [printFormat, setPrintFormat] = useState<'a4' | 'thermal'>(defaultFormat);
@@ -46,6 +48,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   // En el portal del cliente, el estado real del pedido manda sobre cualquier
   // bandera histórica de la factura. Una aprobación del pedido debe verse
   // inmediatamente como APROBADO, aunque invoice.isCreditApproved siga viejo.
+  const isCustomerOrderView = customerView && customerOrderView;
   const isCustomerOrderPending = customerView && customerOrderStatus === 'en_tramite';
   const isCustomerOrderApproved = customerView && customerOrderStatus === 'aprobado';
   const isCustomerOrderDispatched = customerView && customerOrderStatus === 'despachado_facturado';
@@ -57,7 +60,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     ? isCustomerOrderPending
     : invoice.isCredit && !invoice.isCreditApproved;
   const isOrderDocument = customerView
-    ? (isCustomerOrderPending && !isCustomerOrderPaidWhilePending)
+    ? isCustomerOrderView || (isCustomerOrderPending && !isCustomerOrderPaidWhilePending)
     : isPendingCreditApproval;
   const isPaid = invoice.paymentStatus === 'pagado';
   const isCredit = invoice.isCredit || invoice.paymentStatus === 'a_credito';
@@ -274,12 +277,14 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
         {/* Credit Approval Notice Banner if pending */}
         {isOrderDocument && (
-          <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200 flex items-start gap-2.5 text-xs text-amber-900 shrink-0">
-            <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className={`px-6 py-2.5 border-b flex items-start gap-2.5 text-xs shrink-0 ${isCustomerOrderView && (customerOrderStatus === 'aprobado' || customerOrderStatus === 'despachado_facturado' || isCustomerOrderPaidWhilePending) ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+            {isCustomerOrderView && (customerOrderStatus === 'aprobado' || customerOrderStatus === 'despachado_facturado' || isCustomerOrderPaidWhilePending) ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />}
             <div className="leading-relaxed">
-              <strong className="font-bold">Orden de Pedido en Espera de Aprobación Administrativa:</strong>
-              <p className="text-[11px] text-amber-800 mt-0.5">
-                Esta orden está en trámite. Es únicamente una Orden de Pedido y no constituye una factura fiscal válida. La factura fiscal estará disponible en <strong>Mis Facturas</strong> cuando corresponda.
+              <strong className="font-bold">{isCustomerOrderView && (customerOrderStatus === 'aprobado' || customerOrderStatus === 'despachado_facturado' || isCustomerOrderPaidWhilePending) ? 'Factura fiscal disponible en Mis Facturas' : 'Orden de Compra en espera de aprobación administrativa'}</strong>
+              <p className="text-[11px] mt-0.5">
+                {isCustomerOrderView && (customerOrderStatus === 'aprobado' || customerOrderStatus === 'despachado_facturado' || isCustomerOrderPaidWhilePending)
+                  ? 'Este documento es el PEDIDO / ORDEN DE COMPRA. La factura fiscal correspondiente está disponible para su descarga exclusivamente desde Mis Facturas.'
+                  : 'Este documento es únicamente una ORDEN DE COMPRA (PEDIDO) y no constituye una factura fiscal válida. La factura fiscal se generará y estará disponible en Mis Facturas cuando el pedido sea aprobado.'}
               </p>
             </div>
           </div>
@@ -470,9 +475,19 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             /* =============================================================== */
             <div
               id="printable-invoice-content"
-              className="p-8 bg-white text-slate-800 text-sm relative rounded-xl border border-slate-200 shadow-md max-w-2xl mx-auto"
+              className={`p-8 bg-white text-slate-800 text-sm relative rounded-xl shadow-md max-w-2xl mx-auto ${isOrderDocument ? "border-2 border-dashed border-amber-400" : "border border-slate-200"}`}
             >
               
+              {/* Identidad visual exclusiva de Orden de Compra */}
+              {isOrderDocument && (
+                <div className="mb-6 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 px-5 py-4 text-center">
+                  <p className="text-[11px] font-black tracking-[0.25em] text-amber-700 uppercase">Documento Comercial</p>
+                  <h1 className="text-2xl font-black tracking-tight text-slate-900 uppercase">ORDEN DE COMPRA</h1>
+                  <p className="text-sm font-extrabold text-amber-800">PEDIDO N° {invoice.invoiceNumber}</p>
+                  <p className="mt-1 text-[10px] font-bold uppercase text-slate-500">NO ES FACTURA FISCAL · NO SUSTITUYE EL COMPROBANTE FISCAL</p>
+                </div>
+              )}
+
               {/* Watermark for pending credit orders */}
               {isCreditPendingApproval && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5 select-none rotate-[-25deg]">
@@ -529,7 +544,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               {/* Customer and billing block */}
               <div className="grid grid-cols-2 gap-6 p-4 rounded-xl bg-slate-50 border border-slate-200 mb-6">
                 <div>
-                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wider">{isOrderDocument ? 'Pedido de (Cliente):' : 'Facturado a (Cliente):'}</p>
+                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wider">{isOrderDocument ? 'Solicitado por (Cliente):' : 'Facturado a (Cliente):'}</p>
                   <p className="font-bold text-slate-900 text-sm">{invoice.customerName}</p>
                   <p className="text-xs text-slate-600"><strong>RIF/Cédula:</strong> {invoice.customerRif}</p>
                   <p className="text-xs text-slate-600"><strong>Teléfono:</strong> {invoice.customerPhone}</p>
@@ -586,13 +601,20 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               {/* Totals Breakdown */}
               <div className="flex justify-between items-start border-t border-slate-200 pt-4">
                 <div className="max-w-xs">
-                  <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                    <QrCode className="w-12 h-12 text-slate-700 shrink-0" />
-                    <div className="text-[11px] text-slate-500 leading-tight">
-                      <p className="font-semibold text-slate-700">Comprobante Digital Verificado</p>
-                      <p>Consulte la validez fiscal de este documento escaneando el código o ingresando el correlativo.</p>
+                  {isOrderDocument ? (
+                    <div className="p-3 bg-amber-50 rounded-xl border-2 border-dashed border-amber-300 text-[11px] text-amber-900 leading-tight">
+                      <p className="font-black uppercase tracking-wide">Orden de Compra / Pedido</p>
+                      <p className="mt-1">Documento comercial generado para registrar la solicitud del cliente. No constituye factura fiscal.</p>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <QrCode className="w-12 h-12 text-slate-700 shrink-0" />
+                      <div className="text-[11px] text-slate-500 leading-tight">
+                        <p className="font-semibold text-slate-700">Comprobante Digital Verificado</p>
+                        <p>Consulte la validez fiscal de este documento escaneando el código o ingresando el correlativo.</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="w-72 space-y-1.5 text-xs">
