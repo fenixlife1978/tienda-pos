@@ -188,6 +188,7 @@ interface AppContextType {
       senderPhone?: string;
     }
   ) => Promise<void>;
+  reviewCustomerPaymentReport: (receivableId: string, paymentId: string, approved: boolean, notes?: string) => Promise<void>;
   registerGlobalCustomerPayment: (
     customerId: string,
     amountUSD: number,
@@ -3582,7 +3583,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
       addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
       updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
-      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
+      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
       activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
@@ -3605,6 +3606,55 @@ export const useApp = () => {
       type: 'credit_alert',
       targetRole: 'seller',
       badge: 'Pago por validar',
+    });
+  };
+
+  const reviewCustomerPaymentReport = async (
+    receivableId: string,
+    paymentId: string,
+    approved: boolean,
+    reviewNotes?: string
+  ) => {
+    const target = receivables.find((r) => r.id === receivableId);
+    const report = target?.paymentHistory?.find((p) => p.id === paymentId && p.reportedByCustomer);
+    if (!target || !report) throw new Error('Reporte de pago no encontrado.');
+    if (report.verificationStatus !== 'pendiente') throw new Error('Este reporte ya fue procesado.');
+
+    if (approved) {
+      if (report.amountUSD > target.balanceUSD + 0.01) throw new Error('El reporte supera el saldo actual de la factura.');
+      registerReceivablePayment(target.id, report.amountUSD, {
+        paymentMethod: report.paymentMethod,
+        paymentSplits: report.paymentSplits,
+        reference: report.reference,
+        notes: 'Pago reportado por cliente y validado por administración.' + (reviewNotes ? ' ' + reviewNotes : ''),
+        bcvRate: report.bcvRate,
+      });
+    }
+
+    const updated = {
+      ...target,
+      paymentHistory: (target.paymentHistory || []).map((p) =>
+        p.id === paymentId
+          ? {
+              ...p,
+              verificationStatus: approved ? 'aprobado' as const : 'rechazado' as const,
+              notes: (p.notes || '') + (reviewNotes ? ' ' + reviewNotes : ''),
+            }
+          : p
+      ),
+    };
+    await tursoService.saveReceivable(updated);
+    setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
+
+    triggerPushNotification({
+      title: approved ? '✅ Pago de deuda validado' : '❌ Pago de deuda rechazado',
+      message: approved
+        ? 'El pago reportado para la factura ' + target.invoiceNumber + ' fue validado por administración.'
+        : 'El reporte de pago para la factura ' + target.invoiceNumber + ' fue rechazado.' + (reviewNotes ? ' Motivo: ' + reviewNotes : ''),
+      type: 'credit_alert',
+      targetRole: 'client',
+      targetCustomerId: target.customerId,
+      badge: approved ? 'Pago validado' : 'Pago rechazado',
     });
   };
 
