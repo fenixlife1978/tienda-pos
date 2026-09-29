@@ -464,6 +464,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Ref estable para que el polling de Turso no capture un currentCustomer obsoleto.
   const currentCustomerIdRef = useRef<string | null>(currentCustomer?.id || null);
   currentCustomerIdRef.current = currentCustomer?.id || null;
+  const isAdminActiveRef = useRef<boolean>(isAdminActive);
+  isAdminActiveRef.current = isAdminActive;
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('omni_products');
     return saved ? JSON.parse(saved) : [];
@@ -505,14 +507,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    const activeCustomerId = sessionStorage.getItem('omni_active_customer_id');
+    const adminSession = sessionStorage.getItem('tienda_pos_admin_user');
     const saved = localStorage.getItem('omni_notifications');
-    if (!saved) return [];
+    if (!saved || (!activeCustomerId && !adminSession)) return [];
     try {
       const parsed = JSON.parse(saved);
       if (!Array.isArray(parsed)) return [];
-      // Las sesiones de cliente son privadas por pestaña. Las notificaciones
-      // antiguas de "Sesión Finalizada" no deben existir en ningún dashboard.
-      return parsed.filter((n: AppNotification) => n?.title !== 'Sesión Finalizada');
+      return parsed.filter((n: AppNotification) => {
+        if (n?.title === 'Sesión Finalizada') return false;
+        if (activeCustomerId) {
+          return (n.targetRole === 'client' || n.targetRole === 'all') &&
+            (!n.targetCustomerId || n.targetCustomerId === activeCustomerId);
+        }
+        return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
+      });
     } catch {
       return [];
     }
@@ -847,7 +856,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPurchaseEntries(cloudData.purchaseEntries);
         setUsers(cloudData.users);
         if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
-          const incoming = cloudData.notifications;
+          const incoming = cloudData.notifications.filter((n) => {
+            if (n.title === 'Sesión Finalizada') return false;
+            if (currentCustomerIdRef.current) {
+              return (n.targetRole === 'client' || n.targetRole === 'all') &&
+                (!n.targetCustomerId || n.targetCustomerId === currentCustomerIdRef.current);
+            }
+            if (isAdminActiveRef.current || mode === 'erp') {
+              return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
+            }
+            return false;
+          });
           const brandNewFromCloud: AppNotification[] = [];
   
           for (const n of incoming) {
@@ -1043,6 +1062,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const type = options.type || 'promotion';
+    const effectiveTargetRole =
+      options.targetCustomerId
+        ? (options.targetRole || 'client')
+        : (isAdminActiveRef.current && !options.targetRole ? 'seller' : options.targetRole);
     const newNotif: AppNotification = {
       id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       title: options.title,
@@ -1052,7 +1075,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       read: false,
       relatedOrderId: options.relatedOrderId,
       targetCustomerId: options.targetCustomerId,
-      targetRole: options.targetRole,
+      targetRole: effectiveTargetRole,
       priority: options.priority,
       actionUrl: options.actionUrl,
       badge: options.badge,
@@ -3442,7 +3465,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
-  const clearAllNotifications = () => setNotifications([]);
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    seenNotificationIdsRef.current.clear();
+    void tursoService.clearNotificationsForViewer('admin').catch((error) =>
+      console.warn('No se pudieron limpiar las notificaciones administrativas en Turso:', error)
+    );
+  };
 
   return productionTursoMisconfigured ? (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
