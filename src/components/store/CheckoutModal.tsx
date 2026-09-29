@@ -17,6 +17,8 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { formatUSD, formatBs } from '../../utils/formatUtils';
+import { offlineSyncService } from '../../services/offlineSyncService';
+import { tursoService } from '../../services/tursoService';
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -64,7 +66,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
     creditAvailableUSD >= totalUSD
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cart.length === 0) return;
 
@@ -104,6 +106,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
         notes: `${deliveryType === 'delivery' ? 'Entrega a Domicilio' : 'Retiro en Tienda'} - ${notes}`,
         customCreditDays: currentCustomer?.creditDays || settings.defaultCreditDays,
       });
+
+      // Para pedidos online, "éxito" solo significa éxito cuando la operación
+      // transaccional ya fue aplicada en Turso. Antes se lanzaba flush() sin esperar,
+      // por lo que el cliente veía éxito aunque el pedido quedara únicamente en la
+      // cola local y Administración nunca lo recibiera.
+      if (navigator.onLine && tursoService.isConfigured()) {
+        const syncResult = await offlineSyncService.flush();
+        if (syncResult.pending > 0) {
+          throw new Error('El pedido quedó pendiente de sincronización con el servidor. No se confirmó el pedido todavía.');
+        }
+      }
 
       setLastSuccessfulOrder(order);
       onClose();
