@@ -14,11 +14,15 @@ function getCookie(req: any, name: string) {
   return match ? decodeURIComponent(match.slice(name.length + 1)) : '';
 }
 
+function getTabSession(req: any) {
+  return String(req.headers?.['x-tienda-pos-session'] || '').trim();
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const sessionId = getCookie(req, 'tienda_pos_session');
+    const sessionId = getTabSession(req) || getCookie(req, 'tienda_pos_session');
     if (!sessionId) return res.status(401).json({ authenticated: false });
 
     const client = db();
