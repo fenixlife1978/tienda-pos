@@ -253,7 +253,7 @@ export interface CartItem {
   customNote?: string;
 }
 
-export type OrderStatus = 'en_tramite' | 'despachado_facturado';
+export type OrderStatus = 'en_tramite' | 'aprobado' | 'despachado_facturado';
 export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'credito';
 export type PaymentStatus = 'pendiente' | 'pagado' | 'a_credito';
 export type PaymentMethod =
