@@ -1030,6 +1030,9 @@ export const CustomerDashboard: React.FC = () => {
                 </div>
               )}
               <label className="text-xs font-bold text-slate-700">Teléfono del remitente (opcional)<input value={debtPaymentSenderPhone} onChange={(e) => setDebtPaymentSenderPhone(e.target.value)} placeholder="Teléfono" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                <strong>¿Deseas pagar en efectivo?</strong> Informa a la administración para coordinar el retiro del dinero. El pago en efectivo no se reporta desde este portal: el administrador lo registrará posteriormente en CxC como <strong>Efectivo Bs.</strong> o <strong>Efectivo USD</strong>.
+              </div>
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800"><strong>Importante:</strong> reportar el pago no liquida automáticamente la deuda. La administración recibirá la notificación, revisará el pago en CxC y solo al aprobarlo se aplicará a la factura y se registrarán los procesos financieros correspondientes.</div>
               <div className="flex justify-end gap-2">
                 <button onClick={closeDebtPayment} disabled={debtPaymentSubmitting} className="px-4 py-2.5 rounded-xl border border-slate-200 font-bold text-sm">Cancelar</button>
