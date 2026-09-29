@@ -49,10 +49,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const isCustomerOrderPending = customerView && customerOrderStatus === 'en_tramite';
   const isCustomerOrderApproved = customerView && customerOrderStatus === 'aprobado';
   const isCustomerOrderDispatched = customerView && customerOrderStatus === 'despachado_facturado';
+  // El historial siempre abre el documento como PEDIDO. La factura fiscal
+  // solo se presenta desde Mis Facturas, excepto un pedido aún en trámite
+  // que ya fue pagado al enviarse: en ese caso la factura ya existe.
+  const isCustomerOrderPaidWhilePending = customerView && isCustomerOrderPending && invoice.paymentStatus === 'pagado';
   const isPendingCreditApproval = customerView
     ? isCustomerOrderPending
     : invoice.isCredit && !invoice.isCreditApproved;
-  const isOrderDocument = customerView ? isCustomerOrderPending : isPendingCreditApproval;
+  const isOrderDocument = customerView
+    ? (isCustomerOrderPending && !isCustomerOrderPaidWhilePending)
+    : isPendingCreditApproval;
   const isPaid = invoice.paymentStatus === 'pagado';
   const isCredit = invoice.isCredit || invoice.paymentStatus === 'a_credito';
   const isCreditPendingApproval = customerView
@@ -273,7 +279,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             <div className="leading-relaxed">
               <strong className="font-bold">Orden de Pedido en Espera de Aprobación Administrativa:</strong>
               <p className="text-[11px] text-amber-800 mt-0.5">
-                Esta orden está en trámite. Es únicamente una Orden de Pedido y no constituye una factura fiscal válida. La factura fiscal se habilitará cuando el administrador apruebe el pedido.
+                Esta orden está en trámite. Es únicamente una Orden de Pedido y no constituye una factura fiscal válida. La factura fiscal estará disponible en <strong>Mis Facturas</strong> cuando corresponda.
               </p>
             </div>
           </div>
