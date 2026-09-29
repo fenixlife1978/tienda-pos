@@ -114,7 +114,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
       if (navigator.onLine && tursoService.isConfigured()) {
         const syncResult = await offlineSyncService.flushOperationForOrder(order.id);
         if (!syncResult.applied) {
-          throw new Error('No se pudo confirmar el pedido en el servidor. El pedido no fue confirmado; verifique la conexión e inténtelo nuevamente.');
+          throw new Error(
+            syncResult.error
+              ? `El servidor rechazó el pedido: ${syncResult.error}`
+              : 'No se pudo confirmar el pedido en el servidor.'
+          );
         }
       }
 
