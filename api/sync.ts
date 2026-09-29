@@ -23,21 +23,10 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const sessionId = getCookie(req, 'tienda_pos_session');
-    if (!sessionId) return res.status(401).json({ authenticated: false });
-
+    // El cursor de cambios solo expone un número incremental; no expone
+    // datos, credenciales ni registros. Debe ser consultable también desde
+    // el portal cliente para que la sincronización sea realmente automática.
     const client = db();
-    const user = await client.execute({
-      sql: `SELECT u.id
-            FROM auth_sessions s
-            JOIN system_users u ON u.id=s.user_id
-            WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
-              AND u.active=1
-            LIMIT 1`,
-      args: [sessionId, new Date().toISOString()]
-    });
-    if (!user.rows[0]) return res.status(401).json({ authenticated: false });
-
     const since = Math.max(0, Number(req.query?.since || 0));
     const result = await client.execute('SELECT COALESCE(MAX(id), 0) AS latest_id FROM activity_changes');
     const latestId = Number(result.rows[0]?.latest_id || 0);
