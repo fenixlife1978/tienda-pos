@@ -160,6 +160,25 @@ export const CashRegisterView: React.FC = () => {
     [orders, session]
   );
 
+  // Pedidos online aprobados se convierten en ventas contables al momento de la aprobación.
+  // Se incluyen en ventas del período del arqueo/Z aunque no pertenezcan físicamente a una caja POS.
+  const approvedOnlineOrders = useMemo(
+    () => {
+      if (!session) return [];
+      const from = new Date(session.openedAt).getTime();
+      const to = new Date(session.closedAt || new Date().toISOString()).getTime();
+      return orders.filter((o) =>
+        o.channel === 'online' &&
+        o.orderStatus !== 'cancelado' &&
+        !o.isVoided &&
+        !!o.approvedAt &&
+        new Date(o.approvedAt).getTime() >= from &&
+        new Date(o.approvedAt).getTime() <= to
+      );
+    },
+    [orders, session]
+  );
+
   const cxcPayments = useMemo(() => {
     if (!session) return [];
     const from = new Date(session.openedAt).getTime();
@@ -228,7 +247,7 @@ export const CashRegisterView: React.FC = () => {
       map[key].amount += amount;
     };
 
-    for (const order of posOrders) {
+    for (const order of [...posOrders, ...approvedOnlineOrders]) {
       if (order.isReturned) continue;
       if (order.paymentSplits?.length) {
         for (const split of order.paymentSplits) {
@@ -252,7 +271,7 @@ export const CashRegisterView: React.FC = () => {
     }
 
     return Object.values(map).sort((a, b) => a.method.localeCompare(b.method));
-  }, [posOrders]);
+  }, [posOrders, approvedOnlineOrders]);
 
   const sessionMovements = useMemo(
     () => (session ? movements.filter((m) => m.sessionId === session.id) : []),
@@ -322,7 +341,7 @@ export const CashRegisterView: React.FC = () => {
     [session, cashSalesBs, cxcCashSalesBs, movementCashBs, refundCash.bs]
   );
 
-  const totalSalesUSD = posOrders.reduce((sum, order) => sum + order.totalUSD, 0);
+  const totalSalesUSD = [...posOrders, ...approvedOnlineOrders].reduce((sum, order) => sum + order.totalUSD, 0);
   const printerMode = settings.printerMode || 'thermal';
 
   const open = () => {
