@@ -83,12 +83,9 @@ export const CustomerDashboard: React.FC = () => {
     const relatedOrder = orders.find((o) => o.id === inv.orderId);
     if (!relatedOrder) return false;
     const isApproved = relatedOrder.orderStatus === 'aprobado' || relatedOrder.orderStatus === 'despachado_facturado';
-    const immediatePaymentReported =
-      relatedOrder.channel === 'online' &&
-      relatedOrder.paymentMethod !== 'credito' &&
-      relatedOrder.paymentStatus === 'pagado' &&
-      (Boolean(relatedOrder.paymentReference?.trim()) || (relatedOrder.paymentSplits?.length ?? 0) > 0);
-    return isApproved || immediatePaymentReported;
+    // La factura fiscal solo se libera después de la aprobación administrativa,
+    // incluso cuando el cliente reportó un pago inmediato con referencia.
+    return isApproved;
   });
 
   // Filtered orders
