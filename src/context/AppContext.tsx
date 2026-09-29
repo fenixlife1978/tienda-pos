@@ -1894,38 +1894,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       despachado_facturado: '¡Tu pedido fue despachado y entregado! La factura fiscal permanece disponible.',
     };
 
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+
     const relatedInvoice = invoices.find((inv) => inv.orderId === orderId);
+    const isFinancialApproval = status === 'aprobado' && order.orderStatus !== 'aprobado' && order.channel === 'online';
+    const approvedAt = isFinancialApproval ? new Date().toISOString() : order.approvedAt;
+
+    const updatedOrder = {
+      ...order,
+      orderStatus: status,
+      ...(status === 'aprobado' || status === 'despachado_facturado' ? { isCreditApproved: true } : {}),
+      ...(approvedAt ? { approvedAt } : {}),
+      ...(isFinancialApproval ? { paymentStatus: order.paymentMethod === 'credito' ? 'a_credito' : 'pagado' } : {}),
+    };
+
+    setOrders((prev) => prev.map((o) => o.id === orderId ? updatedOrder : o));
+    void tursoService.saveOrder(updatedOrder).catch((error) => console.error('Error saving order status to Turso:', error));
+
     if (relatedInvoice) {
-      const invoiceReleased = status === 'aprobado' || status === 'despachado_facturado';
       const updatedInvoice = {
         ...relatedInvoice,
-        isCreditApproved: invoiceReleased ? true : relatedInvoice.isCreditApproved,
+        isCreditApproved: status === 'aprobado' || status === 'despachado_facturado'
+          ? true
+          : relatedInvoice.isCreditApproved,
+        ...(approvedAt ? { approvedAt } : {}),
+        ...(isFinancialApproval ? { paymentStatus: order.paymentMethod === 'credito' ? 'a_credito' : 'pagado' } : {}),
       };
       setInvoices((prev) => prev.map((inv) => inv.id === updatedInvoice.id ? updatedInvoice : inv));
       void tursoService.saveInvoice(updatedInvoice).catch((error) => console.error('Error saving related invoice approval to Turso:', error));
+
+      if (isFinancialApproval) {
+        void tursoService.approveOrderFinancially(updatedOrder, updatedInvoice, currentUser.name)
+          .catch((error) => console.error('Error contabilizando aprobación del pedido en Turso:', error));
+      }
     }
 
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== orderId) return o;
-        const updated = {
-          ...o,
-          orderStatus: status,
-          ...(status === 'aprobado' || status === 'despachado_facturado' ? { isCreditApproved: true } : {}),
-        };
-        void tursoService.saveOrder(updated).catch((error) => console.error('Error saving order status to Turso:', error));
-        triggerPushNotification({
-          title: statusTitles[status] + ' (' + o.orderNumber + ')',
-          message: statusMessages[status],
-          type: 'order_status',
-          relatedOrderId: o.id,
-          badge: status === 'en_tramite' ? 'En trámite' : status === 'aprobado' ? 'Aprobado' : 'Despachado',
-          targetRole: 'client',
-          targetCustomerId: o.customerId,
-        });
-        return updated;
-      })
-    );
+    triggerPushNotification({
+      title: statusTitles[status] + ' (' + order.orderNumber + ')',
+      message: statusMessages[status],
+      type: 'order_status',
+      relatedOrderId: order.id,
+      badge: status === 'en_tramite' ? 'En trámite' : status === 'aprobado' ? 'Aprobado' : 'Despachado',
+      targetRole: 'client',
+      targetCustomerId: order.customerId,
+    });
   };
 
   const updatePaymentStatus = (orderId: string, paymentStatus: PaymentStatus) => {
