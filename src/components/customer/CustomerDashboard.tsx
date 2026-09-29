@@ -57,6 +57,9 @@ export const CustomerDashboard: React.FC = () => {
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState('');
   const [debtPaymentReceivableId, setDebtPaymentReceivableId] = useState<string | null>(null);
   const [debtPaymentMethod, setDebtPaymentMethod] = useState<import('../../types').PaymentMethod>('pago_movil');
+  const [debtPaymentMixed, setDebtPaymentMixed] = useState(false);
+  const [debtPaymentSplitAmounts, setDebtPaymentSplitAmounts] = useState<Record<string, string>>({});
+  const [debtPaymentSplitRefs, setDebtPaymentSplitRefs] = useState<Record<string, string>>({});
   const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
   const [debtPaymentReference, setDebtPaymentReference] = useState('');
   const [debtPaymentSenderName, setDebtPaymentSenderName] = useState('');
@@ -101,10 +104,11 @@ export const CustomerDashboard: React.FC = () => {
     .filter((r) => r.customerId === currentCustomer.id && r.balanceUSD > 0.001 && !r.isVoided)
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-  const onlinePaymentMethods = ([
-    'pago_movil', 'zelle', 'transferencia_bs', 'transferencia_usd', 'tarjeta',
-    'biopago', 'efectivo_bs', 'efectivo_usd', 'divisas_efectivo',
-  ] as const).filter((method) => settings.acceptedPaymentMethods?.[method as keyof typeof settings.acceptedPaymentMethods] !== false);
+  // Pagos online del portal: únicamente Pago Móvil, Transferencia Bs. y Zelle.
+  // El efectivo se coordina con administración y se registra posteriormente desde CxC.
+  const onlinePaymentMethods = (['pago_movil', 'transferencia_bs', 'zelle'] as const).filter(
+    (method) => settings.acceptedPaymentMethods?.[method as keyof typeof settings.acceptedPaymentMethods] !== false
+  );
 
   const selectedDebt = debtPaymentReceivableId ? customerDebts.find((r) => r.id === debtPaymentReceivableId) || null : null;
 
@@ -113,6 +117,9 @@ export const CustomerDashboard: React.FC = () => {
     if (!debt) return;
     setDebtPaymentReceivableId(receivableId);
     setDebtPaymentMethod(onlinePaymentMethods[0] || 'pago_movil');
+    setDebtPaymentMixed(false);
+    setDebtPaymentSplitAmounts({});
+    setDebtPaymentSplitRefs({});
     setDebtPaymentAmount(debt.balanceUSD.toFixed(2));
     setDebtPaymentReference('');
     setDebtPaymentSenderName('');
@@ -128,42 +135,78 @@ export const CustomerDashboard: React.FC = () => {
   const submitDebtPayment = async () => {
     if (!selectedDebt) return;
     const amount = Number(debtPaymentAmount);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > selectedDebt.balanceUSD + 0.01) {
+    const mixedSplits = onlinePaymentMethods
+      .map((method) => ({
+        method,
+        amountUSD: Number(debtPaymentSplitAmounts[method] || 0),
+        reference: (debtPaymentSplitRefs[method] || '').trim(),
+      }))
+      .filter((split) => split.amountUSD > 0);
+
+    const totalReported = debtPaymentMixed
+      ? mixedSplits.reduce((sum, split) => sum + split.amountUSD, 0)
+      : amount;
+
+    if (!Number.isFinite(totalReported) || totalReported <= 0 || totalReported > selectedDebt.balanceUSD + 0.01) {
       alert('Indica un monto válido que no supere el saldo pendiente.');
       return;
     }
-    const needsReference = ['pago_movil', 'transferencia_bs', 'transferencia_usd', 'zelle'].includes(debtPaymentMethod);
-    const needsBank = ['transferencia_bs', 'transferencia_usd'].includes(debtPaymentMethod);
-    const needsZelleIdentity = debtPaymentMethod === 'zelle';
-    if (needsReference && !debtPaymentReference.trim()) {
-      alert('Indica el número de referencia de la operación.');
-      return;
+
+    if (debtPaymentMixed) {
+      if (mixedSplits.length < 2) {
+        alert('Para un pago mixto debes utilizar al menos dos de los tres métodos online disponibles.');
+        return;
+      }
+      if (mixedSplits.some((split) => !split.reference)) {
+        alert('Cada método utilizado en el pago mixto debe tener su referencia.');
+        return;
+      }
+      if (mixedSplits.some((split) => split.method === 'transferencia_bs') && !debtPaymentSenderBank.trim()) {
+        alert('Indica el banco emisor de la transferencia.');
+        return;
+      }
+      if (mixedSplits.some((split) => split.method === 'zelle') && (!debtPaymentSenderEmail.trim() || !debtPaymentSenderName.trim())) {
+        alert('Para Zelle debes indicar el correo y el titular que realizó el envío.');
+        return;
+      }
+    } else {
+      const needsReference = ['pago_movil', 'transferencia_bs', 'zelle'].includes(debtPaymentMethod);
+      if (needsReference && !debtPaymentReference.trim()) {
+        alert('Indica el número de referencia de la operación.');
+        return;
+      }
+      if (debtPaymentMethod === 'transferencia_bs' && !debtPaymentSenderBank.trim()) {
+        alert('Indica el banco emisor.');
+        return;
+      }
+      if (debtPaymentMethod === 'zelle' && (!debtPaymentSenderEmail.trim() || !debtPaymentSenderName.trim())) {
+        alert('Para Zelle debes indicar el correo y el titular que realizó el envío.');
+        return;
+      }
     }
-    if (needsBank && !debtPaymentSenderBank.trim()) {
-      alert('Indica el banco emisor.');
-      return;
-    }
-    if (needsZelleIdentity && (!debtPaymentSenderEmail.trim() || !debtPaymentSenderName.trim())) {
-      alert('Para Zelle debes indicar el correo y el titular que realizó el envío.');
-      return;
-    }
+
     setDebtPaymentSubmitting(true);
     try {
-      await reportCustomerReceivablePayment(selectedDebt.id, amount, {
-        paymentMethod: debtPaymentMethod,
-        reference: debtPaymentReference,
+      await reportCustomerReceivablePayment(selectedDebt.id, totalReported, {
+        paymentMethod: debtPaymentMixed ? 'mixto' : debtPaymentMethod,
+        paymentSplits: debtPaymentMixed ? mixedSplits : undefined,
+        reference: debtPaymentMixed ? undefined : debtPaymentReference,
         bcvRate: settings.bcvRate,
         senderName: debtPaymentSenderName,
         senderEmail: debtPaymentSenderEmail,
         senderBank: debtPaymentSenderBank,
         senderPhone: debtPaymentSenderPhone,
-        notes: 'Pago reportado desde Mis Deudas por el cliente.',
+        notes: debtPaymentMixed
+          ? 'Pago mixto online reportado desde Mis Deudas por el cliente. Pendiente de aprobación administrativa.'
+          : 'Pago online reportado desde Mis Deudas por el cliente. Pendiente de aprobación administrativa.',
       });
-      alert('Pago reportado correctamente. Queda pendiente de validación por la administración.');
+      alert('Pago reportado correctamente. Queda pendiente de aprobación por la administración.');
       closeDebtPayment();
     } catch (error) {
       alert(error instanceof Error ? error.message : 'No fue posible reportar el pago.');
     } finally {
+      setDebtPaymentSubmitting(false);
+    }
       setDebtPaymentSubmitting(false);
     }
   };
@@ -928,29 +971,66 @@ export const CustomerDashboard: React.FC = () => {
                     {onlinePaymentMethods.map((method) => <option key={method} value={method}>{formatPaymentMethod(method)}</option>)}
                   </select>
                 </label>
-                <label className="text-xs font-bold text-slate-700">Monto USD
-                  <input type="number" min="0.01" max={selectedDebt.balanceUSD} step="0.01" value={debtPaymentAmount} onChange={(e) => setDebtPaymentAmount(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono" />
-                  <span className="text-[10px] text-slate-400">Equivalente: {(Number(debtPaymentAmount || 0) * settings.bcvRate).toFixed(2)} Bs</span>
-                </label>
+                {!debtPaymentMixed ? (
+                  <label className="text-xs font-bold text-slate-700">Monto USD
+                    <input type="number" min="0.01" max={selectedDebt.balanceUSD} step="0.01" value={debtPaymentAmount} onChange={(e) => setDebtPaymentAmount(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono" />
+                    <span className="text-[10px] text-slate-400">Equivalente: {(Number(debtPaymentAmount || 0) * settings.bcvRate).toFixed(2)} Bs</span>
+                  </label>
+                ) : (
+                  <div className="text-xs text-slate-700">
+                    <div className="font-bold">Pago Mixto Online</div>
+                    <div className="text-[10px] text-slate-500 mt-1">Distribuye el saldo entre dos o tres métodos. Solo se permiten los métodos online disponibles.</div>
+                  </div>
+                )}
               </div>
-              {['pago_movil','transferencia_bs','transferencia_usd','zelle'].includes(debtPaymentMethod) && (
+              {debtPaymentMixed && (
+                <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-3">
+                  {onlinePaymentMethods.map((method) => (
+                    <div key={method} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className="text-xs font-bold text-slate-700">
+                        {formatPaymentMethod(method)} · Monto USD
+                        <input
+                          type="number"
+                          min="0"
+                          max={selectedDebt.balanceUSD}
+                          step="0.01"
+                          value={debtPaymentSplitAmounts[method] || ''}
+                          onChange={(e) => setDebtPaymentSplitAmounts((prev) => ({ ...prev, [method]: e.target.value }))}
+                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white font-mono"
+                        />
+                      </label>
+                      <label className="text-xs font-bold text-slate-700">
+                        Referencia
+                        <input
+                          value={debtPaymentSplitRefs[method] || ''}
+                          onChange={(e) => setDebtPaymentSplitRefs((prev) => ({ ...prev, [method]: e.target.value }))}
+                          placeholder="Referencia de la operación"
+                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {['pago_movil','transferencia_bs','zelle'].includes(debtPaymentMethod) && !debtPaymentMixed && (
                 <label className="block text-xs font-bold text-slate-700">Número de referencia
                   <input value={debtPaymentReference} onChange={(e) => setDebtPaymentReference(e.target.value)} placeholder="Referencia de la operación" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" />
                 </label>
               )}
-              {['transferencia_bs','transferencia_usd'].includes(debtPaymentMethod) && (
+              {debtPaymentMethod === 'transferencia_bs' && !debtPaymentMixed && (
                 <label className="block text-xs font-bold text-slate-700"><span className="flex items-center gap-1.5"><Building2 className="w-4 h-4" /> Banco emisor</span>
                   <input value={debtPaymentSenderBank} onChange={(e) => setDebtPaymentSenderBank(e.target.value)} placeholder="Banco desde el cual se realizó la transferencia" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" />
                 </label>
               )}
-              {debtPaymentMethod === 'zelle' && (
+              {debtPaymentMethod === 'zelle' && !debtPaymentMixed && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="text-xs font-bold text-slate-700">Correo del remitente<input type="email" value={debtPaymentSenderEmail} onChange={(e) => setDebtPaymentSenderEmail(e.target.value)} placeholder="correo desde el que enviaste" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
                   <label className="text-xs font-bold text-slate-700">Titular del envío<input value={debtPaymentSenderName} onChange={(e) => setDebtPaymentSenderName(e.target.value)} placeholder="Nombre del titular" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
                 </div>
               )}
               <label className="text-xs font-bold text-slate-700">Teléfono del remitente (opcional)<input value={debtPaymentSenderPhone} onChange={(e) => setDebtPaymentSenderPhone(e.target.value)} placeholder="Teléfono" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800"><strong>Importante:</strong> reportar el pago no liquida automáticamente la deuda. La administración verificará la operación antes de aplicarla a la factura.</div>
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800"><strong>Importante:</strong> reportar el pago no liquida automáticamente la deuda. La administración recibirá la notificación, revisará el pago en CxC y solo al aprobarlo se aplicará a la factura y se registrarán los procesos financieros correspondientes.</div>
               <div className="flex justify-end gap-2">
                 <button onClick={closeDebtPayment} disabled={debtPaymentSubmitting} className="px-4 py-2.5 rounded-xl border border-slate-200 font-bold text-sm">Cancelar</button>
                 <button onClick={submitDebtPayment} disabled={debtPaymentSubmitting} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-sm">{debtPaymentSubmitting ? 'Enviando...' : 'Reportar pago'}</button>
