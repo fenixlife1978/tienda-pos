@@ -88,7 +88,7 @@ export const CustomerRequestsManagementView: React.FC = () => {
           (cust.creditStatus === 'pending' && cust.verificationStatus !== 'rejected');
         if (!isPending) return false;
       } else if (activeStatusFilter === 'credit_requested') {
-        if (cust.creditStatus !== 'pending' && (!cust.creditRequestedLimitUSD || cust.creditRequestedLimitUSD <= 0)) {
+        if (cust.creditStatus !== 'pending' && (cust.creditStatus === 'approved' || !cust.creditRequestedLimitUSD || cust.creditRequestedLimitUSD <= 0)) {
           return false;
         }
       } else if (activeStatusFilter === 'verified') {
@@ -139,7 +139,7 @@ export const CustomerRequestsManagementView: React.FC = () => {
     ).length;
 
     const creditRequestedCustomers = customers.filter(
-      (c) => c.creditStatus === 'pending' || (c.creditRequestedLimitUSD && c.creditRequestedLimitUSD > 0)
+      (c) => c.creditStatus === 'pending' && (c.creditRequestedLimitUSD || 0) > 0
     );
 
     const totalCreditRequestedUSD = creditRequestedCustomers.reduce(
@@ -549,7 +549,7 @@ export const CustomerRequestsManagementView: React.FC = () => {
             const isPending =
               cust.verificationStatus === 'pending' ||
               (cust.isFirstTime && cust.verificationStatus !== 'verified' && cust.verificationStatus !== 'rejected') ||
-              cust.creditStatus === 'pending';
+              (cust.creditStatus === 'pending' && cust.verificationStatus !== 'rejected');
             const isVerified = cust.verificationStatus === 'verified';
             const isRejected = cust.verificationStatus === 'rejected' || cust.creditStatus === 'rejected';
 
@@ -664,7 +664,7 @@ export const CustomerRequestsManagementView: React.FC = () => {
                   </div>
 
                   {/* Solicitud de Crédito Banner if requested */}
-                  {requestedCreditUSD > 0 && (
+                  {requestedCreditUSD > 0 && cust.creditStatus === 'pending' && (
                     <div className="p-3 bg-indigo-50/80 border border-indigo-100 rounded-xl space-y-1">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-indigo-900 flex items-center gap-1">
@@ -792,7 +792,7 @@ export const CustomerRequestsManagementView: React.FC = () => {
                   const isPending =
                     cust.verificationStatus === 'pending' ||
                     (cust.isFirstTime && cust.verificationStatus !== 'verified' && cust.verificationStatus !== 'rejected') ||
-                    cust.creditStatus === 'pending';
+                    (cust.creditStatus === 'pending' && cust.verificationStatus !== 'rejected');
                   const isVerified = cust.verificationStatus === 'verified';
                   const isRejected = cust.verificationStatus === 'rejected' || cust.creditStatus === 'rejected';
 
