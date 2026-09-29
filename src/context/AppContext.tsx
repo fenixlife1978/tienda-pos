@@ -712,6 +712,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Evita que dos snapshots de Turso se solapen y que una lectura iniciada antes
   // de una escritura termine sobrescribiendo en pantalla los datos recién guardados.
   const syncInFlightRef = useRef<Promise<void> | null>(null);
+  // Serializa escrituras críticas de clientes con las lecturas de sincronización.
+  // Sin este candado, una lectura iniciada antes de aprobar un cliente podía
+  // terminar después del UPDATE y volver a pintar temporalmente el estado pending.
+  const customerWriteInFlightRef = useRef<Promise<void> | null>(null);
+
+  const persistCustomerAuthoritatively = (customer: Customer) => {
+    const write = tursoService.saveCustomer(customer);
+    customerWriteInFlightRef.current = write
+      .then(() => undefined)
+      .finally(() => {
+        customerWriteInFlightRef.current = null;
+      });
+    return customerWriteInFlightRef.current;
+  };
 
   const [tursoState, setTursoState] = useState<TursoSyncState>({
     isConnected: false,
@@ -789,6 +803,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return;
         }
   
+        // Nunca apliques un snapshot de clientes mientras una aprobación/rechazo
+        // todavía está escribiéndose en Turso. Primero dejamos terminar el UPDATE;
+        // luego el siguiente ciclo lee el estado confirmado.
+        if (customerWriteInFlightRef.current) {
+          await customerWriteInFlightRef.current;
+        }
+
         const cloudData = await tursoService.loadAllData();
   
         // Turso es la fuente de verdad cuando está configurado. Incluso una
@@ -2655,7 +2676,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
           }
-          void tursoService.saveCustomer(updated).catch((error) => console.error('Error saving customer verification to Turso:', error));
+          void persistCustomerAuthoritatively(updated).catch((error) => console.error('Error saving customer verification to Turso:', error));
           return updated;
         }
         return c;
