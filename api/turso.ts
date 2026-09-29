@@ -270,6 +270,66 @@ export default async function handler(req: any, res: any) {
       } catch (e) { try { await tx.rollback(); } catch {} throw e; }
     }
 
+    if (body.operation === 'approveOrderFinancially') {
+      const order = body.order || {};
+      const invoice = body.invoice || {};
+      const approvedBy = String(body.approvedBy || 'Administrador');
+      if (!order.id || !invoice.id) return res.status(400).json({ error: 'Pedido/factura incompletos' });
+
+      const tx = await client.transaction('write');
+      try {
+        const approvedAt = new Date().toISOString();
+        await tx.execute({
+          sql: 'UPDATE orders SET order_status = ?, payment_status = ?, approved_at = ? WHERE id = ?',
+          args: ['aprobado', String(order.paymentMethod) === 'credito' ? 'a_credito' : 'pagado', approvedAt, String(order.id)],
+        });
+        await tx.execute({
+          sql: 'UPDATE invoices SET payment_status = ?, approved_at = ? WHERE id = ?',
+          args: [String(order.paymentMethod) === 'credito' ? 'a_credito' : 'pagado', approvedAt, String(invoice.id)],
+        });
+        await tx.execute({
+          sql: `CREATE TABLE IF NOT EXISTS sales_postings (
+            id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+            order_number TEXT NOT NULL, customer_id TEXT, channel TEXT NOT NULL,
+            total_usd REAL NOT NULL, total_bs REAL NOT NULL, payment_method TEXT NOT NULL,
+            payment_splits TEXT, is_credit INTEGER NOT NULL DEFAULT 0, cash_session_id TEXT,
+            approved_at TEXT NOT NULL, approved_by TEXT NOT NULL, created_at TEXT NOT NULL
+          )`,
+          args: [],
+        });
+        await tx.execute({
+          sql: `INSERT OR IGNORE INTO sales_postings
+            (id, order_id, invoice_id, order_number, customer_id, channel, total_usd, total_bs,
+             payment_method, payment_splits, is_credit, cash_session_id, approved_at, approved_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            'sale-post-' + String(order.id), String(order.id), String(invoice.id),
+            String(order.orderNumber), order.customerId ? String(order.customerId) : null,
+            String(order.channel || 'online'), Number(order.totalUSD || 0), Number(order.totalBs || 0),
+            String(order.paymentMethod || invoice.paymentMethod || 'credito'),
+            order.paymentSplits ? JSON.stringify(order.paymentSplits) : null,
+            String(order.paymentMethod) === 'credito' ? 1 : 0,
+            order.cashSessionId ? String(order.cashSessionId) : null,
+            approvedAt, approvedBy, approvedAt,
+          ],
+        });
+        await tx.execute({
+          sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('orders', ?, 'financial_approval', ?)",
+          args: [String(order.id), approvedAt],
+        });
+        await tx.commit();
+        const verify = await client.execute({
+          sql: 'SELECT order_id FROM sales_postings WHERE order_id = ? LIMIT 1',
+          args: [String(order.id)],
+        });
+        if (!verify.rows.length) throw new Error('Turso no confirmó el asiento de venta después de aprobar el pedido');
+        return res.status(200).json({ ok: true, posted: true, approvedAt });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
     if (body.operation === 'offlineSale' || body.operation === 'saleReversal') {
       // These critical operations remain server-side transactional. The existing
       // client implementation is moved here without exposing Turso credentials.
