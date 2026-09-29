@@ -3684,6 +3684,7 @@ export const useApp = () => {
       reference?: string;
       notes?: string;
       bcvRate?: number;
+      sourceReportId?: string;
     }
   ) => {
     const rate = details?.bcvRate || settings.bcvRate;
