@@ -458,6 +458,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return null;
   });
 
+
+  // Ref estable para que el polling de Turso no capture un currentCustomer obsoleto.
+  const currentCustomerIdRef = useRef<string | null>(currentCustomer?.id || null);
+  currentCustomerIdRef.current = currentCustomer?.id || null;
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('omni_products');
     return saved ? JSON.parse(saved) : [];
@@ -795,9 +799,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // cambios desde Turso debemos reconciliarlo con el registro cloud;
         // de lo contrario el cliente puede seguir mostrando el estado anterior
         // aunque customers[] ya esté actualizado.
-        if (currentCustomer) {
-          const syncedCustomer = cloudData.customers.find((c) => c.id === currentCustomer.id);
-          setCurrentCustomer(syncedCustomer || null);
+        const activeCustomerId = currentCustomerIdRef.current;
+        if (activeCustomerId) {
+          const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
+          if (syncedCustomer) {
+            setCurrentCustomer(syncedCustomer);
+          }
         }
         setSuppliers(cloudData.suppliers);
         setOrders(cloudData.orders);
