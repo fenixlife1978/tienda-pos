@@ -38,6 +38,7 @@ export const CustomerDashboard: React.FC = () => {
     cart,
     setIsCartOpen,
     setSelectedInvoiceForModal,
+    setCustomerInvoiceModalMode,
     reorder,
     customerPortalTab,
     setCustomerPortalTab,
@@ -98,6 +99,7 @@ export const CustomerDashboard: React.FC = () => {
   const handleOpenOrder = (orderId: string) => {
     const inv = invoices.find((i) => i.orderId === orderId && i.customerId === currentCustomer.id);
     if (inv) {
+      setCustomerInvoiceModalMode('order');
       setSelectedInvoiceForModal(inv);
     } else {
       alert('No se encontró el documento del pedido.');
@@ -535,13 +537,13 @@ export const CustomerDashboard: React.FC = () => {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {/* En trámite: solo Orden de Pedido. Aprobado/Despachado: Factura fiscal. */}
+                          {/* Historial siempre abre el formato de Orden de Compra (Pedido). La factura fiscal se consulta en Mis Facturas. */}
                           <button
                             onClick={() => handleOpenInvoice(order.id)}
                             className="px-3 py-1.5 bg-white hover:bg-slate-100 text-blue-700 border border-slate-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer flex items-center gap-1.5"
                           >
                             <FileText className="w-3.5 h-3.5 text-blue-600" />
-                            <span>{order.orderStatus === 'en_tramite' ? 'Ver y Descargar Orden de Pedido' : 'Ver y Descargar Factura'}</span>
+                            <span>Ver Pedido</span>
                           </button>
 
                           {/* Reorder Button */}
@@ -648,7 +650,10 @@ export const CustomerDashboard: React.FC = () => {
                       </span>
 
                       <button
-                        onClick={() => setSelectedInvoiceForModal(inv)}
+                        onClick={() => {
+                          setCustomerInvoiceModalMode('invoice');
+                          setSelectedInvoiceForModal(inv);
+                        }}
                         className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
                       >
                         <Eye className="w-3.5 h-3.5" />
