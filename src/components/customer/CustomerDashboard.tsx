@@ -95,12 +95,12 @@ export const CustomerDashboard: React.FC = () => {
   // Unread notifs
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const handleOpenInvoice = (orderId: string) => {
-    const inv = customerInvoices.find((i) => i.orderId === orderId);
+  const handleOpenOrder = (orderId: string) => {
+    const inv = invoices.find((i) => i.orderId === orderId && i.customerId === currentCustomer.id);
     if (inv) {
       setSelectedInvoiceForModal(inv);
     } else {
-      alert('No se encontró factura fiscal para este pedido.');
+      alert('No se encontró el documento del pedido.');
     }
   };
 
