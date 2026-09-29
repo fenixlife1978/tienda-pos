@@ -63,7 +63,11 @@ export const CustomerDashboard: React.FC = () => {
 
   // Strict isolation: filter orders only for this customer
   const customerOrders = orders.filter((o) => o.customerId === currentCustomer.id);
-  const customerInvoices = invoices.filter((inv) => inv.customerId === currentCustomer.id);
+  const customerInvoices = invoices.filter((inv) => {
+    if (inv.customerId !== currentCustomer.id) return false;
+    const relatedOrder = orders.find((o) => o.id === inv.orderId);
+    return relatedOrder?.orderStatus === 'aprobado' || relatedOrder?.orderStatus === 'despachado_facturado';
+  });
 
   // Filtered orders
   const filteredOrders = customerOrders.filter((o) => {
@@ -376,7 +380,8 @@ export const CustomerDashboard: React.FC = () => {
                   {[
                     { id: 'todos', label: 'Todos' },
                     { id: 'en_tramite', label: 'En trámite' },
-                    { id: 'despachado_facturado', label: 'Despachado / Facturado' },
+                    { id: 'aprobado', label: 'Aprobado' },
+                    { id: 'despachado_facturado', label: 'Despachado' },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -412,6 +417,7 @@ export const CustomerDashboard: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 {filteredOrders.map((order) => {
+                  const isAprobado = order.orderStatus === 'aprobado';
                   const isDespachado = order.orderStatus === 'despachado_facturado';
 
                   return (
@@ -438,8 +444,13 @@ export const CustomerDashboard: React.FC = () => {
                         <div>
                           {isDespachado ? (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs border border-emerald-200">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              Despachado / Facturado
+                              <Truck className="w-3.5 h-3.5 text-emerald-600" />
+                              Despachado
+                            </span>
+                          ) : isAprobado ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-800 font-bold text-xs border border-blue-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                              Aprobado
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 font-bold text-xs border border-amber-200">
@@ -456,7 +467,7 @@ export const CustomerDashboard: React.FC = () => {
                           <div className="absolute top-1/2 left-10 right-10 -translate-y-1/2 h-1 bg-slate-200 z-0">
                             <div
                               className={`h-full transition-all duration-500 ${
-                                isDespachado ? 'bg-emerald-500 w-full' : 'bg-amber-500 w-1/2'
+                                isDespachado ? 'bg-emerald-500 w-full' : isAprobado ? 'bg-blue-500 w-2/3' : 'bg-amber-500 w-1/3'
                               }`}
                             ></div>
                           </div>
@@ -470,19 +481,26 @@ export const CustomerDashboard: React.FC = () => {
                             <span className="text-[10px] text-slate-500">Validando & Preparando</span>
                           </div>
 
-                          {/* Step 2: Despachado/Facturado */}
+                          {/* Step 2: Aprobado */}
                           <div className="relative z-10 flex flex-col items-center">
-                            <div
-                              className={`w-8 h-8 rounded-full font-bold flex items-center justify-center text-xs shadow-sm ring-4 transition ${
-                                isDespachado
-                                  ? 'bg-emerald-600 text-white ring-emerald-100'
-                                  : 'bg-slate-200 text-slate-500 ring-slate-100'
-                              }`}
-                            >
+                            <div className={`w-8 h-8 rounded-full font-bold flex items-center justify-center text-xs shadow-sm ring-4 transition ${
+                              isAprobado || isDespachado ? 'bg-blue-600 text-white ring-blue-100' : 'bg-slate-200 text-slate-500 ring-slate-100'
+                            }`}>
+                              <CheckCircle2 className="w-4 h-4" />
+                            </div>
+                            <span className="text-[11px] font-bold text-slate-900 mt-1">2. Aprobado</span>
+                            <span className="text-[10px] text-slate-500">Factura habilitada</span>
+                          </div>
+
+                          {/* Step 3: Despachado */}
+                          <div className="relative z-10 flex flex-col items-center">
+                            <div className={`w-8 h-8 rounded-full font-bold flex items-center justify-center text-xs shadow-sm ring-4 transition ${
+                              isDespachado ? 'bg-emerald-600 text-white ring-emerald-100' : 'bg-slate-200 text-slate-500 ring-slate-100'
+                            }`}>
                               <Truck className="w-4 h-4" />
                             </div>
-                            <span className="text-[11px] font-bold text-slate-900 mt-1">2. Despachado/Facturado</span>
-                            <span className="text-[10px] text-slate-500">Factura emitida y entregado</span>
+                            <span className="text-[11px] font-bold text-slate-900 mt-1">3. Despachado</span>
+                            <span className="text-[10px] text-slate-500">Pedido entregado</span>
                           </div>
                         </div>
                       </div>
@@ -517,13 +535,13 @@ export const CustomerDashboard: React.FC = () => {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {/* View and Download Invoice */}
+                          {/* En trámite: solo Orden de Pedido. Aprobado/Despachado: Factura fiscal. */}
                           <button
                             onClick={() => handleOpenInvoice(order.id)}
                             className="px-3 py-1.5 bg-white hover:bg-slate-100 text-blue-700 border border-slate-300 font-bold text-xs rounded-xl shadow-2xs transition cursor-pointer flex items-center gap-1.5"
                           >
                             <FileText className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Ver y Descargar Factura</span>
+                            <span>{order.orderStatus === 'en_tramite' ? 'Ver y Descargar Orden de Pedido' : 'Ver y Descargar Factura'}</span>
                           </button>
 
                           {/* Reorder Button */}
