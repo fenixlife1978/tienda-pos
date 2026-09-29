@@ -967,8 +967,19 @@ export const CustomerDashboard: React.FC = () => {
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="text-xs font-bold text-slate-700">Método de pago
-                  <select value={debtPaymentMethod} onChange={(e) => setDebtPaymentMethod(e.target.value as import('../../types').PaymentMethod)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white">
+                  <select value={debtPaymentMixed ? 'mixto' : debtPaymentMethod} onChange={(e) => {
+                    const value = e.target.value as import('../../types').PaymentMethod;
+                    if (value === 'mixto') {
+                      setDebtPaymentMixed(true);
+                      setDebtPaymentSplitAmounts({});
+                      setDebtPaymentSplitRefs({});
+                    } else {
+                      setDebtPaymentMixed(false);
+                      setDebtPaymentMethod(value);
+                    }
+                  }} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white">
                     {onlinePaymentMethods.map((method) => <option key={method} value={method}>{formatPaymentMethod(method)}</option>)}
+                    {onlinePaymentMethods.length >= 2 && <option value="mixto">Pago Mixto Online</option>}
                   </select>
                 </label>
                 {!debtPaymentMixed ? (
