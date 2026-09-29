@@ -287,6 +287,15 @@ export default async function handler(req: any, res: any) {
           sql: 'UPDATE invoices SET payment_status = ?, approved_at = ? WHERE id = ?',
           args: [String(order.paymentMethod) === 'credito' ? 'a_credito' : 'pagado', approvedAt, String(invoice.id)],
         });
+        // Compatibilidad de esquema: instalaciones existentes pueden tener sales_postings sin payment_date.
+        await tx.execute(`CREATE TABLE IF NOT EXISTS sales_postings (
+            id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+            order_number TEXT NOT NULL, customer_id TEXT, channel TEXT NOT NULL,
+            total_usd REAL NOT NULL, total_bs REAL NOT NULL, payment_method TEXT NOT NULL,
+            payment_splits TEXT, is_credit INTEGER NOT NULL DEFAULT 0, cash_session_id TEXT,
+            approved_at TEXT NOT NULL, approved_by TEXT NOT NULL, created_at TEXT NOT NULL
+          )`);
+        try { await tx.execute('ALTER TABLE sales_postings ADD COLUMN payment_date TEXT'); } catch {}
         await tx.execute({
           sql: `CREATE TABLE IF NOT EXISTS sales_postings (
             id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
@@ -297,11 +306,18 @@ export default async function handler(req: any, res: any) {
           )`,
           args: [],
         });
+        const paymentSplits = Array.isArray(order.paymentSplits) && order.paymentSplits.length
+          ? order.paymentSplits
+          : [];
+        const reportedPaymentDate = paymentSplits
+          .map((split:any) => String(split.createdAt || '').trim())
+          .filter(Boolean)
+          .sort()[0] || String(order.createdAt || approvedAt);
         await tx.execute({
           sql: `INSERT OR IGNORE INTO sales_postings
             (id, order_id, invoice_id, order_number, customer_id, channel, total_usd, total_bs,
-             payment_method, payment_splits, is_credit, cash_session_id, approved_at, approved_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             payment_method, payment_splits, is_credit, cash_session_id, payment_date, approved_at, approved_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             'sale-post-' + String(order.id), String(order.id), String(invoice.id),
             String(order.orderNumber), order.customerId ? String(order.customerId) : null,
@@ -310,7 +326,7 @@ export default async function handler(req: any, res: any) {
             order.paymentSplits ? JSON.stringify(order.paymentSplits) : null,
             String(order.paymentMethod) === 'credito' ? 1 : 0,
             order.cashSessionId ? String(order.cashSessionId) : null,
-            approvedAt, approvedBy, approvedAt,
+            reportedPaymentDate, approvedAt, approvedBy, approvedAt,
           ],
         });
         await tx.execute({
@@ -381,7 +397,7 @@ export default async function handler(req: any, res: any) {
             String(order.id),
             String(invoice.id),
             String(invoice.invoiceNumber || order.orderNumber),
-            approvedAt,
+            reportedPaymentDate,
             'Venta aprobada ' + String(order.orderNumber),
             'customer_order_approval',
             JSON.stringify(lines),
