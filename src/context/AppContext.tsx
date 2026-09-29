@@ -1683,7 +1683,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       paymentSplits: paymentSplits.length ? paymentSplits : undefined,
       paymentStatus: isCredit
         ? 'a_credito'
-        : (orderInput.channel === 'pos' || immediatePaymentReported)
+        : orderInput.channel === 'pos'
         ? 'pagado'
         : 'pendiente',
       orderStatus: 'en_tramite',
