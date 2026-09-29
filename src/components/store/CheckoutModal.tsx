@@ -107,14 +107,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
         customCreditDays: currentCustomer?.creditDays || settings.defaultCreditDays,
       });
 
-      // Para pedidos online, "éxito" solo significa éxito cuando la operación
-      // transaccional ya fue aplicada en Turso. Antes se lanzaba flush() sin esperar,
-      // por lo que el cliente veía éxito aunque el pedido quedara únicamente en la
-      // cola local y Administración nunca lo recibiera.
+      // Un pedido online debe escribirse inmediatamente en Turso. No usamos
+      // flush() global aquí porque una operación offline antigua podría fallar y
+      // bloquear la cola completa, haciendo que este pedido aparezca falsamente
+      // como "pendiente". Se envía exclusivamente la operación recién creada.
       if (navigator.onLine && tursoService.isConfigured()) {
-        const syncResult = await offlineSyncService.flush();
-        if (syncResult.pending > 0) {
-          throw new Error('El pedido quedó pendiente de sincronización con el servidor. No se confirmó el pedido todavía.');
+        const syncResult = await offlineSyncService.flushOperationForOrder(order.id);
+        if (!syncResult.applied) {
+          throw new Error('No se pudo confirmar el pedido en el servidor. El pedido no fue confirmado; verifique la conexión e inténtelo nuevamente.');
         }
       }
 
