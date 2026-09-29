@@ -26,12 +26,14 @@ interface InvoiceModalProps {
   invoice: Invoice | null;
   onClose: () => void;
   defaultFormat?: 'a4' | 'thermal';
+  customerView?: boolean;
 }
 
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   invoice,
   onClose,
   defaultFormat = 'a4',
+  customerView = false,
 }) => {
   const { settings } = useApp();
   const [printFormat, setPrintFormat] = useState<'a4' | 'thermal'>(defaultFormat);
@@ -112,7 +114,13 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     if (isExportingPDF) return;
     setIsExportingPDF(true);
     try {
-      if (printFormat === 'thermal') {
+      if (customerView) {
+        await exportElementToPDF(
+          'printable-invoice-content',
+          `Factura_${invoice.invoiceNumber}`,
+          { format: 'a4', margin: 8 }
+        );
+      } else if (printFormat === 'thermal') {
         await exportElementToPDF(
           'printable-thermal-invoice-content',
           `Ticket_${invoice.invoiceNumber}_80mm`,
@@ -161,6 +169,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             )}
           </div>
 
+          {!customerView && (
           {/* Quick Format Switcher Tabs */}
           <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl text-xs font-bold">
             <button
@@ -190,7 +199,10 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <span>Ticket Térmico (80mm)</span>
             </button>
           </div>
+          )}
 
+          <div className="flex items-center gap-2">
+            {!customerView && (
           <div className="flex items-center gap-2">
             <button
               onClick={handleExportPDF}
@@ -224,6 +236,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <span className="hidden sm:inline">Excel</span>
             </button>
 
+
+            )}
             <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
@@ -797,6 +811,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               )}
               <span>{isExportingPDF ? 'Generando...' : 'Descargar PDF'}</span>
             </button>
+            {!customerView && (
             <button
               onClick={handlePrintThermal}
               className="px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
@@ -804,6 +819,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <Receipt className="w-3.5 h-3.5 text-indigo-600" />
               <span>Ticket Térmico</span>
             </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 text-xs font-bold text-slate-700 bg-slate-200/80 hover:bg-slate-300 rounded-xl transition cursor-pointer"
