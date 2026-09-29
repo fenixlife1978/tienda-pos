@@ -92,6 +92,7 @@ const MainLayout: React.FC = () => {
         <InvoiceModal
           invoice={selectedInvoiceForModal}
           onClose={() => setSelectedInvoiceForModal(null)}
+          customerView={Boolean(currentCustomer)}
         />
       )}
 
