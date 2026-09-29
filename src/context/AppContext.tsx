@@ -1237,13 +1237,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logoutCustomer = () => {
+    // Cerrar sesión del cliente es una acción local de esta pestaña.
+    // No debe generar una notificación global ni persistirse en Turso,
+    // porque las sesiones de administrador y cliente son independientes.
     setCurrentCustomer(null);
     sessionStorage.removeItem('omni_active_customer_id');
-    triggerPushNotification({
-      title: 'Sesión Finalizada',
-      message: 'Has salido de tu cuenta de cliente de forma segura.',
-      type: 'promotion',
-    });
   };
 
   const updateCustomerPreferences = (preferences: CustomerNotificationPreferences) => {
