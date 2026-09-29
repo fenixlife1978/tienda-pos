@@ -506,7 +506,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     const saved = localStorage.getItem('omni_notifications');
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+      // Las sesiones de cliente son privadas por pestaña. Las notificaciones
+      // antiguas de "Sesión Finalizada" no deben existir en ningún dashboard.
+      return parsed.filter((n: AppNotification) => n?.title !== 'Sesión Finalizada');
+    } catch {
+      return [];
+    }
   });
 
   // UI Modals & Navigation
