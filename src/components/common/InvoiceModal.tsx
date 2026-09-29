@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Invoice, formatPaymentMethod } from '../../types';
+import { Invoice, OrderStatus, formatPaymentMethod } from '../../types';
 import {
   Printer,
   Download,
@@ -18,7 +18,7 @@ import {
   FileDown,
   Loader2,
 } from 'lucide-react';
-import { exportToCSV, printElement, exportElementToPDF } from '../../utils/exportUtils';
+import { exportToCSV, printElement, exportElementToPDF, exportCustomerDocumentPDF } from '../../utils/exportUtils';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 import { getInvoiceWhatsAppUrl } from '../../utils/whatsappUtils';
 
@@ -27,6 +27,7 @@ interface InvoiceModalProps {
   onClose: () => void;
   defaultFormat?: 'a4' | 'thermal';
   customerView?: boolean;
+  customerOrderStatus?: OrderStatus;
 }
 
 export const InvoiceModal: React.FC<InvoiceModalProps> = ({
@@ -34,6 +35,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   onClose,
   defaultFormat = 'a4',
   customerView = false,
+  customerOrderStatus,
 }) => {
   const { settings } = useApp();
   const [printFormat, setPrintFormat] = useState<'a4' | 'thermal'>(defaultFormat);
@@ -41,7 +43,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
   if (!invoice) return null;
 
+  const isCustomerOrderPending = customerView && customerOrderStatus === 'en_tramite';
   const isPendingCreditApproval = invoice.isCredit && !invoice.isCreditApproved;
+  const isOrderDocument = isCustomerOrderPending || (customerView && isPendingCreditApproval);
   const isPaid = invoice.paymentStatus === 'pagado';
   const isCredit = invoice.isCredit || invoice.paymentStatus === 'a_credito';
   const isCreditPendingApproval = isCredit && !invoice.isCreditApproved;
@@ -115,11 +119,15 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     setIsExportingPDF(true);
     try {
       if (customerView) {
-        await exportElementToPDF(
-          'printable-invoice-content',
-          `Factura_${invoice.invoiceNumber}`,
-          { format: 'a4', margin: 8 }
+        const ok = exportCustomerDocumentPDF(
+          isOrderDocument ? `Orden_Pedido_${invoice.invoiceNumber}` : `Factura_${invoice.invoiceNumber}`,
+          {
+            documentType: isOrderDocument ? 'order' : 'invoice',
+            invoice,
+            settings,
+          }
         );
+        if (!ok) throw new Error('No fue posible generar el PDF del documento del cliente.');
       } else if (printFormat === 'thermal') {
         await exportElementToPDF(
           'printable-thermal-invoice-content',
@@ -148,7 +156,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5 bg-slate-50 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-bold text-slate-800 text-base">
-              {isCreditPendingApproval ? 'Orden de Pedido a Crédito' : 'Factura Fiscal'} #{invoice.invoiceNumber}
+              {isOrderDocument ? 'Orden de Pedido' : 'Factura Fiscal'} #{invoice.invoiceNumber}
             </span>
             {isPaid ? (
               <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
@@ -244,7 +252,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             <div className="leading-relaxed">
               <strong className="font-bold">Orden de Pedido en Espera de Aprobación Administrativa:</strong>
               <p className="text-[11px] text-amber-800 mt-0.5">
-                Esta orden a crédito se encuentra en revisión. La Factura Fiscal oficial y definitiva se habilitará para descarga directa una vez que el administrador valide el cupo y marque el pedido como <em>Recibido / Aprobado y Despachado</em>.
+                Esta orden está en trámite. Es únicamente una Orden de Pedido y no constituye una factura fiscal válida. La factura fiscal se habilitará cuando el administrador apruebe el pedido.
               </p>
             </div>
           </div>
@@ -282,7 +290,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   {/* Document Metadata */}
                   <div className="text-center uppercase font-bold py-1">
                     <p className="text-xs">
-                      {isCreditPendingApproval ? 'ORDEN DE PEDIDO A CRÉDITO' : 'FACTURA FISCAL'}
+                      {isOrderDocument ? 'ORDEN DE PEDIDO' : 'FACTURA FISCAL'}
                     </p>
                     <p className="text-sm font-black tracking-wider text-indigo-900">
                       N° {invoice.invoiceNumber}
@@ -474,7 +482,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 <div className="text-right">
                   <div className="bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 inline-block text-left mb-2">
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      {isCreditPendingApproval ? 'Orden de Pedido' : 'Documento Fiscal'}
+                      {isOrderDocument ? 'Orden de Pedido' : 'Documento Fiscal'}
                     </p>
                     <p className="text-base font-mono font-extrabold text-indigo-700">{invoice.invoiceNumber}</p>
                   </div>
@@ -494,7 +502,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               {/* Customer and billing block */}
               <div className="grid grid-cols-2 gap-6 p-4 rounded-xl bg-slate-50 border border-slate-200 mb-6">
                 <div>
-                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wider">Facturado a (Cliente):</p>
+                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-1 tracking-wider">{isOrderDocument ? 'Pedido de (Cliente):' : 'Facturado a (Cliente):'}</p>
                   <p className="font-bold text-slate-900 text-sm">{invoice.customerName}</p>
                   <p className="text-xs text-slate-600"><strong>RIF/Cédula:</strong> {invoice.customerRif}</p>
                   <p className="text-xs text-slate-600"><strong>Teléfono:</strong> {invoice.customerPhone}</p>
