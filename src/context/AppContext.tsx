@@ -856,8 +856,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPurchaseEntries(cloudData.purchaseEntries);
         setUsers(cloudData.users);
         if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
+          const notificationsClearedAt = localStorage.getItem('omni_notifications_cleared_at');
+          const clearedAtMs = notificationsClearedAt ? new Date(notificationsClearedAt).getTime() : 0;
           const incoming = cloudData.notifications.filter((n) => {
             if (n.title === 'Sesión Finalizada') return false;
+            if (clearedAtMs && new Date(n.createdAt).getTime() <= clearedAtMs && (isAdminActiveRef.current || mode === 'erp')) return false;
             if (currentCustomerIdRef.current) {
               return (n.targetRole === 'client' || n.targetRole === 'all') &&
                 (!n.targetCustomerId || n.targetCustomerId === currentCustomerIdRef.current);
@@ -1634,6 +1637,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const effectivePaymentMethod: PaymentMethod =
       paymentSplits.length > 1 ? 'mixto' : (paymentSplits[0]?.method || orderInput.paymentMethod);
     const isCredit = effectivePaymentMethod === 'credito';
+    // En tienda online, una referencia o desglose de pago informado al enviar
+    // el pedido constituye el reporte inmediato del pago. La factura puede
+    // consultarse de inmediato como excepción; la aprobación administrativa
+    // sigue siendo necesaria para el resto del flujo.
+    const immediatePaymentReported =
+      orderInput.channel === 'online' &&
+      !isCredit &&
+      (paymentSplits.length > 0 || Boolean(orderInput.paymentReference?.trim()));
     const customer = customers.find((c) => c.id === orderInput.customerId);
     const creditDays = orderInput.customCreditDays || customer?.creditDays || settings.defaultCreditDays;
     const dueDate = isCredit
@@ -1658,7 +1669,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       paymentSplits: paymentSplits.length ? paymentSplits : undefined,
       paymentStatus: isCredit
         ? 'a_credito'
-        : (orderInput.channel === 'pos' && (paymentSplits.length === 0 || splitTotalUSD + 0.01 >= totalUSD))
+        : (orderInput.channel === 'pos' || immediatePaymentReported)
         ? 'pagado'
         : 'pendiente',
       orderStatus: 'en_tramite',
@@ -3468,9 +3479,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearAllNotifications = () => {
     setNotifications([]);
     seenNotificationIdsRef.current.clear();
-    void tursoService.clearNotificationsForViewer('admin').catch((error) =>
-      console.warn('No se pudieron limpiar las notificaciones administrativas en Turso:', error)
-    );
+    // El cursor de realtime puede volver a entregar el historial desde Turso.
+    // Guardamos el instante de limpieza para que este navegador no lo rehidrate.
+    localStorage.setItem('omni_notifications_cleared_at', new Date().toISOString());
   };
 
   return productionTursoMisconfigured ? (
