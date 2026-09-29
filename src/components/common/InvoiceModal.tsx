@@ -170,80 +170,70 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           </div>
 
           {!customerView && (
-          {/* Quick Format Switcher Tabs */}
-          <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => setPrintFormat('a4')}
-              className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                printFormat === 'a4'
-                  ? 'bg-white text-indigo-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Formato Factura Fiscal Carta / A4"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Factura A4</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPrintFormat('thermal')}
-              className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                printFormat === 'thermal'
-                  ? 'bg-white text-indigo-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Formato Ticket Impresora Térmica 80mm (POS)"
-            >
-              <Receipt className="w-3.5 h-3.5" />
-              <span>Ticket Térmico (80mm)</span>
-            </button>
-          </div>
+            <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setPrintFormat('a4')}
+                className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${printFormat === 'a4' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+                title="Formato Factura Fiscal Carta / A4"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Factura A4</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintFormat('thermal')}
+                className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${printFormat === 'thermal' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+                title="Formato Ticket Impresora Térmica 80mm (POS)"
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>Ticket Térmico (80mm)</span>
+              </button>
+            </div>
           )}
 
           <div className="flex items-center gap-2">
             {!customerView && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportPDF}
-              disabled={isExportingPDF}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 rounded-lg transition cursor-pointer shadow-2xs"
-              title={`Descargar ${printFormat === 'thermal' ? 'Ticket Térmico' : 'Factura Fiscal'} en PDF`}
-            >
-              {isExportingPDF ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-              ) : (
-                <FileDown className="w-3.5 h-3.5 text-white" />
-              )}
-              <span>{isExportingPDF ? 'Generando PDF...' : 'Descargar PDF'}</span>
-            </button>
-
-            <button
-              onClick={handlePrintCurrent}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer shadow-2xs"
-              title={`Imprimir en formato ${printFormat === 'thermal' ? 'Ticket Térmico 80mm' : 'A4'}`}
-            >
-              <Printer className="w-3.5 h-3.5 text-slate-600" />
-              <span>{printFormat === 'thermal' ? 'Imprimir Ticket' : 'Imprimir A4'}</span>
-            </button>
-
-            <button
-              onClick={handleExportCSV}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition cursor-pointer"
-              title="Descargar Excel"
-            >
-              <Download className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline">Excel</span>
-            </button>
-
-
+              <>
+                <button
+                  onClick={handleExportPDF}
+                  disabled={isExportingPDF}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 rounded-lg transition cursor-pointer shadow-2xs"
+                  title={`Descargar ${printFormat === 'thermal' ? 'Ticket Térmico' : 'Factura Fiscal'} en PDF`}
+                >
+                  {isExportingPDF ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                  ) : (
+                    <FileDown className="w-3.5 h-3.5 text-white" />
+                  )}
+                  <span>{isExportingPDF ? 'Generando PDF...' : 'Descargar PDF'}</span>
+                </button>
+                <button
+                  onClick={handlePrintCurrent}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition cursor-pointer shadow-2xs"
+                  title={`Imprimir en formato ${printFormat === 'thermal' ? 'Ticket Térmico 80mm' : 'A4'}`}
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-600" />
+                  <span>{printFormat === 'thermal' ? 'Imprimir Ticket' : 'Imprimir A4'}</span>
+                </button>
+                <button
+                  onClick={handleExportCSV}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition cursor-pointer"
+                  title="Descargar Excel"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="hidden sm:inline">Excel</span>
+                </button>
+              </>
             )}
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {!customerView && (
+              <button
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
 
