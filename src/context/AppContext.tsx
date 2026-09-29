@@ -1276,6 +1276,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // No debe generar una notificación global ni persistirse en Turso,
     // porque las sesiones de administrador y cliente son independientes.
     setCurrentCustomer(null);
+    setNotifications([]);
+    setActivePushToasts([]);
     sessionStorage.removeItem('omni_active_customer_id');
   };
 
