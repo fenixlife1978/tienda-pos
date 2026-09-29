@@ -121,9 +121,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
       setLastSuccessfulOrder(order);
       onClose();
       onSuccess(order.id);
-    } catch (err) {
-      console.error(err);
-      alert('Hubo un error al procesar el pedido.');
+    } catch (err: any) {
+      console.error('Error procesando pedido:', err);
+      alert(err?.message || 'Hubo un error al procesar el pedido.');
     } finally {
       setIsSubmitting(false);
     }
