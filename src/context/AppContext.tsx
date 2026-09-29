@@ -2567,6 +2567,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             creditDays: approvedCreditDays,
             creditLimitUSD: approvedLimitUSD,
             creditStatus: 'approved',
+            // La solicitud ya fue resuelta: no debe seguir apareciendo como pendiente.
+            creditRequestedLimitUSD: 0,
+            creditRequestedDays: 0,
           };
           if (currentCustomer?.id === customerId) {
             setCurrentCustomer(updated);
