@@ -1639,10 +1639,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const totalUSD = Number((subtotalUSD + taxUSD).toFixed(2));
     const totalBs = Number((totalUSD * settings.bcvRate).toFixed(2));
 
+    const paymentReportedAt = now.toISOString();
     const paymentSplits = (orderInput.paymentSplits || []).map((split) => ({
       ...split,
       amountUSD: Number(split.amountUSD.toFixed(2)),
       amountBs: Number((split.amountBs || split.amountUSD * settings.bcvRate).toFixed(2)),
+      // Fecha real en que el cliente reportó/pagó el medio de pago.
+      // Se conserva aunque administración apruebe el pedido más tarde.
+      createdAt: split.createdAt || paymentReportedAt,
     }));
     const splitTotalUSD = Number(paymentSplits.reduce((sum, split) => sum + split.amountUSD, 0).toFixed(2));
     if (paymentSplits.length > 0 && orderInput.paymentMethod !== 'credito' && splitTotalUSD + 0.01 < totalUSD) {
