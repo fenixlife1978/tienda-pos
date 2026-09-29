@@ -791,6 +791,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCategories(cloudData.categories);
         setUnits(cloudData.units);
         setCustomers(cloudData.customers);
+        // El portal cliente mantiene currentCustomer en memoria. Al recibir
+        // cambios desde Turso debemos reconciliarlo con el registro cloud;
+        // de lo contrario el cliente puede seguir mostrando el estado anterior
+        // aunque customers[] ya esté actualizado.
+        if (currentCustomer) {
+          const syncedCustomer = cloudData.customers.find((c) => c.id === currentCustomer.id);
+          setCurrentCustomer(syncedCustomer || null);
+        }
         setSuppliers(cloudData.suppliers);
         setOrders(cloudData.orders);
         setInvoices(cloudData.invoices);
