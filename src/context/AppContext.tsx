@@ -2965,7 +2965,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: isSettled ? 'pagado' as const : target.status,
       paymentHistory: (target.paymentHistory || []).map((p) => p.id === paymentId ? approvedRecord : p),
     };
-    await tursoService.saveReceivable(updated);
+    await tursoService.approveCustomerReceivablePayment(updated, paymentId, currentUser.name);
     setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
 
     setCustomers((prev) => prev.map((customer) =>
