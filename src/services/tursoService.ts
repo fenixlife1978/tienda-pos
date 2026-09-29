@@ -1884,6 +1884,10 @@ class TursoService {
   }
 
   /** Contabiliza una aprobación de pedido como una venta real, de forma idempotente. */
+  public async approveCustomerReceivablePayment(receivable: ReceivableItem, paymentId: string, approvedBy: string) {
+    return this.request('approveCustomerReceivablePayment', { receivable, paymentId, approvedBy });
+  }
+
   public async approveOrderFinancially(order: Order, invoice: Invoice, approvedBy: string) {
     return this.request('approveOrderFinancially', { order, invoice, approvedBy });
   }
