@@ -23,6 +23,9 @@ import {
   ShieldCheck,
   AlertCircle,
   SlidersHorizontal,
+  WalletCards,
+  Building2,
+  X,
 } from 'lucide-react';
 import { StoreCatalog } from '../store/StoreCatalog';
 import { OffersWall } from '../store/OffersWall';
@@ -45,11 +48,22 @@ export const CustomerDashboard: React.FC = () => {
     setIsNotificationSettingsOpen,
     notifications,
     setIsAdminModalOpen,
+    receivables,
+    reportCustomerReceivablePayment,
   } = useApp();
 
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'todos' | OrderStatus>('todos');
   const [invoiceSearchQuery, setInvoiceSearchQuery] = useState('');
+  const [debtPaymentReceivableId, setDebtPaymentReceivableId] = useState<string | null>(null);
+  const [debtPaymentMethod, setDebtPaymentMethod] = useState<import('../../types').PaymentMethod>('pago_movil');
+  const [debtPaymentAmount, setDebtPaymentAmount] = useState('');
+  const [debtPaymentReference, setDebtPaymentReference] = useState('');
+  const [debtPaymentSenderName, setDebtPaymentSenderName] = useState('');
+  const [debtPaymentSenderEmail, setDebtPaymentSenderEmail] = useState('');
+  const [debtPaymentSenderBank, setDebtPaymentSenderBank] = useState('');
+  const [debtPaymentSenderPhone, setDebtPaymentSenderPhone] = useState('');
+  const [debtPaymentSubmitting, setDebtPaymentSubmitting] = useState(false);
 
   if (!currentCustomer) return null;
 
@@ -85,6 +99,77 @@ export const CustomerDashboard: React.FC = () => {
       o.items.some((i) => i.productName.toLowerCase().includes(orderSearchQuery.toLowerCase()));
     return matchStatus && matchSearch;
   });
+
+  const customerDebts = receivables
+    .filter((r) => r.customerId === currentCustomer.id && r.balanceUSD > 0.001 && !r.isVoided)
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+  const onlinePaymentMethods = ([
+    'pago_movil', 'zelle', 'transferencia_bs', 'transferencia_usd', 'tarjeta',
+    'biopago', 'efectivo_bs', 'efectivo_usd', 'divisas_efectivo',
+  ] as const).filter((method) => settings.acceptedPaymentMethods?.[method as keyof typeof settings.acceptedPaymentMethods] !== false);
+
+  const selectedDebt = debtPaymentReceivableId ? customerDebts.find((r) => r.id === debtPaymentReceivableId) || null : null;
+
+  const openDebtPayment = (receivableId: string) => {
+    const debt = customerDebts.find((r) => r.id === receivableId);
+    if (!debt) return;
+    setDebtPaymentReceivableId(receivableId);
+    setDebtPaymentMethod(onlinePaymentMethods[0] || 'pago_movil');
+    setDebtPaymentAmount(debt.balanceUSD.toFixed(2));
+    setDebtPaymentReference('');
+    setDebtPaymentSenderName('');
+    setDebtPaymentSenderEmail('');
+    setDebtPaymentSenderBank('');
+    setDebtPaymentSenderPhone('');
+  };
+
+  const closeDebtPayment = () => {
+    if (!debtPaymentSubmitting) setDebtPaymentReceivableId(null);
+  };
+
+  const submitDebtPayment = async () => {
+    if (!selectedDebt) return;
+    const amount = Number(debtPaymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > selectedDebt.balanceUSD + 0.01) {
+      alert('Indica un monto válido que no supere el saldo pendiente.');
+      return;
+    }
+    const needsReference = ['pago_movil', 'transferencia_bs', 'transferencia_usd', 'zelle'].includes(debtPaymentMethod);
+    const needsBank = ['transferencia_bs', 'transferencia_usd'].includes(debtPaymentMethod);
+    const needsZelleIdentity = debtPaymentMethod === 'zelle';
+    if (needsReference && !debtPaymentReference.trim()) {
+      alert('Indica el número de referencia de la operación.');
+      return;
+    }
+    if (needsBank && !debtPaymentSenderBank.trim()) {
+      alert('Indica el banco emisor.');
+      return;
+    }
+    if (needsZelleIdentity && (!debtPaymentSenderEmail.trim() || !debtPaymentSenderName.trim())) {
+      alert('Para Zelle debes indicar el correo y el titular que realizó el envío.');
+      return;
+    }
+    setDebtPaymentSubmitting(true);
+    try {
+      await reportCustomerReceivablePayment(selectedDebt.id, amount, {
+        paymentMethod: debtPaymentMethod,
+        reference: debtPaymentReference,
+        bcvRate: settings.bcvRate,
+        senderName: debtPaymentSenderName,
+        senderEmail: debtPaymentSenderEmail,
+        senderBank: debtPaymentSenderBank,
+        senderPhone: debtPaymentSenderPhone,
+        notes: 'Pago reportado desde Mis Deudas por el cliente.',
+      });
+      alert('Pago reportado correctamente. Queda pendiente de validación por la administración.');
+      closeDebtPayment();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No fue posible reportar el pago.');
+    } finally {
+      setDebtPaymentSubmitting(false);
+    }
+  };
 
   // Filtered invoices
   const filteredInvoices = customerInvoices.filter((inv) => {
@@ -276,6 +361,22 @@ export const CustomerDashboard: React.FC = () => {
                   }`}>
                     {customerInvoices.length}
                   </span>
+                )}
+              </button>
+
+              {/* Tab: Mis Deudas */}
+              <button
+                onClick={() => setCustomerPortalTab('deudas')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  customerPortalTab === 'deudas' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                }`}
+              >
+                <WalletCards className="w-4 h-4" />
+                <span>Mis Deudas</span>
+                {customerDebts.length > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    customerPortalTab === 'deudas' ? 'bg-amber-800 text-white' : 'bg-amber-100 text-amber-800'
+                  }`}>{customerDebts.length}</span>
                 )}
               </button>
 
@@ -676,6 +777,54 @@ export const CustomerDashboard: React.FC = () => {
           </div>
         )}
 
+        {/* TAB 5: MIS DEUDAS */}
+        {customerPortalTab === 'deudas' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 flex items-center gap-2"><WalletCards className="w-6 h-6 text-amber-600" />Mis Deudas</h2>
+                  <p className="text-xs text-slate-500 mt-1">Consulta tus facturas pendientes, vencimientos y reporta tus pagos para validación.</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-right">
+                  <div className="text-[10px] uppercase font-bold text-amber-700">Saldo pendiente</div>
+                  <div className="font-mono font-black text-lg text-amber-800">${customerDebts.reduce((sum, d) => sum + d.balanceUSD, 0).toFixed(2)} USD</div>
+                </div>
+              </div>
+            </div>
+            {customerDebts.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-800">No tienes deudas pendientes</h3>
+                <p className="text-xs text-slate-500 mt-1">Tus facturas de crédito aparecen aquí mientras tengan saldo pendiente.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {customerDebts.map((debt) => {
+                  const pendingReport = debt.paymentHistory?.find((p) => p.reportedByCustomer && p.verificationStatus === 'pendiente');
+                  const overdue = new Date(debt.dueDate).getTime() < new Date(new Date().toDateString()).getTime();
+                  return (
+                    <div key={debt.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                      <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                        <div><div className="font-mono font-black text-blue-700">{debt.invoiceNumber}</div><div className="text-[11px] text-slate-500">Emitida: {new Date(debt.issuedDate).toLocaleDateString('es-VE')}</div></div>
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
+                          overdue ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
+                        }`}>{overdue ? 'Vencida' : 'Pendiente'}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 py-4">
+                        <div className="bg-slate-50 rounded-xl p-3"><div className="text-[10px] uppercase font-bold text-slate-400">Vencimiento</div><div className="font-bold text-slate-800">{new Date(debt.dueDate).toLocaleDateString('es-VE')}</div></div>
+                        <div className="bg-amber-50 rounded-xl p-3"><div className="text-[10px] uppercase font-bold text-amber-600">Saldo</div><div className="font-mono font-black text-amber-800">${debt.balanceUSD.toFixed(2)} USD</div></div>
+                      </div>
+                      {pendingReport && <div className="mb-3 p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-800"><strong>Pago reportado:</strong> ${pendingReport.amountUSD.toFixed(2)} USD · {formatPaymentMethod(pendingReport.paymentMethod)} · pendiente de validación.</div>}
+                      <button onClick={() => openDebtPayment(debt.id)} disabled={!!pendingReport} className="w-full px-4 py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 text-white font-black text-sm rounded-xl shadow-xs transition cursor-pointer">{pendingReport ? 'Pago pendiente de validación' : 'PAGAR AHORA'}</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* TAB 5: MI LÍNEA DE CRÉDITO */}
         {customerPortalTab === 'credito' && (
           <div className="space-y-6">
@@ -756,6 +905,51 @@ export const CustomerDashboard: React.FC = () => {
           </div>
         )}
 
+      {selectedDebt && (
+        <div className="fixed inset-0 z-[80] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-6">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div><h3 className="font-black text-slate-900 text-lg">Reportar pago</h3><p className="text-xs text-slate-500">{selectedDebt.invoiceNumber} · Saldo ${selectedDebt.balanceUSD.toFixed(2)} USD</p></div>
+              <button onClick={closeDebtPayment} className="p-2 rounded-xl hover:bg-slate-100"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="text-xs font-bold text-slate-700">Método de pago
+                  <select value={debtPaymentMethod} onChange={(e) => setDebtPaymentMethod(e.target.value as import('../../types').PaymentMethod)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white">
+                    {onlinePaymentMethods.map((method) => <option key={method} value={method}>{formatPaymentMethod(method)}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-bold text-slate-700">Monto USD
+                  <input type="number" min="0.01" max={selectedDebt.balanceUSD} step="0.01" value={debtPaymentAmount} onChange={(e) => setDebtPaymentAmount(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono" />
+                  <span className="text-[10px] text-slate-400">Equivalente: {(Number(debtPaymentAmount || 0) * settings.bcvRate).toFixed(2)} Bs</span>
+                </label>
+              </div>
+              {['pago_movil','transferencia_bs','transferencia_usd','zelle'].includes(debtPaymentMethod) && (
+                <label className="block text-xs font-bold text-slate-700">Número de referencia
+                  <input value={debtPaymentReference} onChange={(e) => setDebtPaymentReference(e.target.value)} placeholder="Referencia de la operación" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" />
+                </label>
+              )}
+              {['transferencia_bs','transferencia_usd'].includes(debtPaymentMethod) && (
+                <label className="block text-xs font-bold text-slate-700"><span className="flex items-center gap-1.5"><Building2 className="w-4 h-4" /> Banco emisor</span>
+                  <input value={debtPaymentSenderBank} onChange={(e) => setDebtPaymentSenderBank(e.target.value)} placeholder="Banco desde el cual se realizó la transferencia" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" />
+                </label>
+              )}
+              {debtPaymentMethod === 'zelle' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="text-xs font-bold text-slate-700">Correo del remitente<input type="email" value={debtPaymentSenderEmail} onChange={(e) => setDebtPaymentSenderEmail(e.target.value)} placeholder="correo desde el que enviaste" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
+                  <label className="text-xs font-bold text-slate-700">Titular del envío<input value={debtPaymentSenderName} onChange={(e) => setDebtPaymentSenderName(e.target.value)} placeholder="Nombre del titular" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
+                </div>
+              )}
+              <label className="text-xs font-bold text-slate-700">Teléfono del remitente (opcional)<input value={debtPaymentSenderPhone} onChange={(e) => setDebtPaymentSenderPhone(e.target.value)} placeholder="Teléfono" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800"><strong>Importante:</strong> reportar el pago no liquida automáticamente la deuda. La administración verificará la operación antes de aplicarla a la factura.</div>
+              <div className="flex justify-end gap-2">
+                <button onClick={closeDebtPayment} disabled={debtPaymentSubmitting} className="px-4 py-2.5 rounded-xl border border-slate-200 font-bold text-sm">Cancelar</button>
+                <button onClick={submitDebtPayment} disabled={debtPaymentSubmitting} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-sm">{debtPaymentSubmitting ? 'Enviando...' : 'Reportar pago'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </main>
 
       {/* Footer */}
