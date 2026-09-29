@@ -38,6 +38,7 @@ export const OrderChecklistModal: React.FC<OrderChecklistModalProps> = ({
   const { products, updateOrderStatus, updatePaymentStatus, triggerPushNotification, settings } = useApp();
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [justApproved, setJustApproved] = useState(false);
+  const effectiveStatus: Order['orderStatus'] = justApproved ? 'aprobado' : order?.orderStatus || 'en_tramite';
 
   // Initialize or reset checklist when order changes
   useEffect(() => {
@@ -78,17 +79,33 @@ export const OrderChecklistModal: React.FC<OrderChecklistModalProps> = ({
   };
 
   const handleApproveOrder = () => {
+    updateOrderStatus(order.id, 'aprobado');
+    setJustApproved(true);
+    playNotificationSound('cash');
+    triggerPushNotification({
+      title: '¡Pedido Aprobado!',
+      message: 'El pedido ' + order.orderNumber + ' para ' + order.customerName + ' fue aprobado y ya puede ser despachado.',
+      type: 'order_status',
+      relatedOrderId: order.id,
+      targetRole: 'client',
+      targetCustomerId: order.customerId,
+    });
+  };
+
+  const handleDispatchOrder = () => {
     updateOrderStatus(order.id, 'despachado_facturado');
     if (order.paymentStatus === 'pendiente') {
       updatePaymentStatus(order.id, 'pagado');
     }
-    setJustApproved(true);
+    setJustApproved(false);
     playNotificationSound('cash');
     triggerPushNotification({
-      title: '¡Pedido Aprobado y Organizado!',
-      message: `El pedido ${order.orderNumber} para ${order.customerName} ha sido verificado y aprobado para despacho.`,
+      title: '¡Pedido Despachado!',
+      message: 'El pedido ' + order.orderNumber + ' para ' + order.customerName + ' fue marcado como despachado.',
       type: 'order_status',
       relatedOrderId: order.id,
+      targetRole: 'client',
+      targetCustomerId: order.customerId,
     });
   };
 
@@ -158,7 +175,7 @@ export const OrderChecklistModal: React.FC<OrderChecklistModalProps> = ({
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <div>
                   <p className="text-xs font-bold">¡Pedido Aprobado Exitosamente!</p>
-                  <p className="text-[11px] text-emerald-700">El estado cambió a "Despachado / Facturado" y el cliente ha sido notificado.</p>
+                  <p className="text-[11px] text-emerald-700">El estado cambió a "Aprobado". La factura fiscal ya está habilitada para el cliente.</p>
                 </div>
               </div>
               {onViewInvoice && (
@@ -223,13 +240,19 @@ export const OrderChecklistModal: React.FC<OrderChecklistModalProps> = ({
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Estado & Total</p>
               <div className="flex items-center gap-2">
                 <span className="text-slate-500">Estado Pedido:</span>
-                {order.orderStatus === 'en_tramite' && !justApproved ? (
+                {effectiveStatus === 'en_tramite' && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[11px]">
-                    <Clock className="w-3 h-3 text-amber-600 animate-pulse" /> En trámite (Por Aprobar)
+                    <Clock className="w-3 h-3 text-amber-600 animate-pulse" /> En trámite
                   </span>
-                ) : (
+                )}
+                {effectiveStatus === 'aprobado' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[11px]">
+                    <CheckCircle2 className="w-3 h-3 text-blue-600" /> Aprobado
+                  </span>
+                )}
+                {effectiveStatus === 'despachado_facturado' && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[11px]">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Despachado / Facturado
+                    <Truck className="w-3 h-3 text-emerald-600" /> Despachado
                   </span>
                 )}
               </div>
@@ -487,15 +510,21 @@ export const OrderChecklistModal: React.FC<OrderChecklistModalProps> = ({
               Cerrar
             </button>
 
-            {/* Approval button if en_tramite */}
-            {order.orderStatus === 'en_tramite' && !justApproved && (
-              <button
-                type="button"
-                onClick={handleApproveOrder}
-                className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 w-full sm:w-auto"
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                <span>Aprobar y Despachar Pedido</span>
+            {/* En trámite -> Aprobado */}
+            {effectiveStatus === 'en_tramite' && (
+              <button type="button" onClick={handleApproveOrder}
+                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 w-full sm:w-auto">
+                <CheckCircle2 className="w-4 h-4 text-blue-200" />
+                <span>Aprobar Pedido</span>
+              </button>
+            )}
+
+            {/* Aprobado -> Despachado */}
+            {effectiveStatus === 'aprobado' && (
+              <button type="button" onClick={handleDispatchOrder}
+                className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 w-full sm:w-auto">
+                <Truck className="w-4 h-4 text-emerald-200" />
+                <span>Marcar como DESPACHADO</span>
               </button>
             )}
           </div>
