@@ -1807,6 +1807,10 @@ class TursoService {
       });
       const data = await response.json().catch(() => ({}));
       if (response.ok && data?.user) {
+        if (typeof window !== 'undefined' && data?.sessionId) {
+          sessionStorage.setItem('tienda_pos_tab_session', String(data.sessionId));
+          sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
+        }
         return data.user;
       }
     } catch (error) {
