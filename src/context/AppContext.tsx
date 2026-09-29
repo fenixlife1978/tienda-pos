@@ -387,6 +387,16 @@ interface AppContextType {
   syncWithTurso: () => Promise<void>;
 }
 
+const safeLocalStorageJson = <T,>(key: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch (error) {
+    console.warn('Ignoring invalid localStorage value:', key, error);
+    return fallback;
+  }
+};
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -401,8 +411,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const parsed = JSON.parse(saved);
         parsed.bcvSourceUrl = 'https://bcv.today/api/rate.json';
         if (!parsed.bcvHistory || !Array.isArray(parsed.bcvHistory) || parsed.bcvHistory.length === 0) {
-          const savedHist = localStorage.getItem('omni_bcv_history');
-          parsed.bcvHistory = savedHist ? JSON.parse(savedHist) : INITIAL_SETTINGS.bcvHistory;
+          parsed.bcvHistory = safeLocalStorageJson<BcvHistoryEntry[]>('omni_bcv_history', INITIAL_SETTINGS.bcvHistory);
         }
         if (parsed.bcvRate && parsed.bcvRate < 100) {
           parsed.bcvRate = INITIAL_SETTINGS.bcvRate;
@@ -461,15 +470,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    const saved = localStorage.getItem('omni_customers');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<Customer[]>('omni_customers', []);
   });
 
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(() => {
     const activeId = sessionStorage.getItem('omni_active_customer_id');
     if (activeId) {
-      const saved = localStorage.getItem('omni_customers');
-      const list: Customer[] = saved ? JSON.parse(saved) : [];
+      const list = safeLocalStorageJson<Customer[]>('omni_customers', []);
       const found = list.find((c) => c.id === activeId);
       if (found) return found;
     }
@@ -481,43 +488,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentCustomerIdRef = useRef<string | null>(currentCustomer?.id || null);
   currentCustomerIdRef.current = currentCustomer?.id || null;
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('omni_products');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<Product[]>('omni_products', []);
   });
 
   const [cart, setCart] = useState<CartItem[]>(() => {
-    const saved = localStorage.getItem('omni_cart');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<CartItem[]>('omni_cart', []);
   });
 
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('omni_orders');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<Order[]>('omni_orders', []);
   });
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
-    const saved = localStorage.getItem('omni_invoices');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<Invoice[]>('omni_invoices', []);
   });
 
   const [receivables, setReceivables] = useState<ReceivableItem[]>(() => {
-    const saved = localStorage.getItem('omni_receivables');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<ReceivableItem[]>('omni_receivables', []);
   });
 
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
-    const saved = localStorage.getItem('omni_suppliers');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<Supplier[]>('omni_suppliers', []);
   });
 
   const [payables, setPayables] = useState<PayableItem[]>(() => {
-    const saved = localStorage.getItem('omni_payables');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<PayableItem[]>('omni_payables', []);
   });
 
   const [purchaseEntries, setPurchaseEntries] = useState<PurchaseEntry[]>(() => {
-    const saved = localStorage.getItem('omni_purchase_entries');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<PurchaseEntry[]>('omni_purchase_entries', []);
   });
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
@@ -573,19 +572,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Dynamic Categories and Units of Measurement
   const [categories, setCategories] = useState<ProductCategory[]>(() => {
-    const saved = localStorage.getItem('omni_categories');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<ProductCategory[]>('omni_categories', []);
   });
 
   // Automated Credit and Past-Due Invoice Reminders State
   const [automatedReminders, setAutomatedReminders] = useState<AutomatedReminderRecord[]>(() => {
-    const saved = localStorage.getItem('omni_automated_reminders');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<AutomatedReminderRecord[]>('omni_automated_reminders', []);
   });
 
   const [units, setUnits] = useState<ProductUnit[]>(() => {
-    const saved = localStorage.getItem('omni_units');
-    return saved ? JSON.parse(saved) : [];
+    return safeLocalStorageJson<ProductUnit[]>('omni_units', []);
   });
 
   // Sync state to localStorage
