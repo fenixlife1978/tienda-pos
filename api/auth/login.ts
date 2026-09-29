@@ -96,6 +96,7 @@ export default async function handler(req: any, res: any) {
 
     res.setHeader('Set-Cookie', cookie('tienda_pos_session', sessionId, 7 * 24 * 60 * 60));
     return res.status(200).json({
+      sessionId,
       user: {
         id: String(row.id),
         name: String(row.name),
