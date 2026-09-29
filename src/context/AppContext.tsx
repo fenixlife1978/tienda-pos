@@ -180,6 +180,7 @@ interface AppContextType {
     amountUSD: number,
     details: {
       paymentMethod: PaymentMethod;
+      paymentSplits?: Array<{ method: Exclude<PaymentMethod, 'mixto'>; amountUSD: number; reference?: string }>;
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -2802,6 +2803,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amountUSD: number,
     details: {
       paymentMethod: PaymentMethod;
+      paymentSplits?: Array<{ method: Exclude<PaymentMethod, 'mixto'>; amountUSD: number; reference?: string }>;
       reference?: string;
       notes?: string;
       bcvRate?: number;
@@ -2817,34 +2819,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const rate = details.bcvRate || settings.bcvRate;
+    const suppliedSplits = (details.paymentSplits || [])
+      .filter((s) => Number(s.amountUSD) > 0)
+      .map((s) => ({
+        id: 'customer-report-split-' + crypto.randomUUID(),
+        method: s.method,
+        amountUSD: Number(Number(s.amountUSD).toFixed(6)),
+        amountBs: Number((Number(s.amountUSD) * rate).toFixed(2)),
+        currency: s.method === 'transferencia_bs' || s.method === 'pago_movil' ? 'Bs' as const : 'USD' as const,
+        reference: s.reference?.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      }));
+
     const amount = Number(amountUSD.toFixed(6));
-    if (!Number.isFinite(amount) || amount <= 0 || amount - target.balanceUSD > 0.01) {
+    const normalizedAmount = suppliedSplits.length
+      ? Number(suppliedSplits.reduce((sum, s) => sum + s.amountUSD, 0).toFixed(6))
+      : amount;
+
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || normalizedAmount - target.balanceUSD > 0.01) {
       throw new Error('El monto reportado no es válido.');
     }
+    if (details.paymentMethod === 'mixto' && suppliedSplits.length < 2) {
+      throw new Error('Un pago mixto requiere al menos dos métodos online.');
+    }
+    if (suppliedSplits.some((s) => !s.reference)) {
+      throw new Error('Cada método online utilizado debe incluir su referencia.');
+    }
 
-    const split: ReceivablePaymentSplit = {
-      id: 'customer-report-' + Date.now(),
+    const fallbackSplit: ReceivablePaymentSplit = {
+      id: 'customer-report-' + crypto.randomUUID(),
       method: details.paymentMethod as Exclude<PaymentMethod, 'mixto'>,
-      amountUSD: amount,
-      amountBs: Number((amount * rate).toFixed(2)),
-      currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(details.paymentMethod) ? 'Bs' : 'USD',
+      amountUSD: normalizedAmount,
+      amountBs: Number((normalizedAmount * rate).toFixed(2)),
+      currency: details.paymentMethod === 'transferencia_bs' || details.paymentMethod === 'pago_movil' ? 'Bs' : 'USD',
       reference: details.reference?.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
+    const splits: ReceivablePaymentSplit[] = suppliedSplits.length ? suppliedSplits : [fallbackSplit];
 
     const record: ReceivablePaymentRecord = {
       id: 'customer-payment-report-' + crypto.randomUUID(),
       date: new Date().toISOString(),
-      amountUSD: amount,
-      amountBs: split.amountBs,
+      amountUSD: normalizedAmount,
+      amountBs: Number((normalizedAmount * rate).toFixed(2)),
       bcvRate: rate,
       paymentMethod: details.paymentMethod,
-      paymentSplits: [split],
+      paymentSplits: splits,
       reference: details.reference?.trim() || undefined,
-      notes: details.notes?.trim() || 'Pago reportado por el cliente, pendiente de validación administrativa.',
+      notes: details.notes?.trim() || 'Pago reportado por el cliente, pendiente de aprobación administrativa.',
       registeredBy: currentCustomer.name,
       balanceAfterUSD: target.balanceUSD,
-      isFullSettlement: amount >= target.balanceUSD - 0.01,
+      isFullSettlement: normalizedAmount >= target.balanceUSD - 0.01,
       verificationStatus: 'pendiente',
       senderName: details.senderName?.trim() || undefined,
       senderEmail: details.senderEmail?.trim() || undefined,
@@ -2861,11 +2886,106 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
 
     triggerPushNotification({
-      title: '💳 Pago reportado por cliente',
-      message: currentCustomer.name + ' reportó ' + amount.toFixed(2) + ' para la factura ' + target.invoiceNumber + '. Método: ' + formatPaymentMethod(details.paymentMethod) + '. Requiere validación.',
+      title: '💳 Pago recibido por deuda',
+      message: currentCustomer.name + ' reportó un pago de $' + normalizedAmount.toFixed(2) + ' USD para ' + target.invoiceNumber + '. ' +
+        (details.paymentMethod === 'mixto'
+          ? 'Método: Pago Mixto Online.'
+          : 'Método: ' + formatPaymentMethod(details.paymentMethod) + '.') +
+        ' Revisa CxC y aprueba o rechaza el pago.',
       type: 'credit_alert',
       targetRole: 'seller',
-      badge: 'Pago por validar',
+      targetCustomerId: currentCustomer.id,
+      badge: 'Pago por deuda recibido',
+    });
+  };
+
+  // Valida un pago reportado por el cliente y solo entonces lo incorpora al saldo y a los procesos de CxC.
+  const reviewCustomerPaymentReport = async (
+    receivableId: string,
+    paymentId: string,
+    approved: boolean,
+    notes = ''
+  ) => {
+    const target = receivables.find((r) => r.id === receivableId);
+    const pending = target?.paymentHistory?.find((p) => p.id === paymentId && p.reportedByCustomer && p.verificationStatus === 'pendiente');
+    if (!target || !pending) throw new Error('El pago reportado ya no está pendiente o la deuda no existe.');
+
+    if (!approved) {
+      const rejected = {
+        ...target,
+        paymentHistory: (target.paymentHistory || []).map((p) =>
+          p.id === paymentId
+            ? { ...p, verificationStatus: 'rechazado' as const, notes: notes || 'Pago rechazado por administración.' }
+            : p
+        ),
+      };
+      await tursoService.saveReceivable(rejected);
+      setReceivables((prev) => prev.map((r) => r.id === target.id ? rejected : r));
+      triggerPushNotification({
+        title: '❌ Pago por deuda rechazado',
+        message: 'El pago reportado para ' + target.invoiceNumber + ' fue rechazado por administración.' + (notes ? ' Motivo: ' + notes : ''),
+        type: 'credit_alert',
+        targetCustomerId: target.customerId,
+        badge: 'Pago rechazado',
+      });
+      return;
+    }
+
+    const appliedAmount = Math.min(target.balanceUSD, pending.amountUSD);
+    if (appliedAmount <= 0) throw new Error('El saldo de la deuda ya no permite aplicar este pago.');
+
+    const newPaid = target.amountPaidUSD + appliedAmount;
+    const newBalance = Math.max(0, target.totalAmountUSD - newPaid);
+    const isSettled = newBalance <= 0.01;
+    const terminalId = terminalIdentity.getId();
+    let cashSessionId: string | undefined;
+    try {
+      const active = JSON.parse(localStorage.getItem('omni_cash_session_v2') || 'null');
+      if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
+    } catch {}
+
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
+    const approvedRecord: ReceivablePaymentRecord = {
+      ...pending,
+      date: pending.date,
+      verificationStatus: 'aprobado',
+      registeredBy: currentUser.name,
+      balanceAfterUSD: newBalance,
+      isFullSettlement: isSettled,
+      terminalId,
+      cashSessionId,
+      receiptNumber,
+      notes: notes || pending.notes || 'Pago reportado por cliente y aprobado por administración.',
+    };
+
+    const updated = {
+      ...target,
+      amountPaidUSD: newPaid,
+      balanceUSD: newBalance,
+      status: isSettled ? 'pagado' as const : target.status,
+      paymentHistory: (target.paymentHistory || []).map((p) => p.id === paymentId ? approvedRecord : p),
+    };
+    await tursoService.saveReceivable(updated);
+    setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
+
+    setCustomers((prev) => prev.map((customer) =>
+      customer.id === target.customerId
+        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - appliedAmount) }
+        : customer
+    ));
+    if (isSettled) {
+      setInvoices((prev) => prev.map((inv) =>
+        inv.invoiceNumber === target.invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv
+      ));
+    }
+
+    triggerPushNotification({
+      title: isSettled ? '🎉 Pago de deuda aprobado' : '💵 Abono de deuda aprobado',
+      message: 'El pago reportado para ' + target.invoiceNumber + ' por $' + appliedAmount.toFixed(2) +
+        ' USD fue aprobado y registrado en CxC. Recibo ' + receiptNumber + '.',
+      type: 'credit_alert',
+      targetCustomerId: target.customerId,
+      badge: isSettled ? 'Deuda liquidada' : 'Abono aplicado',
     });
   };
 
@@ -3588,7 +3708,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
       addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
       updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
-      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
+      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
       activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
