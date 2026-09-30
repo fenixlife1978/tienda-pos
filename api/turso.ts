@@ -422,6 +422,44 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    if (body.operation === 'reportCustomerReceivablePayment') {
+      const receivable = body.receivable || {};
+      const paymentId = String(body.paymentId || '');
+      if (!receivable.id || !paymentId) return res.status(400).json({ error: 'Reporte de pago incompleto' });
+      const payment = Array.isArray(receivable.paymentHistory)
+        ? receivable.paymentHistory.find((p:any) => String(p.id) === paymentId) : null;
+      if (!payment || !payment.reportedByCustomer || payment.verificationStatus !== 'pendiente') {
+        return res.status(400).json({ error: 'Reporte de pago inválido' });
+      }
+      const tx = await client.transaction('write');
+      try {
+        await tx.execute({ sql: `CREATE TABLE IF NOT EXISTS receivable_payment_reports (
+          payment_id TEXT PRIMARY KEY, receivable_id TEXT NOT NULL, customer_id TEXT NOT NULL,
+          amount_usd REAL NOT NULL, reference TEXT, created_at TEXT NOT NULL
+        )`, args: [] });
+        const inserted = await tx.execute({
+          sql: `INSERT OR IGNORE INTO receivable_payment_reports
+            (payment_id, receivable_id, customer_id, amount_usd, reference, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+          args: [paymentId, String(receivable.id), String(receivable.customerId || ''), Number(payment.amountUSD || 0), payment.reference || null, String(payment.date || new Date().toISOString())],
+        });
+        if (Number(inserted.rowsAffected || 0) === 0) {
+          await tx.rollback();
+          return res.status(200).json({ ok: true, duplicate: true, paymentId });
+        }
+        await tx.execute({
+          sql: `INSERT OR REPLACE INTO accounts_receivable
+            (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,
+             issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          args: [String(receivable.id),String(receivable.invoiceId),String(receivable.invoiceNumber),String(receivable.customerId),String(receivable.customerName),String(receivable.customerPhone||''),Number(receivable.totalAmountUSD||0),Number(receivable.amountPaidUSD||0),Number(receivable.balanceUSD||0),String(receivable.issuedDate),String(receivable.dueDate),Number(receivable.creditDays||0),String(receivable.status),new Date().toISOString(),receivable.isVoided?1:0,receivable.voidedAt||null,receivable.voidReason||null,JSON.stringify(receivable.paymentHistory||[])],
+        });
+        await tx.execute({ sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('accounts_receivable', ?, 'payment_reported', ?)", args: [String(receivable.id),new Date().toISOString()] });
+        await tx.commit();
+        return res.status(200).json({ ok: true, duplicate: false, paymentId });
+      } catch (e) { try { await tx.rollback(); } catch {} throw e; }
+    }
+
     if (body.operation === 'approveCustomerReceivablePayment') {
       const receivable = body.receivable || {};
       const paymentId = String(body.paymentId || '');
