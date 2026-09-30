@@ -44,6 +44,7 @@ export const OrdersManagementView: React.FC = () => {
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const filteredOrders = orders.filter((o) => {
+    if (o.channel !== 'online') return false;
     const matchesSearch =
       o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       o.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
