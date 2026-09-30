@@ -1929,7 +1929,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Update order status with real-time customer push notification
   // Flujo comercial: En trámite -> Aprobado -> Despachado.
   // La factura fiscal solo se libera al cliente desde el estado Aprobado.
-  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
+  const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
     const statusTitles: Record<OrderStatus, string> = {
       en_tramite: '⏳ Pedido En Trámite',
       aprobado: '✅ Pedido Aprobado',
@@ -1958,26 +1958,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setOrders((prev) => prev.map((o) => o.id === orderId ? updatedOrder : o));
-    void tursoService.saveOrder(updatedOrder).catch((error) => console.error('Error saving order status to Turso:', error));
 
-    if (relatedInvoice) {
-      const updatedInvoice = {
-        ...relatedInvoice,
-        isCreditApproved: status === 'aprobado' || status === 'despachado_facturado'
-          ? true
-          : relatedInvoice.isCreditApproved,
-        ...(approvedAt ? { approvedAt } : {}),
-        ...(isFinancialApproval ? { paymentStatus: order.paymentMethod === 'credito' ? 'a_credito' : 'pagado' } : {}),
-      };
-      setInvoices((prev) => prev.map((inv) => inv.id === updatedInvoice.id ? updatedInvoice : inv));
-      void tursoService.saveInvoice(updatedInvoice).catch((error) => console.error('Error saving related invoice approval to Turso:', error));
+    // Persistimos primero el nuevo estado en Turso y solo después generamos
+    // actividad/notificaciones. Así un polling de otro cliente no puede detectar
+    // la notificación y volver a cargar el pedido antiguo (En trámite) antes de
+    // que termine de escribirse el UPDATE del pedido.
+    try {
+      await tursoService.saveOrder(updatedOrder);
 
-      if (isFinancialApproval) {
-        void tursoService.approveOrderFinancially(updatedOrder, updatedInvoice, currentUser.name)
-          .catch((error) => console.error('Error contabilizando aprobación del pedido en Turso:', error));
+      if (relatedInvoice) {
+        const updatedInvoice = {
+          ...relatedInvoice,
+          isCreditApproved: status === 'aprobado' || status === 'despachado_facturado'
+            ? true
+            : relatedInvoice.isCreditApproved,
+          ...(approvedAt ? { approvedAt } : {}),
+          ...(isFinancialApproval ? { paymentStatus: order.paymentMethod === 'credito' ? 'a_credito' : 'pagado' } : {}),
+        };
+        setInvoices((prev) => prev.map((inv) => inv.id === updatedInvoice.id ? updatedInvoice : inv));
+        await tursoService.saveInvoice(updatedInvoice);
+
+        if (isFinancialApproval) {
+          await tursoService.approveOrderFinancially(updatedOrder, updatedInvoice, currentUser.name);
+        }
       }
+    } catch (error) {
+      console.error('Error guardando aprobación del pedido en Turso:', error);
+      // Revertimos la UI local si la persistencia falló, evitando mostrar
+      // "Aprobado" cuando Turso sigue conservando "En trámite".
+      setOrders((prev) => prev.map((o) => o.id === orderId ? order : o));
+      return;
     }
 
+    // La notificación se publica únicamente después de confirmar la persistencia.
     triggerPushNotification({
       title: statusTitles[status] + ' (' + order.orderNumber + ')',
       message: statusMessages[status],
