@@ -168,7 +168,10 @@ class TursoService {
           'ALTER TABLE suppliers ADD COLUMN address TEXT',
           'ALTER TABLE suppliers ADD COLUMN credit_days INTEGER DEFAULT 15',
           'ALTER TABLE suppliers ADD COLUMN credit_limit_usd REAL DEFAULT 0',
-          'ALTER TABLE suppliers ADD COLUMN created_at TEXT'
+          'ALTER TABLE suppliers ADD COLUMN created_at TEXT',
+          'ALTER TABLE bcv_history ADD COLUMN effective_date TEXT',
+          'ALTER TABLE bcv_history ADD COLUMN source TEXT',
+          'ALTER TABLE bcv_history ADD COLUMN currencies TEXT'
         ]) {
           try { await client.execute(sql); } catch {}
         }
@@ -692,10 +695,13 @@ class TursoService {
           id TEXT PRIMARY KEY,
           rate REAL NOT NULL,
           date TEXT NOT NULL,
+          effective_date TEXT,
           type TEXT NOT NULL,
           updated_by TEXT,
+          source TEXT,
           previous_rate REAL,
-          change_percent REAL
+          change_percent REAL,
+          currencies TEXT
         );
       `);
       tablesCreated.push('bcv_history');
@@ -2032,10 +2038,13 @@ class TursoService {
           entry.id,
           entry.rate,
           entry.date,
+          entry.effectiveDate || entry.date,
           entry.type,
           entry.updatedBy,
+          entry.source || null,
           entry.previousRate !== undefined ? entry.previousRate : null,
           entry.changePercent !== undefined ? entry.changePercent : null,
+          entry.currencies ? JSON.stringify(entry.currencies) : null,
         ],
       });
     } catch (err) {
