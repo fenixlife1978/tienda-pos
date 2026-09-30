@@ -2857,8 +2857,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const splits: ReceivablePaymentSplit[] = suppliedSplits.length ? suppliedSplits : [fallbackSplit];
 
+    const paymentId = 'customer-payment-report-' + crypto.randomUUID();
     const record: ReceivablePaymentRecord = {
-      id: 'customer-payment-report-' + crypto.randomUUID(),
+      id: paymentId,
       date: new Date().toISOString(),
       amountUSD: normalizedAmount,
       amountBs: Number((normalizedAmount * rate).toFixed(2)),
@@ -2882,7 +2883,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...target,
       paymentHistory: [record, ...(target.paymentHistory || [])],
     };
-    await tursoService.saveReceivable(updated);
+    const reportResult = await tursoService.reportCustomerReceivablePayment(updated, paymentId, currentCustomer.name);
+    if (reportResult.duplicate) return;
     setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
 
     triggerPushNotification({
