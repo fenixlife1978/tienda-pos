@@ -1,6 +1,21 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { formatPaymentMethod } from '../../types';
+const formatPaymentMethod = (method: string): string => {
+  switch (method) {
+    case 'efectivo_bs': return 'Efectivo Bs.';
+    case 'biopago': return 'Biopago';
+    case 'transferencia_bs': return 'Transferencia Bs.';
+    case 'transferencia_usd': return 'Zelle / Transf. USD';
+    case 'zelle': return 'Zelle';
+    case 'efectivo_usd':
+    case 'divisas_efectivo': return 'Efectivo Divisas USD';
+    case 'pago_movil': return 'Pago Móvil';
+    case 'tarjeta': return 'Tarjeta';
+    case 'mixto': return 'Cobro Mixto';
+    case 'credito': return 'Crédito Comercial';
+    default: return (method || '').replace(/_/g, ' ');
+  }
+};
 import {
   Store,
   Flame,
