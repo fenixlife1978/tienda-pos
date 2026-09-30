@@ -1627,6 +1627,12 @@ class TursoService {
     });
   }
 
+  /** Idempotent customer payment report: one paymentId can be persisted only once. */
+  public async reportCustomerReceivablePayment(receivable: ReceivableItem, paymentId: string, customerName: string): Promise<{ duplicate: boolean }> {
+    const result = await this.request('reportCustomerReceivablePayment', { receivable, paymentId, customerName });
+    return { duplicate: Boolean(result.duplicate) };
+  }
+
   public async saveReceivable(r: ReceivableItem) {
     const client = this.getClient();
     if (!client) return;
