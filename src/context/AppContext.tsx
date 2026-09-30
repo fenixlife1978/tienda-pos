@@ -1686,10 +1686,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : orderInput.channel === 'pos'
         ? 'pagado'
         : 'pendiente',
-      orderStatus: 'en_tramite',
+      orderStatus: orderInput.channel === 'pos' ? 'aprobado' : 'en_tramite',
       paymentReference: orderInput.paymentReference,
       channel: orderInput.channel,
       createdAt: now.toISOString(),
+      ...(orderInput.channel === 'pos' ? { approvedAt: now.toISOString() } : {}),
       cashSessionId,
       documentSeries,
       documentSequence: orderDocumentSequence,
