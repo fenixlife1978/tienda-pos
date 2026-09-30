@@ -82,6 +82,7 @@ export const CustomerDashboard: React.FC = () => {
   const [debtPaymentSenderBank, setDebtPaymentSenderBank] = useState('');
   const [debtPaymentSenderPhone, setDebtPaymentSenderPhone] = useState('');
   const [debtPaymentSubmitting, setDebtPaymentSubmitting] = useState(false);
+  const debtPaymentSubmitLockRef = React.useRef(false);
 
   if (!currentCustomer) return null;
 
@@ -198,6 +199,8 @@ export const CustomerDashboard: React.FC = () => {
       }
     }
 
+    if (debtPaymentSubmitLockRef.current) return;
+    debtPaymentSubmitLockRef.current = true;
     setDebtPaymentSubmitting(true);
     try {
       await reportCustomerReceivablePayment(selectedDebt.id, totalReported, {
@@ -218,6 +221,7 @@ export const CustomerDashboard: React.FC = () => {
     } catch (error) {
       alert(error instanceof Error ? error.message : 'No fue posible reportar el pago.');
     } finally {
+      debtPaymentSubmitLockRef.current = false;
       setDebtPaymentSubmitting(false);
     }
   };
