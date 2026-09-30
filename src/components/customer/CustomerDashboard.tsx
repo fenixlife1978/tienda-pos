@@ -106,9 +106,7 @@ export const CustomerDashboard: React.FC = () => {
 
   // Pagos online del portal: únicamente Pago Móvil, Transferencia Bs. y Zelle.
   // El efectivo se coordina con administración y se registra posteriormente desde CxC.
-  const onlinePaymentMethods = (['pago_movil', 'transferencia_bs', 'zelle'] as const).filter(
-    (method) => settings.acceptedPaymentMethods?.[method as keyof typeof settings.acceptedPaymentMethods] !== false
-  );
+  const onlinePaymentMethods = ['pago_movil', 'transferencia_bs', 'zelle'] as const;
 
   const selectedDebt = debtPaymentReceivableId ? customerDebts.find((r) => r.id === debtPaymentReceivableId) || null : null;
 
@@ -205,8 +203,6 @@ export const CustomerDashboard: React.FC = () => {
     } catch (error) {
       alert(error instanceof Error ? error.message : 'No fue posible reportar el pago.');
     } finally {
-      setDebtPaymentSubmitting(false);
-    }
       setDebtPaymentSubmitting(false);
     }
   };
