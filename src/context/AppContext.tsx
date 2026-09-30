@@ -3708,7 +3708,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
       addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
       updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
-      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
+      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
       activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
