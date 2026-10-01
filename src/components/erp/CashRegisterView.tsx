@@ -163,6 +163,26 @@ export const CashRegisterView: React.FC = () => {
     [orders, session, terminalId]
   );
 
+
+  // Pedidos online aprobados se convierten en ventas contables al momento de la aprobación.
+  // Se incluyen en ventas del período del arqueo aunque no pertenezcan físicamente a una caja POS.
+  const approvedOnlineOrders = useMemo(
+    () => {
+      if (!session) return [];
+      const from = new Date(session.openedAt).getTime();
+      const to = new Date(session.closedAt || new Date().toISOString()).getTime();
+      return orders.filter((o) =>
+        o.channel === 'online' &&
+        o.orderStatus !== 'cancelado' &&
+        !o.isVoided &&
+        !!o.approvedAt &&
+        new Date(o.approvedAt).getTime() >= from &&
+        new Date(o.approvedAt).getTime() <= to
+      );
+    },
+    [orders, session]
+  );
+
   const cxcPayments = useMemo(() => {
     if (!session) return [];
     const from = new Date(session.openedAt).getTime();
