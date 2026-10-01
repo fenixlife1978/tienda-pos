@@ -1476,91 +1476,15 @@ class TursoService {
   }
 
   public async saveProduct(p: Product, options?: { preserveStock?: boolean }) {
-    const client = this.getClient();
-    if (!client) return;
-    await client.execute({
-      sql: `
-        INSERT OR REPLACE INTO products (
-          id, code, name, category, cost_usd, profit_margin_percent, price_usd,
-          stock, min_stock, unit, image, is_offer, discount_percentage,
-          offer_condition, offer_badge_text, offer_savings_usd, offer_savings_bs,
-          offer_min_quantity, promotional_price_usd, offer_start_date, offer_end_date,
-          warehouse_stocks, description, applies_iva, alternative_prices, presentations,
-          suppliers_info, highest_supplier_cost, is_composite,
-          composite_components, composite_virtual_stock, is_weighable,
-          price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
-      `,
-      args: [
-        p.id,
-        p.code,
-        p.name,
-        p.category,
-        p.costUSD,
-        p.profitMarginPercent ?? null,
-        p.priceUSD,
-        options?.preserveStock ? (
-          // Preserve the authoritative global stock when replaying a master-data snapshot.
-          // Inventory quantity is changed only through inventory_movements.
-          Number((await client.execute({ sql: 'SELECT stock FROM products WHERE id = ?', args: [p.id] })).rows[0]?.stock ?? p.stock)
-        ) : p.stock,
-        p.minStock,
-        p.unit,
-        p.image || '',
-        p.isOffer ? 1 : 0,
-        p.discountPercentage ?? 0,
-        p.offerCondition ?? null,
-        p.offerBadgeText ?? null,
-        p.offerSavingsUSD ?? null,
-        p.offerSavingsBs ?? null,
-        p.offerMinQuantity ?? null,
-        p.promotionalPriceUSD ?? null,
-        p.offerStartDate ?? null,
-        p.offerEndDate ?? null,
-        p.warehouseStocks ? JSON.stringify(p.warehouseStocks) : null,
-        p.description || '',
-        p.appliesIva === false ? 0 : 1,
-        p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
-        p.presentations ? JSON.stringify(p.presentations) : null,
-        p.suppliersInfo ? JSON.stringify(p.suppliersInfo) : null,
-        p.highestSupplierCost ?? null,
-        p.isComposite ? 1 : 0,
-        p.compositeComponents ? JSON.stringify(p.compositeComponents) : null,
-        p.compositeVirtualStock ?? null,
-        p.isWeighable ? 1 : 0,
-        p.pricePerKgUSD ?? null,
-        p.isFractionable ? 1 : 0,
-        p.fractionUnit ?? null,
-        new Date().toISOString(),
-        new Date().toISOString(),
-      ],
+    // Maestro de productos: escritura autoritativa en Turso mediante una
+    // operación server-side transaccional. No usamos snapshots/localStorage
+    // para reconstruir el maestro.
+    const response = await this.request('saveProduct', {
+      product: p,
+      preserveStock: Boolean(options?.preserveStock),
     });
-
-    // Confirmación de escritura: una operación exitosa del cliente Turso no se
-    // considera suficiente para el maestro de promociones. Leemos inmediatamente
-    // los campos críticos y abortamos si la fila confirmada no coincide.
-    const verify = await client.execute({
-      sql: `SELECT is_offer, discount_percentage, offer_condition, offer_badge_text,
-                    offer_savings_usd, offer_savings_bs, offer_min_quantity,
-                    promotional_price_usd, offer_start_date, offer_end_date
-             FROM products WHERE id = ?`,
-      args: [p.id],
-    });
-    const row = verify.rows[0];
-    const same = Boolean(row) &&
-      Number(row.is_offer || 0) === (p.isOffer ? 1 : 0) &&
-      Number(row.discount_percentage || 0) === Number(p.discountPercentage || 0) &&
-      (row.offer_condition ?? null) === (p.offerCondition ?? null) &&
-      (row.offer_badge_text ?? null) === (p.offerBadgeText ?? null) &&
-      Number(row.offer_savings_usd ?? 0) === Number(p.offerSavingsUSD ?? 0) &&
-      Number(row.offer_savings_bs ?? 0) === Number(p.offerSavingsBs ?? 0) &&
-      Number(row.offer_min_quantity ?? 0) === Number(p.offerMinQuantity ?? 0) &&
-      Number(row.promotional_price_usd ?? 0) === Number(p.promotionalPriceUSD ?? 0) &&
-      (row.offer_start_date ?? null) === (p.offerStartDate ?? null) &&
-      (row.offer_end_date ?? null) === (p.offerEndDate ?? null);
-
-    if (!same) {
-      throw new Error(`Turso no confirmó la escritura de la oferta para el producto ${p.id}`);
+    if (!response?.persisted) {
+      throw new Error(String(response?.error || 'Turso no confirmó la escritura del producto'));
     }
   }
 
