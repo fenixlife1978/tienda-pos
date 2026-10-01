@@ -261,7 +261,8 @@ class TursoService {
         'ALTER TABLE products ADD COLUMN offer_min_quantity REAL',
         'ALTER TABLE products ADD COLUMN promotional_price_usd REAL',
         'ALTER TABLE products ADD COLUMN offer_start_date TEXT',
-        'ALTER TABLE products ADD COLUMN offer_end_date TEXT'
+        'ALTER TABLE products ADD COLUMN offer_end_date TEXT',
+        'ALTER TABLE accounts_payable ADD COLUMN items_json TEXT'
       ]) {
         try { await client.execute(sql); } catch {}
       }
