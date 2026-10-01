@@ -12,6 +12,30 @@ function argsOf(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
+async function ensureColumn(client: any, table: string, column: string, definition: string) {
+  const schema = await client.execute({
+    sql: 'PRAGMA table_info("' + table + '")',
+    args: [],
+  });
+  const exists = schema.rows.some((row: any) => String(row.name) === column);
+  if (exists) return;
+
+  try {
+    await client.execute({
+      sql: 'ALTER TABLE "' + table + '" ADD COLUMN "' + column + '" ' + definition,
+      args: [],
+    });
+  } catch (error) {
+    // Otra petición concurrente puede haber creado la columna entre el PRAGMA
+    // y el ALTER. Solo aceptamos ese caso si la columna quedó realmente creada.
+    const verify = await client.execute({
+      sql: 'PRAGMA table_info("' + table + '")',
+      args: [],
+    });
+    if (!verify.rows.some((row: any) => String(row.name) === column)) throw error;
+  }
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -441,6 +465,10 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'approveOrderFinancially') {
+      // Compatibilidad con bases Turso creadas antes de la incorporación de
+      // aprobación financiera en pedidos/facturas.
+      await ensureColumn(client, 'orders', 'approved_at', 'TEXT');
+      await ensureColumn(client, 'invoices', 'approved_at', 'TEXT');
       const order = body.order || {};
       const invoice = body.invoice || {};
       const approvedBy = String(body.approvedBy || 'Administrador');
@@ -764,6 +792,11 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'offlineSale' || body.operation === 'saleReversal') {
+      // Pedidos online y ventas offline reutilizan la tabla orders. Las bases
+      // antiguas pueden no tener approved_at; la migración se hace antes de
+      // abrir la transacción para que la operación sea compatible sin perder datos.
+      await ensureColumn(client, 'orders', 'approved_at', 'TEXT');
+      await ensureColumn(client, 'invoices', 'approved_at', 'TEXT');
       // These critical operations remain server-side transactional. The existing
       // client implementation is moved here without exposing Turso credentials.
       const op = body.payload;
