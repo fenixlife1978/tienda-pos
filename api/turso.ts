@@ -276,6 +276,47 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    if (body.operation === 'deleteProduct') {
+      const id = String(body.productId || '').trim();
+      if (!id) return res.status(400).json({ error: 'Producto sin ID' });
+
+      const tx = await client.transaction('write');
+      try {
+        const deleted = await tx.execute({
+          sql: 'DELETE FROM products WHERE id = ?',
+          args: [id],
+        });
+        const remaining = await tx.execute({
+          sql: 'SELECT id FROM products WHERE id = ? LIMIT 1',
+          args: [id],
+        });
+        if (remaining.rows.length) {
+          throw new Error('Turso no confirmó la eliminación del producto dentro de la transacción');
+        }
+        await tx.execute({
+          sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+                 VALUES ('products', ?, 'delete', ?)`,
+          args: [id, new Date().toISOString()],
+        });
+        await tx.commit();
+
+        const verify = await client.execute({
+          sql: 'SELECT id FROM products WHERE id = ? LIMIT 1',
+          args: [id],
+        });
+        if (verify.rows.length) throw new Error('Turso volvió a encontrar el producto después del COMMIT');
+
+        return res.status(200).json({
+          ok: true,
+          persisted: true,
+          deleted: Number(deleted.rowsAffected || 0),
+        });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
     if (body.operation === 'saveSupplier') {
       const s = body.supplier || {};
       const id = String(s.id || '').trim();
