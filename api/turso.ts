@@ -742,12 +742,12 @@ export default async function handler(req: any, res: any) {
       const tx = await client.transaction('write');
       try {
         await tx.execute({
-          sql: "DELETE FROM system_notifications WHERE target_role = 'seller' OR target_role IS NULL",
+          sql: "DELETE FROM system_notifications WHERE target_role IN ('seller', 'all') OR target_role IS NULL",
           args: [],
         });
         await tx.commit();
         const verify = await client.execute(
-          "SELECT COUNT(*) AS n FROM system_notifications WHERE target_role = 'seller' OR target_role IS NULL"
+          "SELECT COUNT(*) AS n FROM system_notifications WHERE target_role IN ('seller', 'all') OR target_role IS NULL"
         );
         if (Number(verify.rows[0]?.n || 0) !== 0) {
           throw new Error('Turso no confirmó la limpieza de notificaciones administrativas');
