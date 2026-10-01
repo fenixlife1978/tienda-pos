@@ -580,6 +580,7 @@ class TursoService {
       `);
       tablesCreated.push('accounts_payable');
       try { await client.execute("ALTER TABLE accounts_payable ADD COLUMN payment_history TEXT"); } catch {}
+      try { await client.execute("ALTER TABLE accounts_payable ADD COLUMN items_json TEXT"); } catch {}
 
       // 11. purchase_entries
       await client.execute(`
@@ -1190,6 +1191,7 @@ class TursoService {
           dueDate: String(row.due_date),
           status: row.status as any,
           paymentHistory: row.payment_history ? JSON.parse(String(row.payment_history)) : [],
+          items: row.items_json ? JSON.parse(String(row.items_json)) : undefined,
         });
       }
     } catch (e) {
@@ -1205,6 +1207,27 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching purchase entries from Turso:', e);
+    }
+
+    // Recuperación de renglones de CxP históricos: las entradas de compra
+    // son la fuente completa del detalle y permiten reconstruir facturas
+    // creadas antes de existir items_json en accounts_payable.
+    if (purchaseEntries.length > 0 && payables.some((p) => !p.items?.length)) {
+      const byInvoice = new Map<string, PurchaseEntry>();
+      for (const entry of purchaseEntries) {
+        if (entry.invoiceNumber) byInvoice.set(entry.invoiceNumber.trim(), entry);
+      }
+      for (const payable of payables) {
+        if (payable.items?.length) continue;
+        const entry = byInvoice.get((payable.invoiceNumber || '').trim());
+        if (!entry?.items?.length) continue;
+        payable.items = entry.items.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPriceUSD: item.realCostUSD,
+          subtotalUSD: item.subtotalUSD,
+        }));
+      }
     }
 
     // 12. Users
@@ -1721,8 +1744,8 @@ class TursoService {
         INSERT OR REPLACE INTO accounts_payable (
           id, supplier_id, supplier_name, invoice_number, description,
           total_amount_usd, amount_paid_usd, balance_usd, issued_date, due_date,
-          status, created_at, payment_history
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          status, created_at, payment_history, items_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         p.id,
@@ -1738,6 +1761,7 @@ class TursoService {
         p.status,
         new Date().toISOString(),
         JSON.stringify(p.paymentHistory || []),
+        JSON.stringify(p.items || []),
       ],
     });
   }
