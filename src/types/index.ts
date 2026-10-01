@@ -361,6 +361,8 @@ export interface Order {
   approvedAt?: string;
   /** Caja/terminal POS que originó la venta; permite arqueo exacto multi-caja. */
   cashSessionId?: string;
+  /** Terminal POS que originó la operación; vacío para pedidos online. */
+  terminalId?: string;
   documentSeries?: string;
   documentSequence?: number;
   returnNumber?: string;
@@ -403,6 +405,8 @@ export interface Invoice {
   approvedAt?: string;
   /** Sesión de caja POS asociada al documento, cuando aplica. */
   cashSessionId?: string;
+  /** Terminal POS asociada al documento; vacío para pedidos online. */
+  terminalId?: string;
   documentSeries?: string;
   documentSequence?: number;
   returnNumber?: string;
