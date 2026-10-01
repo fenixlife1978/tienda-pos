@@ -20,6 +20,44 @@ import { OrderSuccessModal } from './components/store/OrderSuccessModal';
 import { BusinessSettingsModal } from './components/erp/BusinessSettingsModal';
 import { OfflineIndicator } from './components/common/OfflineIndicator';
 
+
+class ErpRenderBoundary extends React.Component<React.PropsWithChildren, { hasError: boolean; message: string }> {
+  state = { hasError: false, message: '' };
+
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('ERP render error:', error);
+  }
+
+  handleReset = () => {
+    try {
+      sessionStorage.removeItem('omni_erp_active_tab');
+    } catch {}
+    window.location.reload();
+  };
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="flex-1 min-h-[calc(100vh-64px)] bg-slate-100 flex items-center justify-center p-6">
+        <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6">
+          <div className="text-3xl mb-3">⚠️</div>
+          <h2 className="text-lg font-black text-slate-900">No se pudo cargar el panel ERP</h2>
+          <p className="mt-2 text-sm text-slate-600">Se produjo un error al renderizar el módulo administrativo.</p>
+          <pre className="mt-4 max-h-40 overflow-auto rounded-xl bg-slate-950 text-rose-200 p-3 text-xs whitespace-pre-wrap break-words">{this.state.message}</pre>
+          <button type="button" onClick={this.handleReset} className="mt-4 w-full rounded-xl bg-indigo-600 text-white py-2.5 text-sm font-bold">Reintentar ERP</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 const MainLayout: React.FC = () => {
   const {
     mode,
@@ -53,12 +91,12 @@ const MainLayout: React.FC = () => {
 
       {/* Main Routing Architecture */}
       {isAdminActive && mode === 'erp' ? (
-        <>
+        <ErpRenderBoundary>
           <Header />
           <div className="flex-1">
             <ErpDashboard />
           </div>
-        </>
+        </ErpRenderBoundary>
       ) : isAdminActive && mode === 'store' ? (
         <>
           <Header />
