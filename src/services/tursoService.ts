@@ -1458,6 +1458,33 @@ class TursoService {
         new Date().toISOString(),
       ],
     });
+
+    // Confirmación de escritura: una operación exitosa del cliente Turso no se
+    // considera suficiente para el maestro de promociones. Leemos inmediatamente
+    // los campos críticos y abortamos si la fila confirmada no coincide.
+    const verify = await client.execute({
+      sql: `SELECT is_offer, discount_percentage, offer_condition, offer_badge_text,
+                    offer_savings_usd, offer_savings_bs, offer_min_quantity,
+                    promotional_price_usd, offer_start_date, offer_end_date
+             FROM products WHERE id = ?`,
+      args: [p.id],
+    });
+    const row = verify.rows[0];
+    const same = Boolean(row) &&
+      Number(row.is_offer || 0) === (p.isOffer ? 1 : 0) &&
+      Number(row.discount_percentage || 0) === Number(p.discountPercentage || 0) &&
+      (row.offer_condition ?? null) === (p.offerCondition ?? null) &&
+      (row.offer_badge_text ?? null) === (p.offerBadgeText ?? null) &&
+      Number(row.offer_savings_usd ?? 0) === Number(p.offerSavingsUSD ?? 0) &&
+      Number(row.offer_savings_bs ?? 0) === Number(p.offerSavingsBs ?? 0) &&
+      Number(row.offer_min_quantity ?? 0) === Number(p.offerMinQuantity ?? 0) &&
+      Number(row.promotional_price_usd ?? 0) === Number(p.promotionalPriceUSD ?? 0) &&
+      (row.offer_start_date ?? null) === (p.offerStartDate ?? null) &&
+      (row.offer_end_date ?? null) === (p.offerEndDate ?? null);
+
+    if (!same) {
+      throw new Error(`Turso no confirmó la escritura de la oferta para el producto ${p.id}`);
+    }
   }
 
   /**
@@ -1532,6 +1559,13 @@ class TursoService {
       sql: 'DELETE FROM products WHERE id = ?',
       args: [id],
     });
+    const verify = await client.execute({
+      sql: 'SELECT COUNT(*) AS count FROM products WHERE id = ?',
+      args: [id],
+    });
+    if (Number(verify.rows[0]?.count || 0) !== 0) {
+      throw new Error(`Turso no confirmó la eliminación del producto ${id}`);
+    }
   }
 
   public async saveCustomer(c: Customer) {
