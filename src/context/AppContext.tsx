@@ -1896,26 +1896,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     clearCart();
 
-    // Un pedido online NO genera la notificación administrativa hasta que la
-    // misma operación haya sido confirmada por Turso. Antes se notificaba justo
-    // después de encolarlo, por lo que el administrador podía recibir "Nuevo
-    // Pedido" aunque el INSERT hubiese fallado (por ejemplo, por approved_at).
-    if (navigator.onLine && tursoService.isConfigured()) {
-      void offlineSyncService.flushOperationForOrder(newOrder.id).then((result) => {
-        if (result.applied) {
-          pushNotification(
-            'Nuevo Pedido Registrado',
-            `El pedido ${newOrder.orderNumber} por ${totalUSD.toFixed(2)} (${totalBs.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs) está en estado Pendiente.`,
-            'order_status',
-            newOrder.id
-          );
-        } else {
-          console.warn('Pedido no confirmado en Turso; no se genera notificación administrativa:', result.error);
-        }
-      }).catch((error) => {
-        console.warn('No se pudo confirmar el pedido en Turso; no se genera notificación:', error);
-      });
-    }
+    // La confirmación del pedido online la hace exclusivamente CheckoutModal.
+    // Aquí NO enviamos ni notificamos: evitar dos flush concurrentes sobre la
+    // misma operación es crítico para que Turso sea la única fuente de verdad.
 
     return { order: newOrder, invoice: newInvoice };
   };
