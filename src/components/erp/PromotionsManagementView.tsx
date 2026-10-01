@@ -47,7 +47,7 @@ export const PromotionsManagementView: React.FC = () => {
     settings,
     triggerPushNotification,
     setStoreTab,
-    setIsAdminActive,
+    setMode,
   } = useApp();
 
   // Active view tab
@@ -454,9 +454,10 @@ export const PromotionsManagementView: React.FC = () => {
           <button
             type="button"
             onClick={() => {
-              // El muro de ofertas forma parte del modo tienda, pero el administrador
-              // debe poder consultarlo sin cerrar su sesión ERP.
+              // El muro de ofertas se muestra en modo tienda, pero la sesión administrativa
+              // permanece activa para que el administrador pueda volver al ERP sin autenticarse.
               setStoreTab('offers');
+              setMode('store');
             }}
             className="px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white flex items-center gap-2 transition cursor-pointer backdrop-blur-xs"
           >
