@@ -1609,7 +1609,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let cashSessionId: string | undefined;
     if (orderInput.channel === 'pos') {
       try {
-        const rawSession = localStorage.getItem('omni_cash_session_v2');
+        const rawSession = sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`);
         const localSession = rawSession ? JSON.parse(rawSession) : null;
         if (localSession?.terminalId === terminalIdentity.getId() && localSession?.status === 'open') {
           cashSessionId = String(localSession.id);
