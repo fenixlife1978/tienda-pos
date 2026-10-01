@@ -440,6 +440,60 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    if (body.operation === 'reserveTerminalDocuments') {
+      const terminalId = String(body.terminalId || '').trim();
+      if (!terminalId) return res.status(400).json({ error: 'Terminal no indicado' });
+      const requested = Array.isArray(body.documentTypes) ? body.documentTypes.map((x:any) => String(x || '').trim()).filter(Boolean) : [];
+      const documentTypes = [...new Set(requested)];
+      if (!documentTypes.length) return res.status(400).json({ error: 'No se indicaron documentos' });
+
+      const tx = await client.transaction('write');
+      try {
+        await tx.execute({ sql: `CREATE TABLE IF NOT EXISTS terminal_sequences (
+          terminal_id TEXT NOT NULL,
+          document_type TEXT NOT NULL,
+          last_number INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (terminal_id, document_type)
+        )`, args: [] });
+
+        const result: Record<string, number> = {};
+        const now = new Date().toISOString();
+        for (const type of documentTypes) {
+          const seedTable = type === 'order' ? 'orders' : type === 'invoice' ? 'invoices' : null;
+          if (!seedTable) throw new Error(`Tipo de documento no soportado: ${type}`);
+          const existing = await tx.execute({
+            sql: 'SELECT last_number FROM terminal_sequences WHERE terminal_id = ? AND document_type = ? LIMIT 1',
+            args: [terminalId, type],
+          });
+          if (!existing.rows.length) {
+            const maxRow = await tx.execute({
+              sql: `SELECT COALESCE(MAX(document_sequence), 0) AS n FROM ${seedTable} WHERE terminal_id = ?`,
+              args: [terminalId],
+            });
+            await tx.execute({
+              sql: 'INSERT OR IGNORE INTO terminal_sequences (terminal_id, document_type, last_number, updated_at) VALUES (?, ?, ?, ?)',
+              args: [terminalId, type, Number(maxRow.rows[0]?.n || 0), now],
+            });
+          }
+          await tx.execute({
+            sql: 'UPDATE terminal_sequences SET last_number = last_number + 1, updated_at = ? WHERE terminal_id = ? AND document_type = ?',
+            args: [now, terminalId, type],
+          });
+          const current = await tx.execute({
+            sql: 'SELECT last_number FROM terminal_sequences WHERE terminal_id = ? AND document_type = ? LIMIT 1',
+            args: [terminalId, type],
+          });
+          result[type] = Number(current.rows[0]?.last_number || 0);
+        }
+        await tx.commit();
+        return res.status(200).json({ ok: true, terminalId, sequences: result });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
     if (body.operation === 'inventoryMovement') {
       const tx = await client.transaction('write');
       try {
