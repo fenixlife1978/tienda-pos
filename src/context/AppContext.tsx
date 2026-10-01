@@ -653,7 +653,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     meta?: { productIds: string[]; source: 'order' | 'adjustment' | 'pos'; summary?: string }
   ) => {
     try {
-      localStorage.setItem('omni_products', JSON.stringify(updatedProducts));
+      // Do not publish the complete product master through localStorage.
+      // A stale browser tab could otherwise resurrect an old offer/condition.
       const pulse = {
         productIds: meta?.productIds || [],
         source: meta?.source || 'order',
@@ -687,7 +688,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         broadcastChannel.onmessage = (event) => {
           const data = event.data;
           if (data && data.type === 'REALTIME_STOCK_UPDATE' && Array.isArray(data.products)) {
-            setProducts(data.products);
+            // Cross-tab pulses carry a full snapshot for backwards
+            // compatibility, but only stock is allowed to cross this boundary.
+            // Offer flags, condition text, badges, prices and other master data
+            // must never be overwritten by a stale tab snapshot.
+            setProducts((current) =>
+              current.map((product) => {
+                const incoming = data.products.find((p: Product) => p.id === product.id);
+                return incoming ? { ...product, stock: incoming.stock } : product;
+              })
+            );
             setLastStockUpdateEvent({
               productIds: data.affectedProductIds || [],
               timestamp: data.timestamp || Date.now(),
@@ -702,16 +712,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const handleStorageEvent = (e: StorageEvent) => {
-      if (e.key === 'omni_products' && e.newValue) {
-        try {
-          const parsedProducts: Product[] = JSON.parse(e.newValue);
-          if (Array.isArray(parsedProducts)) {
-            setProducts(parsedProducts);
-          }
-        } catch (err) {
-          console.error('Error parsing synced products from storage:', err);
-        }
-      }
+      // Turso is the source of truth for product master data. Never replace the
+      // current product objects from a full localStorage snapshot because another
+      // tab can legitimately hold an older offer/condition state.
       if (e.key === 'omni_stock_pulse' && e.newValue) {
         try {
           const pulse = JSON.parse(e.newValue);
@@ -2566,16 +2569,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const persistProductAuthoritatively = (product: Product, preserveStock: boolean) => {
-    const write = tursoService.saveProduct(product, { preserveStock });
-    productWriteInFlightRef.current = write
+    // Keep product writes serialized. A second edit must wait for the first
+    // Turso write to finish instead of replacing the in-flight promise.
+    const previousWrite = productWriteInFlightRef.current || Promise.resolve();
+    const write = previousWrite
+      .catch(() => undefined)
+      .then(() => tursoService.saveProduct(product, { preserveStock }));
+    const tracked = write
       .catch((error) => {
         console.error('Error updating product in Turso:', error);
+        throw error;
       })
-      .then(() => undefined)
       .finally(() => {
-        productWriteInFlightRef.current = null;
+        if (productWriteInFlightRef.current === tracked) {
+          productWriteInFlightRef.current = null;
+        }
       });
-    return productWriteInFlightRef.current;
+    productWriteInFlightRef.current = tracked;
+    return tracked;
   };
 
   const updateProduct = (product: Product) => {
@@ -2608,7 +2619,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteProduct = (productId: string) => {
     const updated = products.filter((p) => p.id !== productId);
     setProducts(updated);
-    void tursoService.deleteProduct(productId).catch((error) => console.error('Error deleting product from Turso:', error));
+    const previousWrite = productWriteInFlightRef.current || Promise.resolve();
+    const tracked = previousWrite
+      .catch(() => undefined)
+      .then(() => tursoService.deleteProduct(productId))
+      .catch((error) => {
+        console.error('Error deleting product from Turso:', error);
+        throw error;
+      })
+      .finally(() => {
+        if (productWriteInFlightRef.current === tracked) {
+          productWriteInFlightRef.current = null;
+        }
+      });
+    productWriteInFlightRef.current = tracked;
     broadcastStockUpdate(updated, {
       productIds: [productId],
       source: 'adjustment',
