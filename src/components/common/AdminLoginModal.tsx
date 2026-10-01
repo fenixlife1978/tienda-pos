@@ -64,7 +64,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     const matchedUser = cloudUser;
 
 
-    const terminals = await tursoService.listUserTerminals(matchedUser.id, true);
+    let terminals: Terminal[] = [];
+    try {
+      terminals = await tursoService.listUserTerminals(matchedUser.id, true);
+    } catch (terminalError) {
+      console.error('Error cargando cajas asignadas durante el login:', terminalError);
+      setError('No se pudieron cargar las cajas asignadas. Verifica la conexión e inténtalo nuevamente.');
+      return;
+    }
     setAssignedTerminals(terminals);
     if (terminals.length === 1) {
       terminalIdentity.setId(terminals[0].id);
