@@ -469,6 +469,8 @@ export default async function handler(req: any, res: any) {
       // aprobación financiera en pedidos/facturas.
       await ensureColumn(client, 'orders', 'approved_at', 'TEXT');
       await ensureColumn(client, 'invoices', 'approved_at', 'TEXT');
+      await ensureColumn(client, 'orders', 'terminal_id', 'TEXT');
+      await ensureColumn(client, 'invoices', 'terminal_id', 'TEXT');
       const order = body.order || {};
       const invoice = body.invoice || {};
       const approvedBy = String(body.approvedBy || 'Administrador');
