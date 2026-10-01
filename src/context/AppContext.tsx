@@ -120,7 +120,7 @@ interface AppContextType {
     channel: 'online' | 'pos';
     notes?: string;
     customCreditDays?: number;
-  }) => { order: Order; invoice: Invoice };
+  }) => Promise<{ order: Order; invoice: Invoice }>;
   reorder: (orderId: string) => boolean;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   updatePaymentStatus: (orderId: string, paymentStatus: PaymentStatus) => void;
@@ -1570,7 +1570,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Create Order and Invoice
-  const createOrder = (orderInput: {
+  const createOrder = async (orderInput: {
     customerId: string;
     customerName: string;
     customerRif: string;
@@ -1597,12 +1597,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (orderInput.channel === 'pos' && !terminalIdentity.hasAssignedTerminal()) {
       throw new Error('No hay una caja/terminal asignada a esta sesión. Selecciona una caja autorizada antes de vender.');
     }
-    const orderNum = terminalIdentity.nextOrderNumber();
-    const invoiceNum = terminalIdentity.nextInvoiceNumber();
     const terminalId = terminalIdentity.getId();
     const documentSeries = terminalId;
-    const orderDocumentSequence = Number(orderNum.match(/(\d+)$/)?.[1] || '0');
-    const invoiceDocumentSequence = Number(invoiceNum.match(/(\d+)$/)?.[1] || '0');
+    let orderNum: string;
+    let invoiceNum: string;
+    let orderDocumentSequence = 0;
+    let invoiceDocumentSequence = 0;
+    if (orderInput.channel === 'pos') {
+      const reserved = await tursoService.reserveTerminalDocuments(terminalId, ['order', 'invoice']);
+      orderDocumentSequence = Number(reserved.order || 0);
+      invoiceDocumentSequence = Number(reserved.invoice || 0);
+      if (!orderDocumentSequence || !invoiceDocumentSequence) {
+        throw new Error('Turso no pudo reservar los correlativos de la caja.');
+      }
+      orderNum = `PED-${terminalId}-${String(orderDocumentSequence).padStart(6, '0')}`;
+      invoiceNum = `FACT-${terminalId}-${String(invoiceDocumentSequence).padStart(8, '0')}`;
+    } else {
+      orderNum = terminalIdentity.nextOrderNumber();
+      invoiceNum = terminalIdentity.nextInvoiceNumber();
+      orderDocumentSequence = Number(orderNum.match(/(\d+)$/)?.[1] || '0');
+      invoiceDocumentSequence = Number(invoiceNum.match(/(\d+)$/)?.[1] || '0');
+    }
     const now = new Date();
     // Una venta POS queda vinculada a la sesión de caja exacta que estaba abierta
     // en ese terminal. Las ventas de tienda online no tienen sesión de caja.
