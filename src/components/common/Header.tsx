@@ -138,14 +138,18 @@ export const Header: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
+                if (isAdminActive && mode === 'store') {
+                  setMode('erp');
+                  return;
+                }
                 setIsAdminActive(false);
                 setMode('store');
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 hover:border-rose-300 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 text-xs font-bold transition shadow-2xs cursor-pointer"
-              title="Cerrar panel ERP y volver a la página principal"
+              title={isAdminActive && mode === 'store' ? 'Volver al panel ERP' : 'Cerrar panel ERP y volver a la página principal'}
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Cerrar ERP / Inicio</span>
+              <span className="hidden sm:inline">{isAdminActive && mode === 'store' ? 'Volver al ERP' : 'Cerrar ERP / Inicio'}</span>
             </button>
           </div>
 
