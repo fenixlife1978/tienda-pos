@@ -3586,7 +3586,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         totalAmountUSD: entryData.totalInvoiceUSD, amountPaidUSD: entryData.amountPaidUSD, balanceUSD: entryData.balanceUSD,
         issuedDate: entryData.date, dueDate: entryData.creditDueDate || entryData.date, creditDays: entryData.creditDays || 15,
         status: entryData.balanceUSD <= 0.01 ? 'pagado' : 'al_dia',
-        items: entryData.items.map((it) => ({ productName: it.productName, quantity: it.quantity, unitPriceUSD: it.realCostUSD, subtotalUSD: it.subtotalUSD })),
+        items: entryData.items.map((it) => ({
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPriceUSD: it.realCostUSD,
+          subtotalUSD: it.subtotalUSD,
+        })),
         paymentHistory: initialHistory,
       };
       setPayables((prev) => [newPayable, ...prev]);
