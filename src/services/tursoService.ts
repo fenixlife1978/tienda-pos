@@ -132,7 +132,7 @@ class TursoService {
         // Compatibilidad de esquema: todas las columnas utilizadas por el
         // formulario de Proveedores deben existir también en bases ya creadas.
         // ALTER TABLE es idempotente mediante captura del error "duplicate column".
-        for (const sql of [
+        const compatibilityMigrations = [
           'ALTER TABLE orders ADD COLUMN payment_splits TEXT',
           'ALTER TABLE orders ADD COLUMN approved_at TEXT',
           'ALTER TABLE orders ADD COLUMN estimated_delivery TEXT',
@@ -184,9 +184,31 @@ class TursoService {
           'ALTER TABLE products ADD COLUMN offer_min_quantity REAL',
           'ALTER TABLE products ADD COLUMN promotional_price_usd REAL',
           'ALTER TABLE products ADD COLUMN offer_start_date TEXT',
-          'ALTER TABLE products ADD COLUMN offer_end_date TEXT'
-        ]) {
+          'ALTER TABLE products ADD COLUMN offer_end_date TEXT',
+          'ALTER TABLE accounts_payable ADD COLUMN items_json TEXT'
+        ];
+        for (const sql of compatibilityMigrations) {
           try { await client.execute(sql); } catch {}
+        }
+
+        // El marcador de esquema nunca debe considerarse válido si faltan
+        // columnas críticas de orders. Esto evita el fallo histórico "no such
+        // column: approved_at" en bases antiguas que ya tenían omni_schema_meta.
+        const orderColumns = await client.execute('PRAGMA table_info(orders)');
+        const requiredOrderColumns = [
+          'approved_at', 'payment_splits', 'estimated_delivery', 'credit_due_date',
+          'credit_days', 'notes', 'cash_session_id', 'document_series',
+          'document_sequence', 'return_number', 'void_number', 'is_voided',
+          'voided_at', 'voided_by', 'void_reason', 'is_returned', 'returned_at',
+          'returned_by', 'return_reason'
+        ];
+        const missingOrderColumns = requiredOrderColumns.filter(
+          (column) => !orderColumns.rows.some((row: any) => String(row.name) === column)
+        );
+        if (missingOrderColumns.length > 0) {
+          throw new Error(
+            `Migración de Turso incompleta: faltan columnas en orders: ${missingOrderColumns.join(', ')}`
+          );
         }
 
         // Reparar los triggers de actividad en bases existentes. Es crítico que
@@ -258,7 +280,43 @@ class TursoService {
         AND name IN ('products','system_users','activity_changes','cash_sessions','cash_movements','system_notifications')
     `);
     if (Number(coreSchema.rows[0]?.n || 0) >= 6) {
-      for (const sql of [
+      // Una base antigua puede tener el esquema operativo pero no haber pasado
+      // por el bootstrap original. Antes de crear omni_schema_meta debemos
+      // aplicar las mismas migraciones críticas que usa el fast path.
+      const legacyMigrations = [
+        'ALTER TABLE orders ADD COLUMN payment_splits TEXT',
+        'ALTER TABLE orders ADD COLUMN approved_at TEXT',
+        'ALTER TABLE orders ADD COLUMN estimated_delivery TEXT',
+        'ALTER TABLE orders ADD COLUMN credit_due_date TEXT',
+        'ALTER TABLE orders ADD COLUMN credit_days INTEGER',
+        'ALTER TABLE orders ADD COLUMN notes TEXT',
+        'ALTER TABLE orders ADD COLUMN cash_session_id TEXT',
+        'ALTER TABLE orders ADD COLUMN document_series TEXT',
+        'ALTER TABLE orders ADD COLUMN document_sequence INTEGER',
+        'ALTER TABLE orders ADD COLUMN return_number TEXT',
+        'ALTER TABLE orders ADD COLUMN void_number TEXT',
+        'ALTER TABLE orders ADD COLUMN is_voided INTEGER DEFAULT 0',
+        'ALTER TABLE orders ADD COLUMN voided_at TEXT',
+        'ALTER TABLE orders ADD COLUMN voided_by TEXT',
+        'ALTER TABLE orders ADD COLUMN void_reason TEXT',
+        'ALTER TABLE orders ADD COLUMN is_returned INTEGER DEFAULT 0',
+        'ALTER TABLE orders ADD COLUMN returned_at TEXT',
+        'ALTER TABLE orders ADD COLUMN returned_by TEXT',
+        'ALTER TABLE orders ADD COLUMN return_reason TEXT',
+        'ALTER TABLE invoices ADD COLUMN payment_splits TEXT',
+        'ALTER TABLE invoices ADD COLUMN cash_session_id TEXT',
+        'ALTER TABLE invoices ADD COLUMN document_series TEXT',
+        'ALTER TABLE invoices ADD COLUMN document_sequence INTEGER',
+        'ALTER TABLE invoices ADD COLUMN return_number TEXT',
+        'ALTER TABLE invoices ADD COLUMN void_number TEXT',
+        'ALTER TABLE invoices ADD COLUMN is_voided INTEGER DEFAULT 0',
+        'ALTER TABLE invoices ADD COLUMN voided_at TEXT',
+        'ALTER TABLE invoices ADD COLUMN voided_by TEXT',
+        'ALTER TABLE invoices ADD COLUMN void_reason TEXT',
+        'ALTER TABLE invoices ADD COLUMN is_returned INTEGER DEFAULT 0',
+        'ALTER TABLE invoices ADD COLUMN returned_at TEXT',
+        'ALTER TABLE invoices ADD COLUMN returned_by TEXT',
+        'ALTER TABLE invoices ADD COLUMN return_reason TEXT',
         'ALTER TABLE products ADD COLUMN offer_condition TEXT',
         'ALTER TABLE products ADD COLUMN offer_badge_text TEXT',
         'ALTER TABLE products ADD COLUMN offer_savings_usd REAL',
@@ -268,17 +326,36 @@ class TursoService {
         'ALTER TABLE products ADD COLUMN offer_start_date TEXT',
         'ALTER TABLE products ADD COLUMN offer_end_date TEXT',
         'ALTER TABLE accounts_payable ADD COLUMN items_json TEXT'
-      ]) {
+      ];
+      for (const sql of legacyMigrations) {
         try { await client.execute(sql); } catch {}
       }
+
+      const orderColumns = await client.execute('PRAGMA table_info(orders)');
+      const requiredOrderColumns = [
+        'approved_at', 'payment_splits', 'estimated_delivery', 'credit_due_date',
+        'credit_days', 'notes', 'cash_session_id', 'document_series',
+        'document_sequence', 'return_number', 'void_number', 'is_voided',
+        'voided_at', 'voided_by', 'void_reason', 'is_returned', 'returned_at',
+        'returned_by', 'return_reason'
+      ];
+      const missingOrderColumns = requiredOrderColumns.filter(
+        (column) => !orderColumns.rows.some((row: any) => String(row.name) === column)
+      );
+      if (missingOrderColumns.length > 0) {
+        throw new Error(
+          `Migración de Turso incompleta antes de marcar el esquema: faltan columnas en orders: ${missingOrderColumns.join(', ')}`
+        );
+      }
+
       await client.execute(
         `CREATE TABLE IF NOT EXISTS omni_schema_meta (id TEXT PRIMARY KEY, version TEXT NOT NULL, updated_at TEXT NOT NULL)`
       );
       await client.execute({
         sql: `INSERT OR REPLACE INTO omni_schema_meta (id, version, updated_at) VALUES ('main', ?, ?)`,
-        args: ['realtime-sync-v1', new Date().toISOString()],
+        args: ['realtime-sync-v2', new Date().toISOString()],
       });
-      return { success: true, tables: ['schema_ready'] };
+      return { success: true, tables: ['schema_ready', 'legacy_schema_migrated'] };
     }
 
     const tablesCreated: string[] = [];
