@@ -798,13 +798,14 @@ class TursoService {
       // 14. cash_sessions / cash_movements — caja persistente por terminal
       await client.execute(`
         CREATE TABLE IF NOT EXISTS cash_sessions (
-          id TEXT PRIMARY KEY, terminal_id TEXT NOT NULL, opened_at TEXT NOT NULL,
+          id TEXT PRIMARY KEY, terminal_id TEXT NOT NULL, user_id TEXT,
+          opened_at TEXT NOT NULL,
           opened_by TEXT NOT NULL, opening_bs REAL NOT NULL DEFAULT 0, opening_usd REAL NOT NULL DEFAULT 0,
           closed_at TEXT, closed_by TEXT, closing_bs REAL, closing_usd REAL,
           expected_bs REAL, expected_usd REAL, difference_bs REAL, difference_usd REAL, status TEXT NOT NULL
         );
       `);
-      await client.execute(`CREATE INDEX IF NOT EXISTS idx_cash_sessions_terminal_status ON cash_sessions(terminal_id,status)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_cash_sessions_terminal_user_status ON cash_sessions(terminal_id,user_id,status)`);
       await client.execute(`
         CREATE TABLE IF NOT EXISTS cash_movements (
           id TEXT PRIMARY KEY, session_id TEXT NOT NULL, terminal_id TEXT NOT NULL,
@@ -1970,14 +1971,14 @@ class TursoService {
   }
 
   public async saveCashSession(session: {
-    id: string; terminalId: string; openedAt: string; openedBy: string; openingBs: number; openingUSD: number;
+    id: string; terminalId: string; userId: string; openedAt: string; openedBy: string; openingBs: number; openingUSD: number;
     closedAt?: string; closedBy?: string; closingBs?: number; closingUSD?: number;
     expectedBs?: number; expectedUSD?: number; differenceBs?: number; differenceUSD?: number; status: 'open'|'closed';
   }) {
     const client=this.getClient(); if(!client) return;
     await client.execute({sql:`INSERT OR REPLACE INTO cash_sessions
-      (id,terminal_id,opened_at,opened_by,opening_bs,opening_usd,closed_at,closed_by,closing_bs,closing_usd,expected_bs,expected_usd,difference_bs,difference_usd,status)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,args:[session.id,session.terminalId,session.openedAt,session.openedBy,session.openingBs,session.openingUSD,session.closedAt||null,session.closedBy||null,session.closingBs??null,session.closingUSD??null,session.expectedBs??null,session.expectedUSD??null,session.differenceBs??null,session.differenceUSD??null,session.status]});
+      (id,terminal_id,user_id,opened_at,opened_by,opening_bs,opening_usd,closed_at,closed_by,closing_bs,closing_usd,expected_bs,expected_usd,difference_bs,difference_usd,status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,args:[session.id,session.terminalId,session.userId,session.openedAt,session.openedBy,session.openingBs,session.openingUSD,session.closedAt||null,session.closedBy||null,session.closingBs??null,session.closingUSD??null,session.expectedBs??null,session.expectedUSD??null,session.differenceBs??null,session.differenceUSD??null,session.status]});
   }
   public async saveCashMovement(movement: {
     id:string; sessionId:string; terminalId:string; type:string; currency:'Bs'|'USD'; amount:number; reason:string; createdAt:string; createdBy:string;
@@ -1986,9 +1987,9 @@ class TursoService {
     await client.execute({sql:`INSERT OR REPLACE INTO cash_movements
       (id,session_id,terminal_id,type,currency,amount,reason,created_at,created_by) VALUES (?,?,?,?,?,?,?,?,?)`,args:[movement.id,movement.sessionId,movement.terminalId,movement.type,movement.currency,movement.amount,movement.reason,movement.createdAt,movement.createdBy]});
   }
-  public async loadOpenCashSession(terminalId:string) {
+  public async loadOpenCashSession(terminalId:string, userId?: string) {
     const client=this.getClient(); if(!client) return null;
-    const r=await client.execute({sql:'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'open\' ORDER BY opened_at DESC LIMIT 1',args:[terminalId]});
+    const r=await client.execute({sql:userId ? 'SELECT * FROM cash_sessions WHERE terminal_id=? AND user_id=? AND status=\'open\' ORDER BY opened_at DESC LIMIT 1' : 'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'open\' ORDER BY opened_at DESC LIMIT 1',args:userId ? [terminalId,userId] : [terminalId]});
     return r.rows[0] || null;
   }
   public async loadCashHistory(terminalId:string, limit=100) {
