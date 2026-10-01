@@ -132,6 +132,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
           message: `El pedido ${order.orderNumber} por ${totalUSD.toFixed(2)} USD está en estado Pendiente.`,
           type: 'order_status',
           relatedOrderId: order.id,
+          // Esta notificación pertenece al panel administrativo y debe
+          // persistir como alerta para todos los dispositivos del equipo.
+          targetRole: 'seller',
         });
       }
 
