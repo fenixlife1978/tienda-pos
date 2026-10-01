@@ -5,7 +5,8 @@ import { tursoService } from '../../services/tursoService';
 import { Boxes, Check, Edit2, Plus, RefreshCw, Save, Users, X } from 'lucide-react';
 
 export const TerminalManagementView: React.FC = () => {
-  const { users } = useApp();
+  const { users, currentUser } = useApp();
+  const canManage = currentUser.role === 'admin' || currentUser.role === 'gerente';
   const [terminals, setTerminals] = useState<Terminal[]>([]);
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
   const [editing, setEditing] = useState<Terminal | null>(null);
@@ -111,9 +112,9 @@ export const TerminalManagementView: React.FC = () => {
           <button onClick={() => void load()} className="px-3 py-2 border rounded-xl text-xs font-bold flex items-center gap-2">
             <RefreshCw className="w-3.5 h-3.5" /> Actualizar
           </button>
-          <button onClick={openNew} className="px-3 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-2">
+          {canManage && <button onClick={openNew} className="px-3 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-2">
             <Plus className="w-3.5 h-3.5" /> Nueva caja
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -141,12 +142,14 @@ export const TerminalManagementView: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">
+                    {canManage && <>
                     <button onClick={() => openEdit(terminal)} className="p-2 rounded-lg border hover:bg-slate-50" title="Editar">
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button onClick={() => void toggleActive(terminal)} className="p-2 rounded-lg border hover:bg-slate-50 text-xs font-bold">
                       {terminal.active ? 'Desactivar' : 'Activar'}
                     </button>
+                    </>}
                   </div>
                 </div>
               ))}
@@ -155,6 +158,7 @@ export const TerminalManagementView: React.FC = () => {
         </div>
 
         <div className="lg:col-span-2 bg-white border rounded-2xl p-5 space-y-4">
+          {!canManage ? <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">Solo Administrador o Gerente puede crear, editar y asignar cajas.</div> : <>
           <div className="flex items-center justify-between">
             <h3 className="font-black text-sm">{editing ? 'Editar caja' : 'Crear caja'}</h3>
             {editing && <button onClick={openNew} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-4 h-4" /></button>}
@@ -191,6 +195,7 @@ export const TerminalManagementView: React.FC = () => {
             {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {saving ? 'Guardando…' : 'Guardar caja y asignaciones'}
           </button>
+          </>}
         </div>
       </div>
     </div>
