@@ -159,37 +159,7 @@ export const CashRegisterView: React.FC = () => {
                   o.createdAt <= (session.closedAt || new Date().toISOString()))
           )
         : [],
-    [orders, session]
-  );
-
-  // Pedidos online pagados/reportados se contabilizan por la FECHA REAL DEL PAGO,
-  // no por la fecha en que administración presionó "Aprobar". Así el pago cae
-  // en el día correcto para ventas, arqueo y corte Z.
-  const getPaymentDate = (order: typeof orders[number]) => {
-    const dates = (order.paymentSplits || [])
-      .map((split) => split.createdAt)
-      .filter((value): value is string => Boolean(value))
-      .sort();
-    return dates[0] || order.createdAt;
-  };
-
-  const approvedOnlineOrders = useMemo(
-    () => {
-      if (!session) return [];
-      const from = new Date(session.openedAt).getTime();
-      const to = new Date(session.closedAt || new Date().toISOString()).getTime();
-      return orders.filter((o) => {
-        if (
-          o.channel !== 'online' ||
-          o.orderStatus === 'cancelado' ||
-          o.isVoided ||
-          !o.approvedAt
-        ) return false;
-        const paymentDate = new Date(getPaymentDate(o)).getTime();
-        return Number.isFinite(paymentDate) && paymentDate >= from && paymentDate <= to;
-      });
-    },
-    [orders, session]
+    [orders, session, terminalId]
   );
 
   const cxcPayments = useMemo(() => {
