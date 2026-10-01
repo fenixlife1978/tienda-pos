@@ -3779,9 +3779,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearAllNotifications = () => {
     setNotifications([]);
     seenNotificationIdsRef.current.clear();
-    // El cursor de realtime puede volver a entregar el historial desde Turso.
-    // Guardamos el instante de limpieza para que este navegador no lo rehidrate.
-    localStorage.setItem('omni_notifications_cleared_at', new Date().toISOString());
+    // La limpieza administrativa es global: se elimina de Turso para que
+    // desaparezca también en las demás pestañas/dispositivos de la cuenta.
+    void tursoService.clearSellerNotifications().catch(async (error) => {
+      console.error('Error limpiando notificaciones administrativas en Turso:', error);
+      try {
+        const data = await tursoService.loadAllData();
+        setNotifications(data.notifications);
+      } catch (reloadError) {
+        console.error('No se pudieron restaurar las notificaciones tras el error:', reloadError);
+      }
+    });
   };
 
   return productionTursoMisconfigured ? (
