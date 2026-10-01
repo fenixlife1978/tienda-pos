@@ -27,7 +27,7 @@ interface CheckoutModalProps {
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { cart, currentCustomer, settings, createOrder, setSelectedInvoiceForModal, setLastSuccessfulOrder } = useApp();
+  const { cart, currentCustomer, settings, createOrder, setSelectedInvoiceForModal, setLastSuccessfulOrder, syncWithTurso, triggerPushNotification } = useApp();
 
   const [name, setName] = useState(currentCustomer?.name || '');
   const [rif, setRif] = useState(currentCustomer?.rif || '');
