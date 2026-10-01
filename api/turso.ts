@@ -745,6 +745,10 @@ export default async function handler(req: any, res: any) {
           sql: "DELETE FROM system_notifications WHERE target_role IN ('seller', 'all') OR target_role IS NULL",
           args: [],
         });
+        await tx.execute({
+          sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('system_notifications', 'seller-notifications', 'clear', ?)",
+          args: [new Date().toISOString()],
+        });
         await tx.commit();
         const verify = await client.execute(
           "SELECT COUNT(*) AS n FROM system_notifications WHERE target_role IN ('seller', 'all') OR target_role IS NULL"
