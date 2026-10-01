@@ -211,13 +211,13 @@ export const OffersWall: React.FC = () => {
                   )}
 
                   {/* Condition callout */}
-                  {product.offerCondition && (
-                    <div className="p-2 rounded-xl bg-rose-50 border border-rose-200/80 text-[11px] text-rose-900 font-medium flex items-center gap-1.5">
-                      <Tag className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                      <span className="font-bold text-rose-700">Condición:</span>
-                      <span className="font-semibold">{product.offerCondition}</span>
-                    </div>
-                  )}
+                  <div className="p-2 rounded-xl bg-rose-50 border border-rose-200/80 text-[11px] text-rose-900 font-medium flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                    <span className="font-bold text-rose-700">Condición:</span>
+                    <span className="font-semibold">
+                      {product.offerCondition || 'A partir de 6 unidades'}
+                    </span>
+                  </div>
 
                   {/* Savings callout badge */}
                   <div className="p-2 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-between text-[11px]">
