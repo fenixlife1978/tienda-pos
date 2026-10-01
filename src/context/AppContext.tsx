@@ -3040,7 +3040,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const terminalId = terminalIdentity.getId();
     let cashSessionId: string | undefined;
     try {
-      const active = JSON.parse(localStorage.getItem('omni_cash_session_v2') || 'null');
+      const active = JSON.parse(sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`) || 'null');
       if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
     } catch {}
 
@@ -3109,7 +3109,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const terminalId = terminalIdentity.getId();
     let cashSessionId: string | undefined;
     try {
-      const active = JSON.parse(localStorage.getItem('omni_cash_session_v2') || 'null');
+      const active = JSON.parse(sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`) || 'null');
       if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
     } catch {}
 
