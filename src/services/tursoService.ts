@@ -134,6 +134,11 @@ class TursoService {
         // ALTER TABLE es idempotente mediante captura del error "duplicate column".
         for (const sql of [
           'ALTER TABLE orders ADD COLUMN payment_splits TEXT',
+          'ALTER TABLE orders ADD COLUMN approved_at TEXT',
+          'ALTER TABLE orders ADD COLUMN estimated_delivery TEXT',
+          'ALTER TABLE orders ADD COLUMN credit_due_date TEXT',
+          'ALTER TABLE orders ADD COLUMN credit_days INTEGER',
+          'ALTER TABLE orders ADD COLUMN notes TEXT',
           'ALTER TABLE orders ADD COLUMN cash_session_id TEXT',
           'ALTER TABLE orders ADD COLUMN document_series TEXT',
           'ALTER TABLE orders ADD COLUMN document_sequence INTEGER',
