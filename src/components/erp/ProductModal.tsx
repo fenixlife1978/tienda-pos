@@ -2171,7 +2171,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       inputMode="decimal"
                       value={contentQuantityStr}
                       onChange={(e) => {
-                        if (isValidDecimalInput(e.target.value)) setContentQuantityStr(e.target.value);
+                        setContentQuantityStr(e.target.value);
                       }}
                       placeholder="1"
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
@@ -2198,7 +2198,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       inputMode="decimal"
                       value={conversionFactorStr}
                       onChange={(e) => {
-                        if (isValidDecimalInput(e.target.value)) setConversionFactorStr(e.target.value);
+                        setConversionFactorStr(e.target.value);
                       }}
                       placeholder="1"
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-indigo-700"
