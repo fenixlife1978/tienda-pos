@@ -755,6 +755,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // otro snapshot. Sin este candado, el polling podía leer el producto anterior
   // unos segundos después de guardar y volver a pintarlo en pantalla.
   const productWriteInFlightRef = useRef<Promise<void> | null>(null);
+  // Generación de escritura de maestro de productos. Impide que un snapshot
+  // iniciado antes de una edición termine después y vuelva a pintar el producto
+  // antiguo cuando la escritura nueva ya fue confirmada en Turso.
+  const productWriteGenerationRef = useRef<number>(0);
 
   const persistCustomerAuthoritatively = (customer: Customer) => {
     const write = tursoService.saveCustomer(customer);
@@ -852,12 +856,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await productWriteInFlightRef.current;
         }
 
+        // Una lectura completa puede haber comenzado antes de una escritura
+        // de producto. Ese snapshot puede ser legítimamente anterior al cambio
+        // recién confirmado en Turso; jamás debe volver a pintar ese estado viejo.
+        const productGenerationAtReadStart = productWriteGenerationRef.current;
         const cloudData = await tursoService.loadAllData();
   
         // Turso es la fuente de verdad cuando está configurado. Incluso una
         // tabla vacía debe reemplazar el snapshot local para impedir que datos
         // antiguos/demo de localStorage reaparezcan en una base nueva o limpia.
-        setProducts(cloudData.products);
+        if (productGenerationAtReadStart === productWriteGenerationRef.current) {
+          setProducts(cloudData.products);
+        }
         setCategories(cloudData.categories);
         setUnits(cloudData.units);
         setCustomers(cloudData.customers);
@@ -2577,6 +2587,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const persistProductAuthoritatively = (product: Product, preserveStock: boolean) => {
+    // Increment before the async write begins so any snapshot already in flight
+    // becomes stale and cannot overwrite this edit when it finishes.
+    productWriteGenerationRef.current += 1;
     // Keep product writes serialized. A second edit must wait for the first
     // Turso write to finish instead of replacing the in-flight promise.
     const previousWrite = productWriteInFlightRef.current || Promise.resolve();
@@ -2625,6 +2638,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteProduct = (productId: string) => {
+    // La eliminación también invalida cualquier snapshot de productos que ya
+    // estuviera siendo leído cuando comenzó esta operación.
+    productWriteGenerationRef.current += 1;
     const updated = products.filter((p) => p.id !== productId);
     setProducts(updated);
     const previousWrite = productWriteInFlightRef.current || Promise.resolve();
