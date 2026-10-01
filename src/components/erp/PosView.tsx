@@ -117,6 +117,17 @@ export const PosView: React.FC = () => {
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || customers[0];
 
+  // Turso puede refrescar la lista de clientes mientras el POS está abierto.
+  // Si el cliente seleccionado deja de existir en ese snapshot, reconciliamos
+  // la selección antes de cobrar para evitar un acceso a selectedCustomer.id
+  // sobre undefined.
+  useEffect(() => {
+    if (customers.length === 0) return;
+    if (!customers.some((customer) => customer.id === selectedCustomerId)) {
+      setSelectedCustomerId(customers[0].id);
+    }
+  }, [customers, selectedCustomerId]);
+
   const categories = useMemo(() => {
     const cats = ['Todos'];
     products.forEach((p) => {
@@ -498,6 +509,13 @@ export const PosView: React.FC = () => {
     if (ticketItems.length === 0) return;
 
     setIsCameraScannerOpen(false);
+
+    if (!selectedCustomer) {
+      alert(customers.length === 0
+        ? 'No hay clientes disponibles para emitir la factura. Registre o sincronice al menos un cliente y vuelva a intentar.'
+        : 'Seleccione un cliente receptor de factura antes de confirmar el cobro.');
+      return;
+    }
 
     if (paymentMethod === 'credito' && !canUseCredit) {
       alert('El cliente no posee suficiente cupo de crédito para esta venta.');
