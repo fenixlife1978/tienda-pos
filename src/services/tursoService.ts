@@ -13,6 +13,8 @@ import {
   SystemSettings,
   User,
   PurchaseEntry,
+  Terminal,
+  TerminalUserAssignment,
 } from '../types';
 import {
   INITIAL_CATEGORIES,
@@ -104,6 +106,28 @@ class TursoService {
     return true;
   }
 
+  private async ensureTerminalSchema(client: TursoClient): Promise<void> {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS terminals (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+    `);
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS terminal_user_assignments (
+        terminal_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        assigned_at TEXT NOT NULL,
+        PRIMARY KEY (terminal_id, user_id)
+      );
+    `);
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_terminal_assignments_user ON terminal_user_assignments(user_id)`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_terminal_assignments_terminal ON terminal_user_assignments(terminal_id)`);
+  }
+
   /**
    * Ejecuta automáticamente todas las sentencias DDL para crear las tablas si no existen.
    */
@@ -112,6 +136,8 @@ class TursoService {
     if (!client) {
       return { success: false, tables: [], error: 'Turso URL no configurada' };
     }
+
+    await this.ensureTerminalSchema(client);
 
     // Fast path: la base ya fue inicializada. En cada recarga no debemos
     // repetir decenas de CREATE/ALTER/DROP/TRIGGER contra Turso porque eso
@@ -232,6 +258,8 @@ class TursoService {
           { table: 'system_users', id: 'NEW.id', oldId: 'OLD.id' },
           { table: 'bcv_history', id: 'NEW.id', oldId: 'OLD.id' },
           { table: 'system_notifications', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'terminals', id: 'NEW.id', oldId: 'OLD.id' },
+          { table: 'terminal_user_assignments', id: "NEW.terminal_id || ':' || NEW.user_id", oldId: "OLD.terminal_id || ':' || OLD.user_id" },
         ];
         try {
           for (const { table, id, oldId } of activityDefinitions) {
@@ -1862,6 +1890,79 @@ class TursoService {
       sql: `UPDATE sync_operations SET status = 'pending', error = ? WHERE operation_id = ?`,
       args: [String(error instanceof Error ? error.message : error), operationId],
     });
+  }
+
+  public async listTerminals(activeOnly = false): Promise<Terminal[]> {
+    const client = this.getClient(); if (!client) return [];
+    const r = await client.execute({
+      sql: activeOnly ? 'SELECT * FROM terminals WHERE active = 1 ORDER BY code ASC' : 'SELECT * FROM terminals ORDER BY code ASC',
+      args: [],
+    });
+    return r.rows.map((row: any) => ({
+      id: String(row.id), code: String(row.code), name: String(row.name),
+      active: Boolean(row.active), createdAt: String(row.created_at),
+    }));
+  }
+
+  public async createTerminal(input: { code: string; name: string }): Promise<Terminal> {
+    const client = this.getClient(); if (!client) throw new Error('Cliente Turso no configurado');
+    const id = `terminal-${crypto.randomUUID()}`;
+    const code = input.code.trim().toUpperCase();
+    const name = input.name.trim();
+    if (!code || !name) throw new Error('Código y nombre de caja son obligatorios.');
+    const createdAt = new Date().toISOString();
+    await client.execute({
+      sql: 'INSERT INTO terminals (id, code, name, active, created_at) VALUES (?, ?, ?, 1, ?)',
+      args: [id, code, name, createdAt],
+    });
+    return { id, code, name, active: true, createdAt };
+  }
+
+  public async updateTerminal(terminal: Terminal): Promise<void> {
+    const client = this.getClient(); if (!client) return;
+    await client.execute({
+      sql: 'UPDATE terminals SET code = ?, name = ?, active = ? WHERE id = ?',
+      args: [terminal.code.trim().toUpperCase(), terminal.name.trim(), terminal.active ? 1 : 0, terminal.id],
+    });
+  }
+
+  public async listUserTerminals(userId: string, activeOnly = true): Promise<Terminal[]> {
+    const client = this.getClient(); if (!client) return [];
+    const r = await client.execute({
+      sql: `SELECT t.* FROM terminals t
+            INNER JOIN terminal_user_assignments a ON a.terminal_id = t.id
+            WHERE a.user_id = ? ${activeOnly ? 'AND t.active = 1' : ''}
+            ORDER BY t.code ASC`,
+      args: [userId],
+    });
+    return r.rows.map((row: any) => ({
+      id: String(row.id), code: String(row.code), name: String(row.name),
+      active: Boolean(row.active), createdAt: String(row.created_at),
+    }));
+  }
+
+  public async listTerminalAssignments(terminalId?: string): Promise<TerminalUserAssignment[]> {
+    const client = this.getClient(); if (!client) return [];
+    const r = terminalId
+      ? await client.execute({ sql: 'SELECT * FROM terminal_user_assignments WHERE terminal_id = ?', args: [terminalId] })
+      : await client.execute({ sql: 'SELECT * FROM terminal_user_assignments ORDER BY terminal_id, user_id', args: [] });
+    return r.rows.map((row: any) => ({
+      terminalId: String(row.terminal_id),
+      userId: String(row.user_id),
+      assignedAt: String(row.assigned_at),
+    }));
+  }
+
+  public async setTerminalUserAssignments(terminalId: string, userIds: string[]): Promise<void> {
+    const client = this.getClient(); if (!client) return;
+    const unique = Array.from(new Set(userIds.map(String).filter(Boolean)));
+    await client.execute({ sql: 'DELETE FROM terminal_user_assignments WHERE terminal_id = ?', args: [terminalId] });
+    for (const userId of unique) {
+      await client.execute({
+        sql: 'INSERT INTO terminal_user_assignments (terminal_id, user_id, assigned_at) VALUES (?, ?, ?)',
+        args: [terminalId, userId, new Date().toISOString()],
+      });
+    }
   }
 
   public async saveCashSession(session: {
