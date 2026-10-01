@@ -31,6 +31,7 @@ export const terminalIdentity = {
   },
   clear(): void { sessionStorage.removeItem(TERMINAL_ID_KEY); },
   hasAssignedTerminal(): boolean { return Boolean(sessionStorage.getItem(TERMINAL_ID_KEY)); },
+  getAssignedId(): string | null { return sessionStorage.getItem(TERMINAL_ID_KEY); },
   nextOrderNumber(): string {
     const terminalId = this.getId();
     return `PED-${terminalId}-${String(nextSequence('order', terminalId)).padStart(6, '0')}`;
