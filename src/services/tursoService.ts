@@ -171,7 +171,15 @@ class TursoService {
           'ALTER TABLE suppliers ADD COLUMN created_at TEXT',
           'ALTER TABLE bcv_history ADD COLUMN effective_date TEXT',
           'ALTER TABLE bcv_history ADD COLUMN source TEXT',
-          'ALTER TABLE bcv_history ADD COLUMN currencies TEXT'
+          'ALTER TABLE bcv_history ADD COLUMN currencies TEXT',
+          'ALTER TABLE products ADD COLUMN offer_condition TEXT',
+          'ALTER TABLE products ADD COLUMN offer_badge_text TEXT',
+          'ALTER TABLE products ADD COLUMN offer_savings_usd REAL',
+          'ALTER TABLE products ADD COLUMN offer_savings_bs REAL',
+          'ALTER TABLE products ADD COLUMN offer_min_quantity REAL',
+          'ALTER TABLE products ADD COLUMN promotional_price_usd REAL',
+          'ALTER TABLE products ADD COLUMN offer_start_date TEXT',
+          'ALTER TABLE products ADD COLUMN offer_end_date TEXT'
         ]) {
           try { await client.execute(sql); } catch {}
         }
@@ -245,6 +253,18 @@ class TursoService {
         AND name IN ('products','system_users','activity_changes','cash_sessions','cash_movements','system_notifications')
     `);
     if (Number(coreSchema.rows[0]?.n || 0) >= 6) {
+      for (const sql of [
+        'ALTER TABLE products ADD COLUMN offer_condition TEXT',
+        'ALTER TABLE products ADD COLUMN offer_badge_text TEXT',
+        'ALTER TABLE products ADD COLUMN offer_savings_usd REAL',
+        'ALTER TABLE products ADD COLUMN offer_savings_bs REAL',
+        'ALTER TABLE products ADD COLUMN offer_min_quantity REAL',
+        'ALTER TABLE products ADD COLUMN promotional_price_usd REAL',
+        'ALTER TABLE products ADD COLUMN offer_start_date TEXT',
+        'ALTER TABLE products ADD COLUMN offer_end_date TEXT'
+      ]) {
+        try { await client.execute(sql); } catch {}
+      }
       await client.execute(
         `CREATE TABLE IF NOT EXISTS omni_schema_meta (id TEXT PRIMARY KEY, version TEXT NOT NULL, updated_at TEXT NOT NULL)`
       );
@@ -307,6 +327,14 @@ class TursoService {
           image TEXT,
           is_offer INTEGER DEFAULT 0,
           discount_percentage REAL DEFAULT 0,
+          offer_condition TEXT,
+          offer_badge_text TEXT,
+          offer_savings_usd REAL,
+          offer_savings_bs REAL,
+          offer_min_quantity REAL,
+          promotional_price_usd REAL,
+          offer_start_date TEXT,
+          offer_end_date TEXT,
           description TEXT,
           applies_iva INTEGER DEFAULT 1,
           alternative_prices TEXT,
@@ -932,6 +960,14 @@ class TursoService {
           image: String(row.image || ''),
           isOffer: Boolean(row.is_offer),
           discountPercentage: row.discount_percentage ? Number(row.discount_percentage) : undefined,
+          offerCondition: row.offer_condition ? String(row.offer_condition) : undefined,
+          offerBadgeText: row.offer_badge_text ? String(row.offer_badge_text) : undefined,
+          offerSavingsUSD: row.offer_savings_usd !== null && row.offer_savings_usd !== undefined ? Number(row.offer_savings_usd) : undefined,
+          offerSavingsBs: row.offer_savings_bs !== null && row.offer_savings_bs !== undefined ? Number(row.offer_savings_bs) : undefined,
+          offerMinQuantity: row.offer_min_quantity !== null && row.offer_min_quantity !== undefined ? Number(row.offer_min_quantity) : undefined,
+          promotionalPriceUSD: row.promotional_price_usd !== null && row.promotional_price_usd !== undefined ? Number(row.promotional_price_usd) : undefined,
+          offerStartDate: row.offer_start_date ? String(row.offer_start_date) : undefined,
+          offerEndDate: row.offer_end_date ? String(row.offer_end_date) : undefined,
           description: row.description ? String(row.description) : undefined,
           appliesIva: row.applies_iva !== undefined && row.applies_iva !== null ? Boolean(row.applies_iva) : true,
           alternativePrices: row.alternative_prices ? JSON.parse(String(row.alternative_prices)) : undefined,
@@ -1341,11 +1377,13 @@ class TursoService {
         INSERT OR REPLACE INTO products (
           id, code, name, category, cost_usd, profit_margin_percent, price_usd,
           stock, min_stock, unit, image, is_offer, discount_percentage,
+          offer_condition, offer_badge_text, offer_savings_usd, offer_savings_bs,
+          offer_min_quantity, promotional_price_usd, offer_start_date, offer_end_date,
           warehouse_stocks, description, applies_iva, alternative_prices, presentations,
           suppliers_info, highest_supplier_cost, is_composite,
           composite_components, composite_virtual_stock, is_weighable,
           price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
       `,
       args: [
         p.id,
@@ -1365,6 +1403,14 @@ class TursoService {
         p.image || '',
         p.isOffer ? 1 : 0,
         p.discountPercentage ?? 0,
+        p.offerCondition ?? null,
+        p.offerBadgeText ?? null,
+        p.offerSavingsUSD ?? null,
+        p.offerSavingsBs ?? null,
+        p.offerMinQuantity ?? null,
+        p.promotionalPriceUSD ?? null,
+        p.offerStartDate ?? null,
+        p.offerEndDate ?? null,
         p.warehouseStocks ? JSON.stringify(p.warehouseStocks) : null,
         p.description || '',
         p.appliesIva === false ? 0 : 1,
