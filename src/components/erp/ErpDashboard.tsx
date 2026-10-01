@@ -80,7 +80,7 @@ export const ErpDashboard: React.FC = () => {
         {activeTab === 'cxp' && <AccountsPayableView />}
         {activeTab === 'reportes' && <FinancialReportsView />}
         {activeTab === 'terminales' && <TerminalManagementView />}
-        {activeTab === 'configuracion' && <SettingsAndUsersView />
+        {activeTab === 'configuracion' && <SettingsAndUsersView />}
       </main>
     </div>
   );
