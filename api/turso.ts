@@ -147,6 +147,135 @@ export default async function handler(req: any, res: any) {
       }
     }
 
+    if (body.operation === 'saveProduct') {
+      const p = body.product || {};
+      const id = String(p.id || '').trim();
+      if (!id) return res.status(400).json({ error: 'Producto sin ID' });
+
+      // Esta es la ruta real de escritura usada por el POS: /api/turso.
+      // Garantizamos aquí las columnas de ofertas para que una base antigua
+      // nunca convierta un guardado en un cambio solo local.
+      const offerColumns = [
+        ['offer_condition', 'TEXT'],
+        ['offer_badge_text', 'TEXT'],
+        ['offer_savings_usd', 'REAL'],
+        ['offer_savings_bs', 'REAL'],
+        ['offer_min_quantity', 'REAL'],
+        ['promotional_price_usd', 'REAL'],
+        ['offer_start_date', 'TEXT'],
+        ['offer_end_date', 'TEXT'],
+      ];
+      const schema = await client.execute('PRAGMA table_info(products)');
+      const existing = new Set(schema.rows.map((r: any) => String(r.name)));
+      for (const [name, type] of offerColumns) {
+        if (!existing.has(name)) {
+          await client.execute(`ALTER TABLE products ADD COLUMN ${name} ${type}`);
+        }
+      }
+
+      const tx = await client.transaction('write');
+      try {
+        const current = await tx.execute({
+          sql: 'SELECT stock, created_at FROM products WHERE id = ? LIMIT 1',
+          args: [id],
+        });
+        const currentRow: any = current.rows[0];
+        const stock = body.preserveStock && currentRow
+          ? Number(currentRow.stock ?? 0)
+          : Number(p.stock ?? 0);
+        const createdAt = currentRow?.created_at
+          ? String(currentRow.created_at)
+          : String(p.createdAt || new Date().toISOString());
+        const now = new Date().toISOString();
+
+        await tx.execute({
+          sql: `
+            INSERT INTO products (
+              id, code, name, category, cost_usd, profit_margin_percent, price_usd,
+              stock, min_stock, unit, image, is_offer, discount_percentage,
+              offer_condition, offer_badge_text, offer_savings_usd, offer_savings_bs,
+              offer_min_quantity, promotional_price_usd, offer_start_date, offer_end_date,
+              warehouse_stocks, description, applies_iva, alternative_prices, presentations,
+              suppliers_info, highest_supplier_cost, is_composite,
+              composite_components, composite_virtual_stock, is_weighable,
+              price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              code=excluded.code, name=excluded.name, category=excluded.category,
+              cost_usd=excluded.cost_usd, profit_margin_percent=excluded.profit_margin_percent,
+              price_usd=excluded.price_usd, stock=excluded.stock, min_stock=excluded.min_stock,
+              unit=excluded.unit, image=excluded.image, is_offer=excluded.is_offer,
+              discount_percentage=excluded.discount_percentage, offer_condition=excluded.offer_condition,
+              offer_badge_text=excluded.offer_badge_text, offer_savings_usd=excluded.offer_savings_usd,
+              offer_savings_bs=excluded.offer_savings_bs, offer_min_quantity=excluded.offer_min_quantity,
+              promotional_price_usd=excluded.promotional_price_usd,
+              offer_start_date=excluded.offer_start_date, offer_end_date=excluded.offer_end_date,
+              warehouse_stocks=excluded.warehouse_stocks, description=excluded.description,
+              applies_iva=excluded.applies_iva, alternative_prices=excluded.alternative_prices,
+              presentations=excluded.presentations, suppliers_info=excluded.suppliers_info,
+              highest_supplier_cost=excluded.highest_supplier_cost, is_composite=excluded.is_composite,
+              composite_components=excluded.composite_components,
+              composite_virtual_stock=excluded.composite_virtual_stock,
+              is_weighable=excluded.is_weighable, price_per_kg_usd=excluded.price_per_kg_usd,
+              is_fractionable=excluded.is_fractionable, fraction_unit=excluded.fraction_unit,
+              updated_at=excluded.updated_at
+          `,
+          args: [
+            id, String(p.code || ''), String(p.name || ''), String(p.category || ''),
+            Number(p.costUSD ?? 0), p.profitMarginPercent ?? null, Number(p.priceUSD ?? 0),
+            stock, Number(p.minStock ?? 0), String(p.unit || ''), String(p.image || ''),
+            p.isOffer ? 1 : 0, Number(p.discountPercentage ?? 0),
+            p.offerCondition ?? null, p.offerBadgeText ?? null,
+            p.offerSavingsUSD ?? null, p.offerSavingsBs ?? null, p.offerMinQuantity ?? null,
+            p.promotionalPriceUSD ?? null, p.offerStartDate ?? null, p.offerEndDate ?? null,
+            p.warehouseStocks ? JSON.stringify(p.warehouseStocks) : null,
+            String(p.description || ''), p.appliesIva === false ? 0 : 1,
+            p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
+            p.presentations ? JSON.stringify(p.presentations) : null,
+            p.suppliersInfo ? JSON.stringify(p.suppliersInfo) : null,
+            p.highestSupplierCost ?? null, p.isComposite ? 1 : 0,
+            p.compositeComponents ? JSON.stringify(p.compositeComponents) : null,
+            p.compositeVirtualStock ?? null, p.isWeighable ? 1 : 0,
+            p.pricePerKgUSD ?? null, p.isFractionable ? 1 : 0, p.fractionUnit ?? null,
+            createdAt, now,
+          ],
+        });
+
+        const verify = await tx.execute({
+          sql: `SELECT id, is_offer, discount_percentage, offer_condition, offer_badge_text,
+                        offer_savings_usd, offer_savings_bs, offer_min_quantity,
+                        promotional_price_usd, offer_start_date, offer_end_date
+                 FROM products WHERE id = ? LIMIT 1`,
+          args: [id],
+        });
+        if (!verify.rows.length) throw new Error('Turso no confirmó la fila del producto dentro de la transacción');
+
+        // El evento se escribe en la misma transacción: ningún cliente puede
+        // ver el cursor avanzar sin que la fila ya esté confirmada.
+        await tx.execute({
+          sql: `INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
+                 VALUES ('products', ?, 'upsert', ?)`,
+          args: [id, now],
+        });
+
+        await tx.commit();
+
+        const persisted = await client.execute({
+          sql: `SELECT id, is_offer, discount_percentage, offer_condition, offer_badge_text,
+                        offer_savings_usd, offer_savings_bs, offer_min_quantity,
+                        promotional_price_usd, offer_start_date, offer_end_date
+                 FROM products WHERE id = ? LIMIT 1`,
+          args: [id],
+        });
+        if (!persisted.rows.length) throw new Error('Turso no encontró el producto después del COMMIT');
+
+        return res.status(200).json({ ok: true, persisted: true, product: persisted.rows[0] });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
     if (body.operation === 'saveSupplier') {
       const s = body.supplier || {};
       const id = String(s.id || '').trim();
