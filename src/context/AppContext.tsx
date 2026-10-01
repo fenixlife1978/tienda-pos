@@ -747,6 +747,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Sin este candado, una lectura iniciada antes de aprobar un cliente podía
   // terminar después del UPDATE y volver a pintar temporalmente el estado pending.
   const customerWriteInFlightRef = useRef<Promise<void> | null>(null);
+  // Las ediciones de productos (incluidas las condiciones de ofertas) deben
+  // terminar en Turso antes de que el cursor de sincronización pueda descargar
+  // otro snapshot. Sin este candado, el polling podía leer el producto anterior
+  // unos segundos después de guardar y volver a pintarlo en pantalla.
+  const productWriteInFlightRef = useRef<Promise<void> | null>(null);
 
   const persistCustomerAuthoritatively = (customer: Customer) => {
     const write = tursoService.saveCustomer(customer);
@@ -839,6 +844,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // luego el siguiente ciclo lee el estado confirmado.
         if (customerWriteInFlightRef.current) {
           await customerWriteInFlightRef.current;
+        }
+        if (productWriteInFlightRef.current) {
+          await productWriteInFlightRef.current;
         }
 
         const cloudData = await tursoService.loadAllData();
@@ -2557,6 +2565,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const persistProductAuthoritatively = (product: Product, preserveStock: boolean) => {
+    const write = tursoService.saveProduct(product, { preserveStock });
+    productWriteInFlightRef.current = write
+      .catch((error) => {
+        console.error('Error updating product in Turso:', error);
+      })
+      .then(() => undefined)
+      .finally(() => {
+        productWriteInFlightRef.current = null;
+      });
+    return productWriteInFlightRef.current;
+  };
+
   const updateProduct = (product: Product) => {
     const previous = products.find((p) => p.id === product.id);
     const stockDelta = previous ? Number((product.stock - previous.stock).toFixed(3)) : 0;
@@ -2570,7 +2591,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // If the product editor changes stock directly, convert that change into
     // an inventory movement instead of syncing the whole stock snapshot.
-    void tursoService.saveProduct(product, { preserveStock: stockDelta !== 0 }).catch((error) => console.error('Error updating product in Turso:', error));
+    void persistProductAuthoritatively(product, stockDelta !== 0);
 
     if (stockDelta !== 0) {
       offlineSyncService.enqueueInventoryMovement({
