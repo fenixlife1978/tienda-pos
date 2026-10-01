@@ -211,6 +211,7 @@ class TursoService {
           'ALTER TABLE products ADD COLUMN promotional_price_usd REAL',
           'ALTER TABLE products ADD COLUMN offer_start_date TEXT',
           'ALTER TABLE products ADD COLUMN offer_end_date TEXT',
+          'ALTER TABLE cash_sessions ADD COLUMN user_id TEXT',
           'ALTER TABLE accounts_payable ADD COLUMN items_json TEXT'
         ];
         for (const sql of compatibilityMigrations) {
