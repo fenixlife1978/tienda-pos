@@ -6,6 +6,7 @@ import { CustomerDashboard } from './components/customer/CustomerDashboard';
 import { CartDrawer } from './components/store/CartDrawer';
 import { CustomerOrdersModal } from './components/store/CustomerOrdersModal';
 import { ErpDashboard } from './components/erp/ErpDashboard';
+import { OffersWall } from './components/store/OffersWall';
 import { InvoiceModal } from './components/common/InvoiceModal';
 import { CustomerAuthModal } from './components/store/CustomerAuthModal';
 import { AdminLoginModal } from './components/common/AdminLoginModal';
@@ -56,6 +57,13 @@ const MainLayout: React.FC = () => {
           <Header />
           <div className="flex-1">
             <ErpDashboard />
+          </div>
+        </>
+      ) : isAdminActive && mode === 'store' ? (
+        <>
+          <Header />
+          <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+            <OffersWall />
           </div>
         </>
       ) : currentCustomer ? (
