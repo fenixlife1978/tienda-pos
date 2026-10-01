@@ -1194,6 +1194,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const data = await response.json();
         if (cancelled || !data?.authenticated || !data?.user) return;
         sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
+        const assigned = await tursoService.listUserTerminals(String(data.user.id), true);
+        const activeTerminal = sessionStorage.getItem('omni_terminal_id_v2');
+        if (activeTerminal && !assigned.some((t) => t.id === activeTerminal)) {
+          terminalIdentity.clear();
+        } else if (!activeTerminal && assigned.length === 1) {
+          terminalIdentity.setId(assigned[0].id);
+        }
         setCurrentUser(data.user);
         setIsAdminActive(true);
         setMode('erp');
@@ -1224,6 +1231,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sessionStorage.removeItem('tienda_pos_tab_session');
       sessionStorage.removeItem('tienda_pos_admin_user');
       sessionStorage.removeItem('omni_erp_active_tab');
+      terminalIdentity.clear();
       setIsAdminActive(false);
       setMode('store');
       setCurrentUser(INITIAL_GENERIC_ADMIN);
@@ -1586,6 +1594,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     notes?: string;
     customCreditDays?: number;
   }) => {
+    if (orderInput.channel === 'pos' && !terminalIdentity.hasAssignedTerminal()) {
+      throw new Error('No hay una caja/terminal asignada a esta sesión. Selecciona una caja autorizada antes de vender.');
+    }
     const orderNum = terminalIdentity.nextOrderNumber();
     const invoiceNum = terminalIdentity.nextInvoiceNumber();
     const terminalId = terminalIdentity.getId();
