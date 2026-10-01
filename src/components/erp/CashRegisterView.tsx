@@ -53,13 +53,9 @@ interface CashMovement {
   createdBy: string;
 }
 
-const SESSION_KEY = 'omni_cash_session_v2';
-const HISTORY_KEY = 'omni_cash_sessions_history_v2';
-const MOVES_KEY = 'omni_cash_moves_v2';
-
-function readJson<T>(key: string, fallback: T): T {
+function readJson<T>(key: string, fallback: T, storage: Storage = localStorage): T {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
@@ -68,16 +64,19 @@ function readJson<T>(key: string, fallback: T): T {
 
 export const CashRegisterView: React.FC = () => {
   const { orders, receivables, currentUser, settings, updateSettings } = useApp();
-  const terminalId = terminalIdentity.getId();
+  const terminalId = terminalIdentity.getAssignedId() || '';
+  const sessionKey = terminalId ? `omni_cash_session_v3:${terminalId}` : '';
+  const historyKey = terminalId ? `omni_cash_sessions_history_v3:${terminalId}` : '';
+  const movesKey = terminalId ? `omni_cash_moves_v3:${terminalId}` : '';
 
   const [session, setSession] = useState<CashSession | null>(() =>
-    readJson<CashSession | null>(SESSION_KEY, null)
+    sessionKey ? readJson<CashSession | null>(sessionKey, null, sessionStorage) : null
   );
   const [history, setHistory] = useState<CashSession[]>(() =>
-    readJson<CashSession[]>(HISTORY_KEY, [])
+    historyKey ? readJson<CashSession[]>(historyKey, []) : []
   );
   const [movements, setMovements] = useState<CashMovement[]>(() =>
-    readJson<CashMovement[]>(MOVES_KEY, [])
+    movesKey ? readJson<CashMovement[]>(movesKey, []) : []
   );
 
   const [openingBs, setOpeningBs] = useState('');
@@ -128,18 +127,19 @@ export const CashRegisterView: React.FC = () => {
 
   const persistSession = (next: CashSession | null) => {
     setSession(next);
-    if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-    else localStorage.removeItem(SESSION_KEY);
+    if (!sessionKey) return;
+    if (next) sessionStorage.setItem(sessionKey, JSON.stringify(next));
+    else sessionStorage.removeItem(sessionKey);
   };
 
   const persistHistory = (next: CashSession[]) => {
     setHistory(next);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(next.slice(0, 100)));
+    if (historyKey) localStorage.setItem(historyKey, JSON.stringify(next.slice(0, 100)));
   };
 
   const persistMovements = (next: CashMovement[]) => {
     setMovements(next);
-    localStorage.setItem(MOVES_KEY, JSON.stringify(next.slice(-500)));
+    if (movesKey) localStorage.setItem(movesKey, JSON.stringify(next.slice(-500)));
   };
 
   const posOrders = useMemo(
@@ -356,6 +356,10 @@ export const CashRegisterView: React.FC = () => {
   const printerMode = settings.printerMode || 'thermal';
 
   const open = () => {
+    if (!terminalId) {
+      alert('Esta sesión no tiene una caja/terminal asignada.');
+      return;
+    }
     if (session) {
       alert('Ya existe una caja abierta en este terminal.');
       return;
@@ -457,8 +461,7 @@ export const CashRegisterView: React.FC = () => {
       movementBs: movementCashBs,
       movementUSD: movementCashUSD,
     };
-    localStorage.setItem('omni_last_cash_report_v2', JSON.stringify(zReport));
-    localStorage.setItem('omni_last_cash_report', JSON.stringify(zReport));
+    localStorage.setItem(`omni_last_cash_report_v3:${terminalId}`, JSON.stringify(zReport));
     persistHistory([closed, ...history]);
     if (tursoService.isConfigured()) tursoService.saveCashSession(closed).catch(console.warn);
     persistSession(null);
@@ -467,7 +470,7 @@ export const CashRegisterView: React.FC = () => {
   };
 
   const buildCashReport = (kind: 'X' | 'Z'): CashReportData | null => {
-    const stored = readJson<CashReportData | null>('omni_last_cash_report_v2', null);
+    const stored = terminalId ? readJson<CashReportData | null>(`omni_last_cash_report_v3:${terminalId}`, null) : null;
     if (!session && kind === 'Z' && stored?.kind === 'Z') return stored;
     const base = session || (kind === 'Z' ? lastClosed : null);
     if (!base) {
@@ -503,8 +506,7 @@ export const CashRegisterView: React.FC = () => {
   const printReport = (kind: 'X' | 'Z') => {
     const report = buildCashReport(kind);
     if (!report) return;
-    localStorage.setItem('omni_last_cash_report_v2', JSON.stringify(report));
-    localStorage.setItem('omni_last_cash_report', JSON.stringify(report));
+    localStorage.setItem(`omni_last_cash_report_v3:${terminalId}`, JSON.stringify(report));
     setCashReportPreview(report);
   };
 
