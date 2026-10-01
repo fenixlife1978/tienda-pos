@@ -149,12 +149,13 @@ export const CashRegisterView: React.FC = () => {
             (o) =>
               o.channel === 'pos' &&
               !(o as any).isVoided &&
-              (!o.terminalId || o.terminalId === terminalId) &&
-              // Las ventas nuevas tienen asociación explícita. El fallback por fecha
+              (o.terminalId === terminalId || o.cashSessionId === session.id || (!o.terminalId && o.documentSeries === terminalId)) &&
+              // Las ventas nuevas tienen asociación explícita. El fallback histórico usa la serie
               // conserva compatibilidad con ventas históricas sin cashSessionId.
               (o.cashSessionId
                 ? o.cashSessionId === session.id && o.customerId !== '__online__'
-                : o.createdAt >= session.openedAt &&
+                : (o.terminalId === terminalId || o.documentSeries === terminalId) &&
+                  o.createdAt >= session.openedAt &&
                   o.createdAt <= (session.closedAt || new Date().toISOString()))
           )
         : [],
