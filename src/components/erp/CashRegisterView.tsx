@@ -149,6 +149,7 @@ export const CashRegisterView: React.FC = () => {
             (o) =>
               o.channel === 'pos' &&
               !(o as any).isVoided &&
+              (!o.terminalId || o.terminalId === terminalId) &&
               // Las ventas nuevas tienen asociación explícita. El fallback por fecha
               // conserva compatibilidad con ventas históricas sin cashSessionId.
               (o.cashSessionId
@@ -258,7 +259,7 @@ export const CashRegisterView: React.FC = () => {
       map[key].amount += amount;
     };
 
-    for (const order of [...posOrders, ...approvedOnlineOrders]) {
+    for (const order of posOrders) {
       if (order.isReturned) continue;
       if (order.paymentSplits?.length) {
         for (const split of order.paymentSplits) {
@@ -352,7 +353,7 @@ export const CashRegisterView: React.FC = () => {
     [session, cashSalesBs, cxcCashSalesBs, movementCashBs, refundCash.bs]
   );
 
-  const totalSalesUSD = [...posOrders, ...approvedOnlineOrders].reduce((sum, order) => sum + order.totalUSD, 0);
+  const totalSalesUSD = posOrders.reduce((sum, order) => sum + order.totalUSD, 0);
   const printerMode = settings.printerMode || 'thermal';
 
   const open = () => {
