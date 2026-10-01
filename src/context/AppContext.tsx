@@ -2578,7 +2578,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const updated = [newProd, ...products];
     setProducts(updated);
-    void tursoService.saveProduct(newProd).catch((error) => console.error('Error saving product to Turso:', error));
+    void tursoService.saveProduct(newProd)
+      .then(() => syncWithTurso(true))
+      .catch((error) => {
+        console.error('Error saving product to Turso:', error);
+        void syncWithTurso(true).catch(() => {});
+      });
     broadcastStockUpdate(updated, {
       productIds: [newProd.id],
       source: 'adjustment',
@@ -2623,7 +2628,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // If the product editor changes stock directly, convert that change into
     // an inventory movement instead of syncing the whole stock snapshot.
-    void persistProductAuthoritatively(product, stockDelta !== 0);
+    void persistProductAuthoritatively(product, stockDelta !== 0)
+      .then(() => syncWithTurso(true))
+      .catch((error) => {
+        console.error('Error confirming product in Turso:', error);
+        void syncWithTurso(true).catch(() => {});
+      });
 
     if (stockDelta !== 0) {
       offlineSyncService.enqueueInventoryMovement({
@@ -2657,6 +2667,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
     productWriteInFlightRef.current = tracked;
+
+    tracked
+      .then(() => syncWithTurso(true))
+      .catch(() => {
+        // Turso remains the source of truth: if deletion failed, rehydrate the
+        // product list from the server instead of leaving the optimistic state.
+        void syncWithTurso(true).catch(() => {});
+      });
+
     broadcastStockUpdate(updated, {
       productIds: [productId],
       source: 'adjustment',
