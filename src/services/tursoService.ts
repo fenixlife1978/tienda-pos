@@ -2006,6 +2006,13 @@ class TursoService {
     return this.request('approveOrderFinancially', { order, invoice, approvedBy });
   }
 
+  public async clearSellerNotifications(): Promise<void> {
+    const response = await this.request('clearSellerNotifications');
+    if (!response?.ok) {
+      throw new Error(String(response?.error || 'Turso no confirmó la limpieza de notificaciones administrativas'));
+    }
+  }
+
   public async saveNotification(n: AppNotification) {
     const client = this.getClient();
     if (!client) return;
