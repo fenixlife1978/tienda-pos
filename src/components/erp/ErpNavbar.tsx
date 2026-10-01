@@ -19,6 +19,7 @@ import {
   Tag,
   WalletCards,
   ArrowRightLeft,
+  MonitorCog,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
@@ -37,6 +38,7 @@ export type ErpTab =
   | 'cxc'
   | 'cxp'
   | 'reportes'
+  | 'terminales'
   | 'configuracion';
 
 interface ErpNavbarProps {
@@ -154,6 +156,12 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       id: 'reportes' as ErpTab,
       label: 'Reportes Financieros',
       icon: BarChart3,
+      badge: null,
+    },
+    {
+      id: 'terminales' as ErpTab,
+      label: 'Cajas / Terminales',
+      icon: MonitorCog,
       badge: null,
     },
     {
