@@ -1651,6 +1651,11 @@ class TursoService {
     await this.request('deleteSupplier', { supplierId });
   }
 
+  public async reserveTerminalDocuments(terminalId: string, documentTypes: string[]): Promise<Record<string, number>> {
+    const data = await this.request('reserveTerminalDocuments', { terminalId, documentTypes });
+    return (data.sequences || {}) as Record<string, number>;
+  }
+
   public async saveOrder(o: Order) {
     const client = this.getClient();
     if (!client) return;
