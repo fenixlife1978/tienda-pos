@@ -1939,6 +1939,10 @@ class TursoService {
 
   public async listUserTerminals(userId: string, activeOnly = true): Promise<Terminal[]> {
     const client = this.getClient(); if (!client) return [];
+    // La sesión puede intentar cargar las cajas antes de que termine el bootstrap
+    // global (o cuando el marcador local ya existía). Garantizamos aquí el
+    // esquema mínimo para que el login nunca dependa del orden de inicialización.
+    await this.ensureTerminalSchema(client);
     const r = await client.execute({
       sql: `SELECT t.* FROM terminals t
             INNER JOIN terminal_user_assignments a ON a.terminal_id = t.id
