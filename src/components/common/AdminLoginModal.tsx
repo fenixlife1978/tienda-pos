@@ -140,7 +140,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
             </div>
           </div>
         ) : (
-
+          <div className="space-y-4">
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -233,6 +233,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
               <LogIn className="w-4 h-4" />
               <span>Ingresar al Sistema</span>
             </button>
+          </div>
           </div>
         )}
         </form>
