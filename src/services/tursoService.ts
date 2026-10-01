@@ -1554,18 +1554,9 @@ class TursoService {
   }
 
   public async deleteProduct(id: string) {
-    const client = this.getClient();
-    if (!client) return;
-    await client.execute({
-      sql: 'DELETE FROM products WHERE id = ?',
-      args: [id],
-    });
-    const verify = await client.execute({
-      sql: 'SELECT COUNT(*) AS count FROM products WHERE id = ?',
-      args: [id],
-    });
-    if (Number(verify.rows[0]?.count || 0) !== 0) {
-      throw new Error(`Turso no confirmó la eliminación del producto ${id}`);
+    const response = await this.request('deleteProduct', { productId: id });
+    if (!response?.persisted) {
+      throw new Error(String(response?.error || 'Turso no confirmó la eliminación del producto'));
     }
   }
 
