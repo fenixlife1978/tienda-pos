@@ -120,6 +120,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
               : 'No se pudo confirmar el pedido en el servidor.'
           );
         }
+
+        // Turso es la única fuente de verdad: después del COMMIT exitoso
+        // rehidratamos el estado antes de declarar enviado el pedido.
+        await syncWithTurso(true);
+
+        // La notificación administrativa ocurre únicamente después de que
+        // Turso confirmó la operación y el estado local fue rehidratado.
+        triggerPushNotification({
+          title: 'Nuevo Pedido Registrado',
+          message: `El pedido ${order.orderNumber} por ${totalUSD.toFixed(2)} USD está en estado Pendiente.`,
+          type: 'order_status',
+          relatedOrderId: order.id,
+        });
       }
 
       setLastSuccessfulOrder(order);
