@@ -2015,9 +2015,10 @@ class TursoService {
 
   public async saveNotification(n: AppNotification) {
     const client = this.getClient();
-    if (!client) return;
+    if (!client) throw new Error('Cliente Turso no configurado');
+    const tx = await client.transaction('write');
     try {
-      await client.execute({
+      await tx.execute({
         sql: `INSERT OR REPLACE INTO system_notifications
           (id, title, message, type, target_role, target_customer_id, related_order_id, read, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -2033,8 +2034,19 @@ class TursoService {
           n.createdAt || new Date().toISOString(),
         ],
       });
+      await tx.execute({
+        sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('system_notifications', ?, 'upsert', ?)",
+        args: [n.id, new Date().toISOString()],
+      });
+      await tx.commit();
+      const verify = await client.execute({
+        sql: 'SELECT id FROM system_notifications WHERE id = ? LIMIT 1',
+        args: [n.id],
+      });
+      if (!verify.rows.length) throw new Error('Turso no confirmó la notificación');
     } catch (e) {
-      console.warn('Error saving notification to Turso:', e);
+      try { await tx.rollback(); } catch {}
+      throw e;
     }
   }
 
