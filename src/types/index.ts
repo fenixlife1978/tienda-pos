@@ -14,6 +14,21 @@ export interface User {
 }
 export type AppUser = User;
 
+
+export interface Terminal {
+  id: string;
+  code: string;
+  name: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface TerminalUserAssignment {
+  terminalId: string;
+  userId: string;
+  assignedAt: string;
+}
+
 export interface CustomerNotificationPreferences {
   orderStatus: boolean;
   promotions: boolean;
