@@ -454,7 +454,8 @@ export const PromotionsManagementView: React.FC = () => {
           <button
             type="button"
             onClick={() => {
-              setIsAdminActive(false);
+              // El muro de ofertas forma parte del modo tienda, pero el administrador
+              // debe poder consultarlo sin cerrar su sesión ERP.
               setStoreTab('offers');
             }}
             className="px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white flex items-center gap-2 transition cursor-pointer backdrop-blur-xs"
