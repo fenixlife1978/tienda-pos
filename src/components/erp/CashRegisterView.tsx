@@ -26,6 +26,7 @@ type CashMovementType = 'ingreso' | 'egreso' | 'retiro' | 'deposito';
 interface CashSession {
   id: string;
   terminalId: string;
+  userId: string;
   openedAt: string;
   openedBy: string;
   openingBs: number;
@@ -95,20 +96,20 @@ export const CashRegisterView: React.FC = () => {
     const hydrate = async () => {
       try {
         const [remoteSession, remoteHistory, remoteMovements] = await Promise.all([
-          tursoService.loadOpenCashSession(terminalId),
+          tursoService.loadOpenCashSession(terminalId, currentUser.id),
           tursoService.loadCashHistory(terminalId),
           tursoService.loadCashMovements(terminalId),
         ]);
         if (cancelled) return;
         if (remoteSession) {
           persistSession({
-            id:String(remoteSession.id), terminalId:String(remoteSession.terminal_id), openedAt:String(remoteSession.opened_at),
+            id:String(remoteSession.id), terminalId:String(remoteSession.terminal_id), userId:String(remoteSession.user_id || currentUser.id), openedAt:String(remoteSession.opened_at),
             openedBy:String(remoteSession.opened_by), openingBs:Number(remoteSession.opening_bs||0), openingUSD:Number(remoteSession.opening_usd||0),
             status:'open',
           });
         }
         if (remoteHistory.length) persistHistory(remoteHistory.map((r:any)=>({
-          id:String(r.id),terminalId:String(r.terminal_id),openedAt:String(r.opened_at),openedBy:String(r.opened_by),
+          id:String(r.id),terminalId:String(r.terminal_id),userId:String(r.user_id || ''),openedAt:String(r.opened_at),openedBy:String(r.opened_by),
           openingBs:Number(r.opening_bs||0),openingUSD:Number(r.opening_usd||0),closedAt:r.closed_at||undefined,closedBy:r.closed_by||undefined,
           closingBs:r.closing_bs==null?undefined:Number(r.closing_bs),closingUSD:r.closing_usd==null?undefined:Number(r.closing_usd),
           expectedBs:r.expected_bs==null?undefined:Number(r.expected_bs),expectedUSD:r.expected_usd==null?undefined:Number(r.expected_usd),
@@ -341,6 +342,7 @@ export const CashRegisterView: React.FC = () => {
       id: crypto.randomUUID(),
       terminalId,
       openedAt: new Date().toISOString(),
+      userId: currentUser.id,
       openedBy: currentUser.name || 'Usuario',
       openingBs: Number(openingBs) || 0,
       openingUSD: Number(openingUSD) || 0,
