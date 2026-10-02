@@ -1070,6 +1070,7 @@ class TursoService {
           profitMarginPercent: row.profit_margin_percent ? Number(row.profit_margin_percent) : undefined,
           priceUSD: Number(row.price_usd),
           stock: Number(row.stock),
+          reservedStock: Number(row.reserved_stock || 0),
           minStock: Number(row.min_stock),
           unit: String(row.unit),
           warehouseStocks: row.warehouse_stocks ? JSON.parse(String(row.warehouse_stocks)) : undefined,
@@ -1211,6 +1212,10 @@ class TursoService {
           returnedAt: row.returned_at ? String(row.returned_at) : undefined,
           returnedBy: row.returned_by ? String(row.returned_by) : undefined,
           returnReason: row.return_reason ? String(row.return_reason) : undefined,
+          approvedAt: row.approved_at ? String(row.approved_at) : undefined,
+          reservedAt: row.reserved_at ? String(row.reserved_at) : undefined,
+          posRegisteredAt: row.pos_registered_at ? String(row.pos_registered_at) : undefined,
+          posRegisteredBy: row.pos_registered_by ? String(row.pos_registered_by) : undefined,
         });
       }
     } catch (e) {
@@ -1659,13 +1664,17 @@ class TursoService {
   public async saveOrder(o: Order) {
     const client = this.getClient();
     if (!client) return;
+    await client.execute('ALTER TABLE orders ADD COLUMN reserved_at TEXT').catch(() => {});
+    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_at TEXT').catch(() => {});
+    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_by TEXT').catch(() => {});
+    if (!client) return;
     await client.execute({
       sql: `
         INSERT OR REPLACE INTO orders (
           id, order_number, customer_id, customer_name, customer_rif, customer_phone,
           customer_address, items, subtotal_usd, tax_usd, total_usd, total_bs,
           bcv_rate, payment_method, payment_splits, cash_session_id, terminal_id, document_series, document_sequence, return_number, void_number, payment_status, order_status, payment_reference,
-          channel, created_at, approved_at, estimated_delivery, credit_due_date, credit_days, notes,
+          channel, created_at, approved_at, reserved_at, pos_registered_at, pos_registered_by, estimated_delivery, credit_due_date, credit_days, notes,
           is_voided, voided_at, voided_by, void_reason, is_returned, returned_at, returned_by, return_reason
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `,
@@ -1697,6 +1706,9 @@ class TursoService {
         o.channel,
         o.createdAt,
         o.approvedAt || null,
+        o.reservedAt || null,
+        o.posRegisteredAt || null,
+        o.posRegisteredBy || null,
         o.estimatedDelivery || null,
         o.creditDueDate || null,
         o.creditDays ?? null,
@@ -1715,6 +1727,9 @@ class TursoService {
 
   public async saveInvoice(inv: Invoice) {
     const client = this.getClient();
+    if (!client) return;
+    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_at TEXT').catch(() => {});
+    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_by TEXT').catch(() => {});
     if (!client) return;
     await client.execute({
       sql: `
@@ -1939,15 +1954,24 @@ class TursoService {
 
   public async listUserTerminals(userId: string, activeOnly = true): Promise<Terminal[]> {
     const client = this.getClient(); if (!client) return [];
-    // La sesión puede intentar cargar las cajas antes de que termine el bootstrap
-    // global (o cuando el marcador local ya existía). Garantizamos aquí el
-    // esquema mínimo para que el login nunca dependa del orden de inicialización.
     await this.ensureTerminalSchema(client);
+    const user = await client.execute({ sql: 'SELECT id, role FROM system_users WHERE id = ? LIMIT 1', args: [userId] });
+    const role = String(user.rows[0]?.role || '');
+    if (role === 'admin') {
+      await client.execute({
+        sql: "INSERT OR IGNORE INTO terminals (id, code, name, active, created_at) VALUES ('terminal-admin-default', 'CAJA-ADMIN', 'Caja Administrador', 1, ?)",
+        args: [new Date().toISOString()],
+      });
+      await client.execute({
+        sql: "INSERT OR IGNORE INTO terminal_user_assignments (terminal_id, user_id, assigned_at) VALUES ('terminal-admin-default', ?, ?)",
+        args: [userId, new Date().toISOString()],
+      });
+    }
     const r = await client.execute({
-      sql: `SELECT t.* FROM terminals t
+      sql: \`SELECT t.* FROM terminals t
             INNER JOIN terminal_user_assignments a ON a.terminal_id = t.id
-            WHERE a.user_id = ? ${activeOnly ? 'AND t.active = 1' : ''}
-            ORDER BY t.code ASC`,
+            WHERE a.user_id = ? \${activeOnly ? 'AND t.active = 1' : ''}
+            ORDER BY CASE WHEN t.id = 'terminal-admin-default' THEN 0 ELSE 1 END, t.code ASC\`,
       args: [userId],
     });
     return r.rows.map((row: any) => ({
@@ -2118,6 +2142,32 @@ class TursoService {
     return this.request('approveCustomerReceivablePayment', { receivable, paymentId, approvedBy });
   }
 
+  public async reserveOrderInventory(order: Order) {
+    const response = await this.request('reserveOrderInventory', { order });
+    if (!response?.reserved) throw new Error(String(response?.error || 'Turso no confirmó la reserva de inventario'));
+    return response;
+  }
+
+  public async releaseOrderInventory(orderId: string) {
+    const response = await this.request('releaseOrderInventory', { orderId });
+    if (!response?.released) throw new Error(String(response?.error || 'Turso no confirmó la liberación de inventario'));
+    return response;
+  }
+
+  public async registerOnlineOrderInPos(order: Order, invoice: Invoice, terminalId: string, cashSessionId: string, registeredBy: string) {
+    const response = await this.request('registerOnlineOrderInPos', {
+      order, invoice, terminalId, cashSessionId, registeredBy,
+    });
+    if (!response?.registered) throw new Error(String(response?.error || 'Turso no confirmó el registro del pedido en POS'));
+    return response;
+  }
+
+  public async cancelOnlineOrder(orderId: string) {
+    const response = await this.request('cancelOnlineOrder', { orderId });
+    if (!response?.cancelled) throw new Error(String(response?.error || 'Turso no confirmó la cancelación del pedido'));
+    return response;
+  }
+
   public async approveOrderFinancially(order: Order, invoice: Invoice, approvedBy: string) {
     return this.request('approveOrderFinancially', { order, invoice, approvedBy });
   }
@@ -2211,6 +2261,29 @@ class TursoService {
     if (!verified.rows.length) {
       throw new Error(`Turso no confirmó la creación del usuario ${u.name}`);
     }
+    await this.ensureTerminalSchema(client);
+    if (String(u.role) === 'admin') {
+      await client.execute({
+        sql: "INSERT OR IGNORE INTO terminals (id, code, name, active, created_at) VALUES ('terminal-admin-default', 'CAJA-ADMIN', 'Caja Administrador', 1, ?)",
+        args: [new Date().toISOString()],
+      });
+      await client.execute({
+        sql: "INSERT OR IGNORE INTO terminal_user_assignments (terminal_id, user_id, assigned_at) VALUES ('terminal-admin-default', ?, ?)",
+        args: [u.id, new Date().toISOString()],
+      });
+    }
+    if (String(u.role) === 'cajero') {
+      const assigned = await client.execute({ sql: 'SELECT terminal_id FROM terminal_user_assignments WHERE user_id = ? LIMIT 1', args: [u.id] });
+      if (!assigned.rows.length) {
+        const suffix = String(u.id).replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase() || 'CAJERO';
+        const terminalId = 'terminal-cajero-' + suffix.toLowerCase();
+        const code = 'CAJA-' + suffix;
+        const now = new Date().toISOString();
+        await client.execute({ sql: 'INSERT OR IGNORE INTO terminals (id, code, name, active, created_at) VALUES (?, ?, ?, 1, ?)', args: [terminalId, code, 'Caja ' + u.name, now] });
+        await client.execute({ sql: 'INSERT OR IGNORE INTO terminal_user_assignments (terminal_id, user_id, assigned_at) VALUES (?, ?, ?)', args: [terminalId, u.id, now] });
+      }
+    }
+
     return {
       ...u,
       active: Boolean(verified.rows[0].active),
