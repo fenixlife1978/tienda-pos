@@ -1610,6 +1610,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('No hay una caja/terminal asignada a esta sesión. Selecciona una caja autorizada antes de vender.');
     }
     const terminalId = terminalIdentity.getId();
+
+    // Regla fundamental: ninguna venta POS puede comenzar si la caja no está abierta.
+    // Se valida antes de reservar correlativos, tocar inventario o crear documentos.
+    if (orderInput.channel === 'pos') {
+      let cashSessionId = '';
+      try {
+        const rawSession = sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`);
+        const localSession = rawSession ? JSON.parse(rawSession) : null;
+        if (localSession?.terminalId === terminalId && localSession?.status === 'open') {
+          cashSessionId = String(localSession.id);
+        }
+      } catch {}
+      if (!cashSessionId && tursoService.isConfigured() && navigator.onLine) {
+        try {
+          const remoteSession = await tursoService.loadOpenCashSession(terminalId, currentUser.id);
+          if (remoteSession?.id) cashSessionId = String(remoteSession.id);
+        } catch {}
+      }
+      if (!cashSessionId) {
+        throw new Error('Para poder hacer una venta primero debe abrir la caja.');
+      }
+    }
     const documentSeries = terminalId;
     let orderNum: string;
     let invoiceNum: string;
