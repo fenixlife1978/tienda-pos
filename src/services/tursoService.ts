@@ -1736,7 +1736,7 @@ class TursoService {
         INSERT OR REPLACE INTO invoices (
           id, invoice_number, order_id, customer_id, customer_name, customer_rif,
           customer_address, customer_phone, items, subtotal_usd, tax_usd, total_usd,
-          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, terminal_id, document_series, document_sequence, return_number, void_number, payment_status, created_at, approved_at, due_date,
+          total_bs, bcv_rate, payment_method, payment_splits, cash_session_id, terminal_id, document_series, document_sequence, return_number, void_number, payment_status, created_at, approved_at, pos_registered_at, pos_registered_by, due_date,
           is_credit, credit_days, is_voided, voided_at, voided_by, void_reason,
           is_returned, returned_at, returned_by, return_reason
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -1767,6 +1767,8 @@ class TursoService {
         inv.paymentStatus,
         inv.createdAt,
         inv.approvedAt || null,
+        inv.posRegisteredAt || null,
+        inv.posRegisteredBy || null,
         inv.dueDate || null,
         inv.isCredit ? 1 : 0,
         inv.creditDays ?? null,
