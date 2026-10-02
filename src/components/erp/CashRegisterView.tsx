@@ -112,20 +112,6 @@ export const CashRegisterView: React.FC = () => {
     );
   }, [orders, session, terminalId]);
 
-  const calculatePreZ = (values = preZReal) => {
-    let bs = 0, usd = 0;
-    for (const row of arqueoRows) {
-      const raw = String(values[row.method] ?? '').trim().replace(',', '.');
-      if (!raw) continue;
-      const real = Number(raw);
-      if (!Number.isFinite(real)) continue;
-      const diff = real - row.system;
-      if (row.currency === 'Bs') bs += diff;
-      else usd += diff;
-    }
-    return { bs: Number(bs.toFixed(2)), usd: Number(usd.toFixed(2)) };
-  };
-
   const openPreZ = () => {
     if (!session) {
       alert('Para ejecutar el corte Z primero debe abrirse una caja.');
@@ -339,6 +325,20 @@ export const CashRegisterView: React.FC = () => {
       return { ...r, currency, system: Number(system.toFixed(2)) };
     });
   }, [session, sessionAllOrders, cxcPayments, sessionMovements]);
+
+  const calculatePreZ = (values = preZReal) => {
+    let bs = 0, usd = 0;
+    for (const row of arqueoRows) {
+      const raw = String(values[row.method] ?? '').trim().replace(',', '.');
+      if (!raw) continue;
+      const real = Number(raw);
+      if (!Number.isFinite(real)) continue;
+      const diff = real - row.system;
+      if (row.currency === 'Bs') bs += diff;
+      else usd += diff;
+    }
+    return { bs: Number(bs.toFixed(2)), usd: Number(usd.toFixed(2)) };
+  };
 
   const salesByMethod = useMemo(() => {
     const map: Record<string, { method: string; currency: 'Bs' | 'USD'; amount: number }> = {};
