@@ -448,29 +448,123 @@ export const CashRegisterView: React.FC = () => {
       alert(`No hay una sesión de caja abierta para generar el Reporte ${kind}.`);
       return null;
     }
+
+    // X usa la sesión abierta en tiempo real. Z puede invocarse después del cierre;
+    // en ese caso reconstruimos sus cifras desde la sesión cerrada y las ventas
+    // persistidas, sin guardar el reporte en el navegador.
+    if (kind === 'X' || session) {
+      return {
+        kind,
+        terminalId: base.terminalId,
+        generatedAt: new Date().toISOString(),
+        openedAt: base.openedAt,
+        openedBy: base.openedBy,
+        closedAt: kind === 'Z' ? base.closedAt : undefined,
+        closedBy: kind === 'Z' ? base.closedBy : undefined,
+        openingBs: base.openingBs || 0,
+        openingUSD: base.openingUSD || 0,
+        salesUSD: totalSalesUSD,
+        salesByMethod,
+        cxcByMethod,
+        cxcCashSalesBs,
+        cxcCashSalesUSD,
+        expectedBs,
+        expectedUSD,
+        closingBs: kind === 'Z' ? base.closingBs : undefined,
+        closingUSD: kind === 'Z' ? base.closingUSD : undefined,
+        differenceBs: kind === 'Z' ? base.differenceBs : undefined,
+        differenceUSD: kind === 'Z' ? base.differenceUSD : undefined,
+        movementBs: movementCashBs,
+        movementUSD: movementCashUSD,
+      };
+    }
+
+    const reportOrders = orders.filter((o) =>
+      (o.channel === 'pos' || (o.channel === 'online' && !!o.posRegisteredAt)) &&
+      !o.isVoided &&
+      (o.cashSessionId === base.id ||
+        (o.terminalId === base.terminalId &&
+          !o.cashSessionId &&
+          o.createdAt >= base.openedAt &&
+          o.createdAt <= (base.closedAt || new Date().toISOString())))
+    );
+
+    const reportSalesByMethod: Record<string, { method: string; currency: 'Bs' | 'USD'; amount: number }> = {};
+    const reportCurrencyForMethod = (method: string): 'Bs' | 'USD' =>
+      ['efectivo_usd', 'divisas_efectivo', 'zelle', 'transferencia_usd'].includes(method) ? 'USD' : 'Bs';
+    const addReportSale = (method: string, amount: number, currency: 'Bs' | 'USD') => {
+      if (!Number.isFinite(amount) || Math.abs(amount) < 0.005) return;
+      const key = method + '__' + currency;
+      reportSalesByMethod[key] ??= { method, currency, amount: 0 };
+      reportSalesByMethod[key].amount += amount;
+    };
+    let reportCashUSD = 0;
+    let reportCashBs = 0;
+    for (const order of reportOrders) {
+      if (order.isReturned) continue;
+      if (order.paymentSplits?.length) {
+        for (const split of order.paymentSplits) {
+          const currency = reportCurrencyForMethod(split.method);
+          addReportSale(split.method, currency === 'Bs' ? Number(split.amountBs || 0) : Number(split.amountUSD || 0), currency);
+          if (split.method === 'efectivo_bs') reportCashBs += Number(split.amountBs || 0);
+          if (split.method === 'efectivo_usd' || split.method === 'divisas_efectivo') reportCashUSD += Number(split.amountUSD || 0);
+        }
+      } else {
+        const currency = reportCurrencyForMethod(order.paymentMethod);
+        addReportSale(order.paymentMethod, currency === 'Bs' ? Number(order.totalBs || 0) : Number(order.totalUSD || 0), currency);
+        if (order.paymentMethod === 'efectivo_bs') reportCashBs += Number(order.totalBs || 0);
+        if (order.paymentMethod === 'efectivo_usd' || order.paymentMethod === 'divisas_efectivo') reportCashUSD += Number(order.totalUSD || 0);
+      }
+    }
+
+    const reportCxc = receivables
+      .flatMap(rec => (rec.paymentHistory || []).map(p => ({ rec, p })))
+      .filter(({ p }) => p.cashSessionId === base.id);
+    const reportCxcByMethod: Record<string, { method: string; currency: 'Bs' | 'USD'; amount: number }> = {};
+    let reportCxcCashBs = 0;
+    let reportCxcCashUSD = 0;
+    for (const { p } of reportCxc) {
+      if (p.paymentSplits?.length) {
+        for (const split of p.paymentSplits) {
+          const key = split.method + '__' + split.currency;
+          reportCxcByMethod[key] ??= { method: split.method, currency: split.currency, amount: 0 };
+          reportCxcByMethod[key].amount += split.currency === 'USD' ? Number(split.amountUSD || 0) : Number(split.amountBs || 0);
+          if (split.method === 'efectivo_bs' && split.currency === 'Bs') reportCxcCashBs += Number(split.amountBs || 0);
+          if ((split.method === 'efectivo_usd' || split.method === 'divisas_efectivo') && split.currency === 'USD') reportCxcCashUSD += Number(split.amountUSD || 0);
+        }
+      }
+    }
+
+    const reportMovementBs = movements
+      .filter(m => m.sessionId === base.id && m.currency === 'Bs')
+      .reduce((sum, m) => sum + (m.type === 'ingreso' || m.type === 'deposito' ? m.amount : -m.amount), 0);
+    const reportMovementUSD = movements
+      .filter(m => m.sessionId === base.id && m.currency === 'USD')
+      .reduce((sum, m) => sum + (m.type === 'ingreso' || m.type === 'deposito' ? m.amount : -m.amount), 0);
+
     return {
-      kind,
+      kind: 'Z',
       terminalId: base.terminalId,
       generatedAt: new Date().toISOString(),
       openedAt: base.openedAt,
       openedBy: base.openedBy,
-      closedAt: kind === 'Z' ? base.closedAt : undefined,
-      closedBy: kind === 'Z' ? base.closedBy : undefined,
+      closedAt: base.closedAt,
+      closedBy: base.closedBy,
       openingBs: base.openingBs || 0,
       openingUSD: base.openingUSD || 0,
-      salesUSD: totalSalesUSD,
-      salesByMethod,
-      cxcByMethod,
-      cxcCashSalesBs,
-      cxcCashSalesUSD,
-      expectedBs,
-      expectedUSD,
-      closingBs: kind === 'Z' ? base.closingBs : undefined,
-      closingUSD: kind === 'Z' ? base.closingUSD : undefined,
-      differenceBs: kind === 'Z' ? base.differenceBs : undefined,
-      differenceUSD: kind === 'Z' ? base.differenceUSD : undefined,
-      movementBs: movementCashBs,
-      movementUSD: movementCashUSD,
+      salesUSD: reportOrders.reduce((sum, order) => sum + Number(order.totalUSD || 0), 0),
+      salesByMethod: Object.values(reportSalesByMethod).sort((a, b) => a.method.localeCompare(b.method)),
+      cxcByMethod: Object.values(reportCxcByMethod).sort((a, b) => a.method.localeCompare(b.method)),
+      cxcCashSalesBs: Number(reportCxcCashBs.toFixed(2)),
+      cxcCashSalesUSD: Number(reportCxcCashUSD.toFixed(2)),
+      expectedBs: Number(((base.openingBs || 0) + reportCashBs + reportCxcCashBs + reportMovementBs).toFixed(2)),
+      expectedUSD: Number(((base.openingUSD || 0) + reportCashUSD + reportCxcCashUSD + reportMovementUSD).toFixed(2)),
+      closingBs: base.closingBs,
+      closingUSD: base.closingUSD,
+      differenceBs: base.differenceBs,
+      differenceUSD: base.differenceUSD,
+      movementBs: reportMovementBs,
+      movementUSD: reportMovementUSD,
     };
   };
 
