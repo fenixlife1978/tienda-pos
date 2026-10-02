@@ -518,6 +518,306 @@ export default async function handler(req: any, res: any) {
       } catch (e) { try { await tx.rollback(); } catch {} throw e; }
     }
 
+
+    if (body.operation === 'reserveOrderInventory') {
+      const order = body.order || {};
+      if (!order.id || !Array.isArray(order.items)) return res.status(400).json({ error: 'Pedido incompleto para reservar inventario' });
+      const tx = await client.transaction('write');
+      try {
+        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL,
+          product_id TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT 'reserved',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )\`);
+        await tx.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_order_product ON inventory_reservations(order_id, product_id)');
+        await tx.execute('CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status_product ON inventory_reservations(status, product_id)');
+
+        const existingOrder = await tx.execute({ sql: 'SELECT id, order_status, channel FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
+        if (!existingOrder.rows.length) throw new Error('Turso no encontró el pedido antes de reservar inventario.');
+        const already = await tx.execute({
+          sql: "SELECT COUNT(*) AS n FROM inventory_reservations WHERE order_id = ? AND status = 'reserved'",
+          args: [String(order.id)],
+        });
+        if (Number(already.rows[0]?.n || 0) > 0) {
+          await tx.commit();
+          return res.status(200).json({ ok: true, reserved: true, duplicate: true });
+        }
+
+        const demand = new Map<string, number>();
+        for (const item of order.items) {
+          const factor = item.presentationName
+            ? Number((item.selectedPresentation?.factor ?? 1))
+            : (item.saleMode === 'weight' && item.weightKg ? Number(item.weightKg) : 1);
+          const qty = Number(item.quantity || 0) * factor;
+          if (qty > 0) demand.set(String(item.productId), Number(((demand.get(String(item.productId)) || 0) + qty).toFixed(3)));
+        }
+
+        for (const [productId, qty] of demand) {
+          const p = await tx.execute({
+            sql: \`SELECT p.id, p.name, p.stock,
+                    COALESCE((SELECT SUM(r.quantity) FROM inventory_reservations r WHERE r.product_id = p.id AND r.status = 'reserved'), 0) AS reserved
+                  FROM products p WHERE p.id = ? LIMIT 1\`,
+            args: [productId],
+          });
+          if (!p.rows.length) throw new Error('Producto no encontrado para reserva: ' + productId);
+          const row:any = p.rows[0];
+          const available = Number(row.stock || 0) - Number(row.reserved || 0);
+          if (qty > available + 0.000001) {
+            throw new Error(\`Stock disponible insuficiente para \${String(row.name)}. Disponible: \${available.toFixed(3)}, solicitado: \${qty.toFixed(3)}.\`);
+          }
+        }
+
+        const now = new Date().toISOString();
+        for (const [productId, qty] of demand) {
+          await tx.execute({
+            sql: 'INSERT INTO inventory_reservations (id, order_id, product_id, quantity, status, created_at, updated_at) VALUES (?, ?, ?, ?, \\'reserved\\', ?, ?)',
+            args: ['resv-' + String(order.id) + '-' + productId, String(order.id), productId, qty, now, now],
+          });
+        }
+        await tx.execute({
+          sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('inventory_reservations', ?, 'reserve', ?)",
+          args: [String(order.id), now],
+        });
+        await tx.commit();
+        const verify = await client.execute({
+          sql: "SELECT COUNT(*) AS n FROM inventory_reservations WHERE order_id = ? AND status = 'reserved'",
+          args: [String(order.id)],
+        });
+        if (Number(verify.rows[0]?.n || 0) === 0) throw new Error('Turso no confirmó la reserva de inventario.');
+        return res.status(200).json({ ok: true, reserved: true, duplicate: false });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
+    if (body.operation === 'releaseOrderInventory') {
+      const orderId = String(body.orderId || '');
+      if (!orderId) return res.status(400).json({ error: 'Pedido incompleto para liberar inventario' });
+      const tx = await client.transaction('write');
+      try {
+        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+          quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )\`);
+        const now = new Date().toISOString();
+        await tx.execute({
+          sql: "UPDATE inventory_reservations SET status = 'released', updated_at = ? WHERE order_id = ? AND status = 'reserved'",
+          args: [now, orderId],
+        });
+        await tx.execute({
+          sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('inventory_reservations', ?, 'release', ?)",
+          args: [orderId, now],
+        });
+        await tx.commit();
+        return res.status(200).json({ ok: true, released: true });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
+    if (body.operation === 'registerOnlineOrderInPos') {
+      const order = body.order || {};
+      const invoice = body.invoice || {};
+      const terminalId = String(body.terminalId || '');
+      const cashSessionId = String(body.cashSessionId || '');
+      const registeredBy = String(body.registeredBy || 'Usuario POS');
+      if (!order.id || !invoice.id || !terminalId || !cashSessionId) {
+        return res.status(400).json({ error: 'Pedido, factura, caja y sesión son obligatorios para registrar en POS' });
+      }
+
+      await ensureColumn(client, 'orders', 'pos_registered_at', 'TEXT');
+      await ensureColumn(client, 'orders', 'pos_registered_by', 'TEXT');
+      await ensureColumn(client, 'invoices', 'pos_registered_at', 'TEXT');
+      await ensureColumn(client, 'invoices', 'pos_registered_by', 'TEXT');
+
+      const tx = await client.transaction('write');
+      try {
+        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+          quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )\`);
+        await tx.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_order_product ON inventory_reservations(order_id, product_id)');
+        await tx.execute(\`CREATE TABLE IF NOT EXISTS sales_postings (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+          order_number TEXT NOT NULL, customer_id TEXT, channel TEXT NOT NULL,
+          total_usd REAL NOT NULL, total_bs REAL NOT NULL, payment_method TEXT NOT NULL,
+          payment_splits TEXT, is_credit INTEGER NOT NULL DEFAULT 0, cash_session_id TEXT,
+          approved_at TEXT NOT NULL, approved_by TEXT NOT NULL, created_at TEXT NOT NULL
+        )\`);
+        try { await tx.execute('ALTER TABLE sales_postings ADD COLUMN payment_date TEXT'); } catch {}
+        await tx.execute(\`CREATE TABLE IF NOT EXISTS accounting_entries (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+          document_number TEXT NOT NULL, entry_date TEXT NOT NULL, description TEXT NOT NULL,
+          source TEXT NOT NULL, lines TEXT NOT NULL, created_at TEXT NOT NULL
+        )\`);
+        await tx.execute(\`CREATE TABLE IF NOT EXISTS accounts_receivable (
+          id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, invoice_number TEXT NOT NULL,
+          customer_id TEXT NOT NULL, customer_name TEXT NOT NULL, customer_phone TEXT,
+          total_amount_usd REAL NOT NULL, amount_paid_usd REAL NOT NULL, balance_usd REAL NOT NULL,
+          issued_date TEXT NOT NULL, due_date TEXT NOT NULL, credit_days INTEGER NOT NULL,
+          status TEXT NOT NULL, created_at TEXT NOT NULL, is_voided INTEGER NOT NULL DEFAULT 0,
+          voided_at TEXT, void_reason TEXT, payment_history TEXT
+        \`);
+
+        const current = await tx.execute({
+          sql: 'SELECT * FROM orders WHERE id = ? LIMIT 1',
+          args: [String(order.id)],
+        });
+        const currentRow:any = current.rows[0];
+        if (!currentRow) throw new Error('Turso no encontró el pedido para registrarlo en POS.');
+
+        if (currentRow.pos_registered_at) {
+          await tx.commit();
+          return res.status(200).json({ ok: true, registered: true, duplicate: true, posRegisteredAt: String(currentRow.pos_registered_at) });
+        }
+
+        const session = await tx.execute({
+          sql: "SELECT id, terminal_id, status FROM cash_sessions WHERE id = ? AND terminal_id = ? LIMIT 1",
+          args: [cashSessionId, terminalId],
+        });
+        if (!session.rows.length || String(session.rows[0].status) !== 'open') {
+          throw new Error('La sesión de caja seleccionada no está abierta en la terminal indicada.');
+        }
+
+        const demand = new Map<string, number>();
+        for (const item of order.items || []) {
+          const factor = item.presentationName
+            ? Number(item.selectedPresentation?.factor ?? 1)
+            : (item.saleMode === 'weight' && item.weightKg ? Number(item.weightKg) : 1);
+          const qty = Number(item.quantity || 0) * factor;
+          if (qty > 0) demand.set(String(item.productId), Number(((demand.get(String(item.productId)) || 0) + qty).toFixed(3)));
+        }
+
+        for (const [productId, qty] of demand) {
+          const p = await tx.execute({ sql: 'SELECT id, name, stock FROM products WHERE id = ? LIMIT 1', args: [productId] });
+          if (!p.rows.length) throw new Error('Producto no encontrado al registrar POS: ' + productId);
+          const stock = Number(p.rows[0].stock || 0);
+          if (qty > stock + 0.000001) throw new Error(\`El stock físico de \${String(p.rows[0].name)} es insuficiente para completar el pedido. Disponible: \${stock.toFixed(3)}, solicitado: \${qty.toFixed(3)}.\`);
+        }
+
+        const now = new Date().toISOString();
+        for (const [productId, qty] of demand) {
+          const movementId = 'pos-online-' + String(order.id) + '-' + productId;
+          await tx.execute({
+            sql: "INSERT OR IGNORE INTO inventory_movements (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at) VALUES (?, ?, ?, 'sale', ?, ?, ?)",
+            args: [movementId, productId, -qty, 'pos-online-' + String(order.id), terminalId, now],
+          });
+          await tx.execute({
+            sql: 'UPDATE products SET stock = ROUND(stock - ?, 3), updated_at = ? WHERE id = ?',
+            args: [qty, now, productId],
+          });
+          await tx.execute({
+            sql: "UPDATE inventory_reservations SET status = 'consumed', updated_at = ? WHERE order_id = ? AND product_id = ? AND status = 'reserved'",
+            args: [now, String(order.id), productId],
+          });
+        }
+
+        const isCredit = String(order.paymentMethod) === 'credito';
+        const paymentStatus = isCredit ? 'a_credito' : 'pagado';
+        await tx.execute({
+          sql: 'UPDATE orders SET payment_status = ?, terminal_id = ?, cash_session_id = ?, pos_registered_at = ?, pos_registered_by = ? WHERE id = ?',
+          args: [paymentStatus, terminalId, cashSessionId, now, registeredBy, String(order.id)],
+        });
+        await tx.execute({
+          sql: 'UPDATE invoices SET payment_status = ?, terminal_id = ?, cash_session_id = ?, pos_registered_at = ?, pos_registered_by = ? WHERE id = ?',
+          args: [paymentStatus, terminalId, cashSessionId, now, registeredBy, String(invoice.id)],
+        });
+
+        if (isCredit) {
+          const dueDate = String(order.creditDueDate || new Date(Date.now() + Number(order.creditDays || 15) * 86400000).toISOString().split('T')[0]);
+          const recId = 'rec-' + String(invoice.id);
+          await tx.execute({
+            sql: \`INSERT OR REPLACE INTO accounts_receivable
+              (id, invoice_id, invoice_number, customer_id, customer_name, customer_phone, total_amount_usd,
+               amount_paid_usd, balance_usd, issued_date, due_date, credit_days, status, created_at,
+               is_voided, voided_at, void_reason, payment_history)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'al_dia', ?, 0, NULL, NULL, '[]')\`,
+            args: [recId, String(invoice.id), String(invoice.invoiceNumber), String(order.customerId),
+              String(order.customerName), String(order.customerPhone || ''), Number(order.totalUSD || 0),
+              Number(order.totalUSD || 0), now.split('T')[0], dueDate, Number(order.creditDays || 15), now],
+          });
+        }
+
+        const splits = Array.isArray(order.paymentSplits) && order.paymentSplits.length
+          ? order.paymentSplits
+          : [{ method: order.paymentMethod, amountUSD: Number(order.totalUSD || 0), amountBs: Number(order.totalBs || 0) }];
+        const reportedPaymentDate = splits.map((x:any) => String(x.createdAt || '')).filter(Boolean).sort()[0] || String(order.createdAt || now);
+        await tx.execute({
+          sql: \`INSERT OR IGNORE INTO sales_postings
+            (id, order_id, invoice_id, order_number, customer_id, channel, total_usd, total_bs,
+             payment_method, payment_splits, is_credit, cash_session_id, payment_date, approved_at, approved_by, created_at)
+            VALUES (?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
+          args: ['sale-post-' + String(order.id), String(order.id), String(invoice.id), String(order.orderNumber),
+            String(order.customerId || ''), Number(order.totalUSD || 0), Number(order.totalBs || 0),
+            String(order.paymentMethod || invoice.paymentMethod), order.paymentSplits ? JSON.stringify(order.paymentSplits) : null,
+            isCredit ? 1 : 0, cashSessionId, reportedPaymentDate, now, registeredBy, now],
+        });
+
+        const lines = [];
+        if (isCredit) {
+          lines.push({ account: 'CUENTAS POR COBRAR - CLIENTES', debitUSD: Number(order.totalUSD || 0), debitBs: Number(order.totalBs || 0), creditUSD: 0, creditBs: 0, paymentMethod: 'credito' });
+        } else {
+          for (const split of splits) {
+            lines.push({ account: 'CAJA/BANCO - ' + String(split.method || order.paymentMethod), debitUSD: Number(split.amountUSD || 0), debitBs: Number(split.amountBs || 0), creditUSD: 0, creditBs: 0, paymentMethod: String(split.method || order.paymentMethod), reference: split.reference || order.paymentReference || null });
+          }
+        }
+        lines.push({ account: 'INGRESOS POR VENTAS', debitUSD: 0, debitBs: 0, creditUSD: Number(order.subtotalUSD || order.totalUSD || 0), creditBs: Number((Number(order.subtotalUSD || order.totalUSD || 0) * Number(order.bcvRate || 0)).toFixed(2)) });
+        if (Number(order.taxUSD || 0) > 0) lines.push({ account: 'IVA DÉBITO FISCAL', debitUSD: 0, debitBs: 0, creditUSD: Number(order.taxUSD || 0), creditBs: Number((Number(order.taxUSD || 0) * Number(order.bcvRate || 0)).toFixed(2)) });
+
+        await tx.execute({
+          sql: \`INSERT OR IGNORE INTO accounting_entries
+            (id, order_id, invoice_id, document_number, entry_date, description, source, lines, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
+          args: ['asiento-' + String(order.id), String(order.id), String(invoice.id), String(invoice.invoiceNumber || order.orderNumber),
+            reportedPaymentDate, 'Venta registrada en POS ' + String(order.orderNumber), 'online_order_pos_registration', JSON.stringify(lines), now],
+        });
+
+        await tx.execute({
+          sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('orders', ?, 'pos_registration', ?)",
+          args: [String(order.id), now],
+        });
+        await tx.commit();
+        const verify = await client.execute({ sql: 'SELECT pos_registered_at, terminal_id, cash_session_id FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
+        if (!verify.rows.length || !verify.rows[0].pos_registered_at) throw new Error('Turso no confirmó el registro del pedido en POS.');
+        return res.status(200).json({ ok: true, registered: true, duplicate: false, posRegisteredAt: String(verify.rows[0].pos_registered_at) });
+      } catch (e) {
+        try { await tx.rollback(); } catch {}
+        throw e;
+      }
+    }
+
+    if (body.operation === 'cancelOnlineOrder') {
+      const orderId = String(body.orderId || '');
+      if (!orderId) return res.status(400).json({ error: 'Pedido incompleto para cancelar' });
+      await ensureColumn(client, 'orders', 'pos_registered_at', 'TEXT');
+      const tx = await client.transaction('write');
+      try {
+        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+          quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )\`);
+        const row = await tx.execute({ sql: 'SELECT order_status, pos_registered_at FROM orders WHERE id = ? LIMIT 1', args: [orderId] });
+        if (!row.rows.length) throw new Error('Pedido no encontrado para cancelar.');
+        if (row.rows[0].pos_registered_at) throw new Error('El pedido ya fue registrado en POS; no puede rechazarse como reserva.');
+        const now = new Date().toISOString();
+        await tx.execute({ sql: "UPDATE inventory_reservations SET status = 'released', updated_at = ? WHERE order_id = ? AND status = 'reserved'", args: [now, orderId] });
+        await tx.execute({ sql: "UPDATE orders SET order_status = 'cancelado' WHERE id = ?", args: [orderId] });
+        await tx.execute({ sql: "UPDATE invoices SET is_voided = 1, voided_at = ?, void_reason = 'Pedido rechazado antes de POS' WHERE order_id = ?", args: [now, orderId] });
+        await tx.execute({ sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('orders', ?, 'cancel', ?)", args: [orderId, now] });
+        await tx.commit();
+        return res.status(200).json({ ok: true, cancelled: true });
+      } catch (e) { try { await tx.rollback(); } catch {} throw e; }
+    }
+
     if (body.operation === 'approveOrderFinancially') {
       // Compatibilidad con bases Turso creadas antes de la incorporación de
       // aprobación financiera en pedidos/facturas.
