@@ -549,9 +549,17 @@ export default async function handler(req: any, res: any) {
 
         const demand = new Map<string, number>();
         for (const item of order.items) {
-          const factor = item.presentationName
-            ? Number((item.selectedPresentation?.factor ?? 1))
-            : (item.saleMode === 'weight' && item.weightKg ? Number(item.weightKg) : 1);
+          let factor = 1;
+          if (item.saleMode === 'weight' && item.weightKg) {
+            factor = Number(item.weightKg);
+          } else if (item.presentationName) {
+            const pInfo = await tx.execute({ sql: 'SELECT presentations FROM products WHERE id = ? LIMIT 1', args: [String(item.productId)] });
+            try {
+              const presentations = pInfo.rows[0]?.presentations ? JSON.parse(String(pInfo.rows[0].presentations)) : [];
+              const match = Array.isArray(presentations) ? presentations.find((p:any) => String(p.name) === String(item.presentationName)) : null;
+              factor = Number(match?.factor || 1);
+            } catch { factor = 1; }
+          }
           const qty = Number(item.quantity || 0) * factor;
           if (qty > 0) demand.set(String(item.productId), Number(((demand.get(String(item.productId)) || 0) + qty).toFixed(3)));
         }
@@ -690,9 +698,17 @@ export default async function handler(req: any, res: any) {
 
         const demand = new Map<string, number>();
         for (const item of order.items || []) {
-          const factor = item.presentationName
-            ? Number(item.selectedPresentation?.factor ?? 1)
-            : (item.saleMode === 'weight' && item.weightKg ? Number(item.weightKg) : 1);
+          let factor = 1;
+          if (item.saleMode === 'weight' && item.weightKg) {
+            factor = Number(item.weightKg);
+          } else if (item.presentationName) {
+            const pInfo = await tx.execute({ sql: 'SELECT presentations FROM products WHERE id = ? LIMIT 1', args: [String(item.productId)] });
+            try {
+              const presentations = pInfo.rows[0]?.presentations ? JSON.parse(String(pInfo.rows[0].presentations)) : [];
+              const match = Array.isArray(presentations) ? presentations.find((p:any) => String(p.name) === String(item.presentationName)) : null;
+              factor = Number(match?.factor || 1);
+            } catch { factor = 1; }
+          }
           const qty = Number(item.quantity || 0) * factor;
           if (qty > 0) demand.set(String(item.productId), Number(((demand.get(String(item.productId)) || 0) + qty).toFixed(3)));
         }
