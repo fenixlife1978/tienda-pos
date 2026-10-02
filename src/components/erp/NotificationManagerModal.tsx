@@ -63,7 +63,7 @@ export const NotificationManagerModal: React.FC<NotificationManagerModalProps> =
       message: broadcastMessage.trim(),
       type: broadcastType,
       targetRole: 'client',
-      targetCustomerId: broadcastTarget.startsWith('cust-') ? broadcastTarget : undefined,
+      targetCustomerId: broadcastTarget !== 'all' && broadcastTarget !== 'credit' ? broadcastTarget : undefined,
       badge: broadcastBadge.trim() || undefined,
     });
 
