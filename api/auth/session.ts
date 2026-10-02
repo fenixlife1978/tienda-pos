@@ -22,7 +22,10 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const sessionId = getTabSession(req) || getCookie(req, 'tienda_pos_session');
+    // La sesión administrativa es estrictamente por pestaña. Nunca usar la cookie
+    // global como respaldo: otra pestaña (por ejemplo, un cliente) no debe heredar
+    // la sesión ERP de una pestaña administrativa.
+    const sessionId = getTabSession(req);
     if (!sessionId) return res.status(401).json({ authenticated: false });
 
     const client = db();
