@@ -2063,14 +2063,18 @@ class TursoService {
     const r=await client.execute({sql:userId ? 'SELECT * FROM cash_sessions WHERE terminal_id=? AND user_id=? AND status=\'open\' ORDER BY opened_at DESC LIMIT 1' : 'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'open\' ORDER BY opened_at DESC LIMIT 1',args:userId ? [terminalId,userId] : [terminalId]});
     return r.rows[0] || null;
   }
-  public async loadCashHistory(terminalId:string, limit=100) {
+  public async loadCashHistory(terminalId?:string, limit=1000) {
     const client=this.getClient(); if(!client) return [];
-    const r=await client.execute({sql:'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'closed\' ORDER BY closed_at DESC LIMIT ?',args:[terminalId,limit]});
+    const r = terminalId
+      ? await client.execute({sql:'SELECT * FROM cash_sessions WHERE terminal_id=? AND status=\'closed\' ORDER BY closed_at DESC LIMIT ?',args:[terminalId,limit]})
+      : await client.execute({sql:'SELECT * FROM cash_sessions WHERE status=\'closed\' ORDER BY closed_at DESC LIMIT ?',args:[limit]});
     return r.rows;
   }
-  public async loadCashMovements(terminalId:string, limit=500) {
+  public async loadCashMovements(terminalId?:string, limit=5000) {
     const client=this.getClient(); if(!client) return [];
-    const r=await client.execute({sql:'SELECT * FROM cash_movements WHERE terminal_id=? ORDER BY created_at DESC LIMIT ?',args:[terminalId,limit]});
+    const r = terminalId
+      ? await client.execute({sql:'SELECT * FROM cash_movements WHERE terminal_id=? ORDER BY created_at DESC LIMIT ?',args:[terminalId,limit]})
+      : await client.execute({sql:'SELECT * FROM cash_movements ORDER BY created_at DESC LIMIT ?',args:[limit]});
     return r.rows;
   }
 
