@@ -148,7 +148,7 @@ export const CashRegisterView: React.FC = () => {
       session
         ? orders.filter(
             (o) =>
-              o.channel === 'pos' &&
+              (o.channel === 'pos' || (o.channel === 'online' && !!o.posRegisteredAt)) &&
               !(o as any).isVoided &&
               (o.terminalId === terminalId || o.cashSessionId === session.id || (!o.terminalId && o.documentSeries === terminalId)) &&
               // Las ventas nuevas tienen asociación explícita. El fallback histórico usa la serie
@@ -173,6 +173,7 @@ export const CashRegisterView: React.FC = () => {
       const to = new Date(session.closedAt || new Date().toISOString()).getTime();
       return orders.filter((o) =>
         o.channel === 'online' &&
+        !o.cashSessionId &&
         o.orderStatus !== 'cancelado' &&
         !o.isVoided &&
         !!o.approvedAt &&
