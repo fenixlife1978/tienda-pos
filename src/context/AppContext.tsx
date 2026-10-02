@@ -28,6 +28,7 @@ import {
   Supplier,
   SystemSettings,
   User,
+  formatPaymentMethod,
 } from '../types';
 import { playNotificationSound } from '../utils/notificationSound';
 import {
