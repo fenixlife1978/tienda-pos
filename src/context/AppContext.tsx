@@ -412,7 +412,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [settings, setSettings] = useState<SystemSettings>(() => {
-    const saved = localStorage.getItem('omni_settings');
+    const saved = tursoService.isConfigured() ? null : localStorage.getItem('omni_settings');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -444,7 +444,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem('omni_users');
+    const saved = tursoService.isConfigured() ? null : localStorage.getItem('omni_users');
     if (saved) {
       try {
         const parsed: User[] = JSON.parse(saved);
@@ -469,12 +469,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<User>(INITIAL_GENERIC_ADMIN);
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    return safeLocalStorageJson<Customer[]>('omni_customers', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<Customer[]>('omni_customers', []);
   });
 
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(() => {
     const activeId = sessionStorage.getItem('omni_active_customer_id');
-    if (activeId) {
+    if (activeId && !tursoService.isConfigured()) {
       const list = safeLocalStorageJson<Customer[]>('omni_customers', []);
       const found = list.find((c) => c.id === activeId);
       if (found) return found;
@@ -490,7 +490,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentCustomerRef = useRef<Customer | null>(currentCustomer);
   currentCustomerRef.current = currentCustomer;
   const [products, setProducts] = useState<Product[]>(() => {
-    return safeLocalStorageJson<Product[]>('omni_products', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<Product[]>('omni_products', []);
   });
 
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -498,33 +498,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [orders, setOrders] = useState<Order[]>(() => {
-    return safeLocalStorageJson<Order[]>('omni_orders', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<Order[]>('omni_orders', []);
   });
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
-    return safeLocalStorageJson<Invoice[]>('omni_invoices', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<Invoice[]>('omni_invoices', []);
   });
 
   const [receivables, setReceivables] = useState<ReceivableItem[]>(() => {
-    return safeLocalStorageJson<ReceivableItem[]>('omni_receivables', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<ReceivableItem[]>('omni_receivables', []);
   });
 
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
-    return safeLocalStorageJson<Supplier[]>('omni_suppliers', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<Supplier[]>('omni_suppliers', []);
   });
 
   const [payables, setPayables] = useState<PayableItem[]>(() => {
-    return safeLocalStorageJson<PayableItem[]>('omni_payables', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<PayableItem[]>('omni_payables', []);
   });
 
   const [purchaseEntries, setPurchaseEntries] = useState<PurchaseEntry[]>(() => {
-    return safeLocalStorageJson<PurchaseEntry[]>('omni_purchase_entries', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<PurchaseEntry[]>('omni_purchase_entries', []);
   });
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     const activeCustomerId = sessionStorage.getItem('omni_active_customer_id');
     const adminSession = sessionStorage.getItem('tienda_pos_admin_user');
-    const saved = localStorage.getItem('omni_notifications');
+    const saved = tursoService.isConfigured() ? null : localStorage.getItem('omni_notifications');
     if (!saved || (!activeCustomerId && !adminSession)) return [];
     try {
       const parsed = JSON.parse(saved);
@@ -578,16 +578,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Dynamic Categories and Units of Measurement
   const [categories, setCategories] = useState<ProductCategory[]>(() => {
-    return safeLocalStorageJson<ProductCategory[]>('omni_categories', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<ProductCategory[]>('omni_categories', []);
   });
 
   // Automated Credit and Past-Due Invoice Reminders State
   const [automatedReminders, setAutomatedReminders] = useState<AutomatedReminderRecord[]>(() => {
-    return safeLocalStorageJson<AutomatedReminderRecord[]>('omni_automated_reminders', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<AutomatedReminderRecord[]>('omni_automated_reminders', []);
   });
 
   const [units, setUnits] = useState<ProductUnit[]>(() => {
-    return safeLocalStorageJson<ProductUnit[]>('omni_units', []);
+    return tursoService.isConfigured() ? [] : safeLocalStorageJson<ProductUnit[]>('omni_units', []);
   });
 
   // Sync state to localStorage
@@ -885,6 +885,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
           if (syncedCustomer) {
             setCurrentCustomer(syncedCustomer);
+            currentCustomerRef.current = syncedCustomer;
           }
         }
         setSuppliers(cloudData.suppliers);
