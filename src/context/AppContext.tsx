@@ -993,10 +993,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const initTursoOnMount = async () => {
       if (tursoService.isConfigured()) {
-        // Un reinicio desde cero no puede dejar ventas/movimientos offline pendientes,
-    // porque podrían volver a Turso después del borrado y recrear los datos.
-    offlineSyncService.clearAllQueue();
-
+        // Las operaciones POS pendientes son datos transaccionales y deben sobrevivir
+        // a recargas/cierres del navegador hasta que Turso las confirme. La cola solo
+        // se limpia mediante el flujo explícito de reinicio de base de datos.
         // La inicialización del esquema ocurre una sola vez por dispositivo.
         // En recargas posteriores no bloqueamos la interfaz esperando DDL de Turso.
         const schemaReady = localStorage.getItem('omni_turso_schema_ready') === '1';
@@ -1010,6 +1009,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // El snapshot de Turso se carga inmediatamente; no se vuelve a crear
         // tablas ni se espera a que termine un bootstrap en cada F5.
         await syncWithTurso(true);
+        // Antes de habilitar el sincronizador normal, reintentamos las operaciones POS
+        // durables que hayan quedado pendientes. Esto evita que una recarga deje una venta
+        // registrada solo en memoria/localStorage.
+        if (navigator.onLine) {
+          await offlineSyncService.flush().catch((error) => {
+            console.warn('No se pudieron confirmar operaciones POS pendientes al iniciar:', error);
+          });
+        }
         offlineSyncReadyRef.current = true;
       } else {
         offlineSyncReadyRef.current = true;
@@ -1931,6 +1938,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       receivable,
       customer: syncedCustomer,
     });
+
+    // Una venta POS en línea debe quedar confirmada por Turso antes de considerar
+    // terminada la transacción. La cola sigue siendo durable como respaldo para
+    // cortes de conexión, pero nunca se descarta por una recarga.
+    if (orderInput.channel === 'pos' && navigator.onLine && tursoService.isConfigured()) {
+      const syncResult = await offlineSyncService.flushOperationForOrder(newOrder.id);
+      if (!syncResult.applied) {
+        throw new Error(
+          syncResult.error ||
+          'Turso no pudo confirmar la venta POS. La operación quedó pendiente de sincronización y será reintentada.'
+        );
+      }
+    }
+
     clearCart();
 
     // La confirmación del pedido online la hace exclusivamente CheckoutModal.
