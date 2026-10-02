@@ -93,7 +93,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
     setIsSubmitting(true);
 
     try {
-      const { order } = createOrder({
+      const { order } = await createOrder({
         customerId: currentCustomer?.id || 'cust-generic',
         customerName: name || 'Cliente Mostrador',
         customerRif: rif || 'V-00000000',
