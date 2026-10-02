@@ -260,6 +260,11 @@ export const CashRegisterView: React.FC = () => {
     return {cxcCashSalesUSD:Number(usd.toFixed(2)),cxcCashSalesBs:Number(bs.toFixed(2))};
   },[cxcPayments]);
 
+  const sessionMovements = useMemo(
+    () => (session ? movements.filter((m) => m.sessionId === session.id) : []),
+    [movements, session]
+  );
+
   const arqueoRows = useMemo(() => {
     const rows = arqueoMethods.map((method) => ({
       method,
@@ -389,11 +394,6 @@ export const CashRegisterView: React.FC = () => {
 
     return Object.values(map).sort((a, b) => a.method.localeCompare(b.method));
   }, [posOrders, approvedOnlineOrders]);
-
-  const sessionMovements = useMemo(
-    () => (session ? movements.filter((m) => m.sessionId === session.id) : []),
-    [movements, session]
-  );
 
   const { cashSalesUSD, cashSalesBs } = useMemo(() => {
     let usd = 0;
