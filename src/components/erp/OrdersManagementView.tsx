@@ -29,6 +29,8 @@ export const OrdersManagementView: React.FC = () => {
     orders,
     invoices,
     updateOrderStatus,
+    registerOnlineOrderInPos,
+    cancelOnlineOrder,
     updatePaymentStatus,
     processSaleReturn,
     voidSale,
@@ -172,6 +174,7 @@ export const OrdersManagementView: React.FC = () => {
                 { id: 'en_tramite', label: 'En trámite' },
                 { id: 'aprobado', label: 'Aprobado' },
                 { id: 'despachado_facturado', label: 'Despachado' },
+                { id: 'cancelado', label: 'Rechazado' },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -326,6 +329,11 @@ export const OrdersManagementView: React.FC = () => {
                             <CheckCircle2 className="w-3 h-3 text-blue-600" /> Aprobado
                           </span>
                         )}
+                        {order.orderStatus === 'cancelado' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 font-bold text-[10px] border border-rose-200">
+                            <XCircle className="w-3 h-3 text-rose-600" /> Rechazado
+                          </span>
+                        )}
                         {order.orderStatus === 'despachado_facturado' && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] border border-emerald-200">
                             <Truck className="w-3 h-3 text-emerald-600" /> Despachado
@@ -397,14 +405,49 @@ export const OrdersManagementView: React.FC = () => {
                           )}
 
                           {/* Pipeline action buttons */}
-                          {order.orderStatus === 'en_tramite' && (
-                            <button type="button" onClick={() => updateOrderStatus(order.id, 'aprobado')}
-                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                              title="Aprobar pedido y habilitar la factura fiscal para el cliente">
-                              <CheckCircle2 className="w-3 h-3" />
-                              <span>Aprobar</span>
-                            </button>
+                          {order.orderStatus === 'en_tramite' && !order.posRegisteredAt && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void registerOnlineOrderInPos(order.id).catch((error) => alert(error instanceof Error ? error.message : String(error)))}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Registrar el pedido en la caja POS antes de aprobarlo"
+                              >
+                                <CreditCard className="w-3 h-3" />
+                                <span>Enviar a POS</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!window.confirm(`¿Rechazar el pedido ${order.orderNumber}? Se liberará su reserva de inventario.`)) return;
+                                  void cancelOnlineOrder(order.id).catch((error) => alert(error instanceof Error ? error.message : String(error)));
+                                }}
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1"
+                                title="Rechazar pedido y liberar la reserva"
+                              >
+                                <XCircle className="w-3 h-3" />
+                                <span>Rechazar</span>
+                              </button>
+                            </>
                           )}
+
+                          {order.orderStatus === 'en_tramite' && order.posRegisteredAt && (
+                            <>
+                              <span className="px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[10px]">
+                                ✓ Registrado en POS
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void updateOrderStatus(order.id, 'aprobado').catch((error) => alert(error instanceof Error ? error.message : String(error)))}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[10px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Aprobar pedido después de su registro en POS"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>Aprobar</span>
+                              </button>
+                            </>
+                          )}
+
                           {order.orderStatus === 'aprobado' && (
                             <button type="button" onClick={() => {
                               updateOrderStatus(order.id, 'despachado_facturado');
