@@ -551,18 +551,6 @@ export const CashRegisterView: React.FC = () => {
       differenceUSD: diff.usd,
       status: 'closed',
     };
-      ...session,
-      closedAt,
-      closedBy: currentUser.name || 'Usuario',
-      closingBs: countedBs,
-      closingUSD: countedUSD,
-      expectedBs: Number(expectedBs.toFixed(2)),
-      expectedUSD: Number(expectedUSD.toFixed(2)),
-      differenceBs: Number((countedBs - expectedBs).toFixed(2)),
-      differenceUSD: Number((countedUSD - expectedUSD).toFixed(2)),
-      status: 'closed',
-    };
-
     // Z se ejecuta ahora: queda guardado en histórico aunque el reporte no se imprima.
     persistHistory([closed, ...history]);
     if (tursoService.isConfigured()) tursoService.saveCashSession(closed).catch(console.warn);
@@ -781,8 +769,7 @@ export const CashRegisterView: React.FC = () => {
                 <div>Usuario: <b>{session.openedBy}</b></div>
                 <div>Fondo: {formatBs(session.openingBs)} + {formatUSD(session.openingUSD)}</div>
               </div>
-              <input type="number" min="0" step="0.01" placeholder="Conteo final Bs." value={closingBs} onChange={(e) => setClosingBs(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-              <input type="number" min="0" step="0.01" placeholder="Conteo final USD" value={closingUSD} onChange={(e) => setClosingUSD(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+              
               <button onClick={close} className="w-full bg-rose-600 hover:bg-rose-700 text-white rounded-lg py-2 font-bold transition">
                 Cerrar Caja / Arqueo Z
               </button>
