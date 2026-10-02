@@ -64,7 +64,10 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
     setIsCategoryUnitModalOpen,
     setIsBusinessSettingsModalOpen,
     settings,
+    currentUser,
   } = useApp();
+
+  const isCashier = currentUser?.role === 'cajero';
 
   const totalCriticalAlerts =
     pendingOrdersCount + pendingRequestsCount + lowStockCount + overdueReceivablesCount;
@@ -172,12 +175,16 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
     },
   ];
 
+  const visibleTabs = isCashier
+    ? tabs.filter((tab) => ['caja', 'pos', 'pedidos', 'cxc'].includes(tab.id))
+    : tabs;
+
   return (
     <div className="bg-white border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between py-2 gap-2">
           <nav className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto no-scrollbar py-0.5 min-w-0 w-full xl:w-auto">
-            {tabs.map((tab) => {
+            {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
 
@@ -207,6 +214,8 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
 
           {/* Right Action Buttons */}
           <div className="flex items-center gap-2 shrink-0 w-full xl:w-auto justify-end overflow-x-auto no-scrollbar">
+            {!isCashier && (
+            <>
             {/* Tasa BCV Quick Manager */}
             <button
               type="button"
@@ -257,6 +266,8 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
                 </span>
               )}
             </button>
+            </>
+            )}
           </div>
         </div>
       </div>
