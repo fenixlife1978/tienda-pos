@@ -1973,6 +1973,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   };
 
+  const registerOnlineOrderInPos = async (orderId: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    const invoice = invoices.find((inv) => inv.orderId === orderId);
+    if (!order || !invoice) throw new Error('No se encontró el pedido o su factura.');
+    if (order.channel !== 'online') throw new Error('Solo los pedidos de tienda online pasan por este circuito.');
+    if (order.posRegisteredAt) return order;
+
+    const terminalId = terminalIdentity.getAssignedId() || terminalIdentity.getId();
+    if (!terminalId) throw new Error('No hay una caja POS asignada a esta sesión.');
+    let cashSessionId = '';
+    try {
+      const raw = sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`);
+      const localSession = raw ? JSON.parse(raw) : null;
+      if (localSession?.terminalId === terminalId && localSession?.status === 'open') cashSessionId = String(localSession.id);
+    } catch {}
+    if (!cashSessionId) {
+      throw new Error('La caja asignada no tiene una sesión abierta. Abre la caja POS antes de registrar el pedido.');
+    }
+
+    const response = await tursoService.registerOnlineOrderInPos(
+      order,
+      invoice,
+      terminalId,
+      cashSessionId,
+      currentUser.name || 'Usuario POS'
+    );
+    const now = String(response.posRegisteredAt || new Date().toISOString());
+    const updatedOrder: Order = {
+      ...order,
+      cashSessionId,
+      terminalId,
+      paymentStatus: order.paymentMethod === 'credito' ? 'a_credito' : 'pagado',
+      posRegisteredAt: now,
+      posRegisteredBy: currentUser.name || 'Usuario POS',
+    };
+    const updatedInvoice = {
+      ...invoice,
+      cashSessionId,
+      terminalId,
+      paymentStatus: updatedOrder.paymentStatus,
+      posRegisteredAt: now,
+      posRegisteredBy: currentUser.name || 'Usuario POS',
+    };
+    setOrders((prev) => prev.map((o) => o.id === orderId ? updatedOrder : o));
+    setInvoices((prev) => prev.map((inv) => inv.id === invoice.id ? updatedInvoice : inv));
+    await syncWithTurso(true);
+    return updatedOrder;
+  };
+
+  const cancelOnlineOrder = async (orderId: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) throw new Error('Pedido no encontrado.');
+    if (order.posRegisteredAt) throw new Error('El pedido ya fue registrado en POS y no puede rechazarse como reserva.');
+    await tursoService.cancelOnlineOrder(orderId);
+    setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, orderStatus: 'cancelado' } : o));
+    setInvoices((prev) => prev.map((inv) => inv.orderId === orderId ? { ...inv, isVoided: true, voidedAt: new Date().toISOString(), voidReason: 'Pedido rechazado antes de POS' } : inv));
+    await syncWithTurso(true);
+    return true;
+  };
+
   // Update order status with real-time customer push notification
   // Flujo comercial: En trámite -> Aprobado -> Despachado.
   // La factura fiscal solo se libera al cliente desde el estado Aprobado.
@@ -1981,19 +2041,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       en_tramite: '⏳ Pedido En Trámite',
       aprobado: '✅ Pedido Aprobado',
       despachado_facturado: '🚚 Pedido Despachado',
+      cancelado: '❌ Pedido Rechazado',
     };
 
     const statusMessages: Record<OrderStatus, string> = {
       en_tramite: 'Tu pedido fue recibido y está en trámite de revisión.',
       aprobado: '¡Tu pedido fue aprobado por la administración! La factura fiscal ya está disponible.',
       despachado_facturado: '¡Tu pedido fue despachado y entregado! La factura fiscal permanece disponible.',
+      cancelado: 'Tu pedido fue rechazado y la reserva de inventario fue liberada.',
     };
 
     const order = orders.find((o) => o.id === orderId);
     if (!order) return;
+    if (status === 'aprobado' && order.channel === 'online' && !order.posRegisteredAt) {
+      throw new Error('El pedido debe registrarse primero en una caja POS antes de aprobarlo.');
+    }
 
     const relatedInvoice = invoices.find((inv) => inv.orderId === orderId);
-    const isFinancialApproval = status === 'aprobado' && order.orderStatus !== 'aprobado' && order.channel === 'online';
+    const isFinancialApproval = false;
     const approvedAt = isFinancialApproval ? new Date().toISOString() : order.approvedAt;
 
     const updatedOrder = {
@@ -2025,9 +2090,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setInvoices((prev) => prev.map((inv) => inv.id === updatedInvoice.id ? updatedInvoice : inv));
         await tursoService.saveInvoice(updatedInvoice);
 
-        if (isFinancialApproval) {
-          await tursoService.approveOrderFinancially(updatedOrder, updatedInvoice, currentUser.name);
-        }
+
       }
     } catch (error) {
       console.error('Error guardando aprobación del pedido en Turso:', error);
@@ -3840,7 +3903,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider value={{
       mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
-      addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
+      addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, registerOnlineOrderInPos, cancelOnlineOrder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
       updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
       approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
