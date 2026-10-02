@@ -935,9 +935,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 isAdminActive ||
                 mode === 'erp';
   
+              const customerPrefs = currentCustomer?.notificationPreferences;
+              const customerWantsType = notif.type === 'promotion' || notif.type === 'custom_broadcast'
+                ? (customerPrefs?.promotions ?? true)
+                : notif.type === 'credit_alert'
+                  ? (customerPrefs?.creditAlerts ?? true)
+                  : (customerPrefs?.orderStatus ?? true);
+
+              if (isForClient && !customerWantsType) continue;
+
               if (isForClient || isForAdmin) {
                 setActivePushToasts((prev) => [notif, ...prev.filter((t) => t.id !== notif.id).slice(0, 2)]);
-                playNotificationSound(notif.type === 'order_status' ? 'order_status' : 'alert');
+                if (isForClient) {
+                  if (customerPrefs?.soundEnabled ?? true) {
+                    playNotificationSound(
+                      notif.type === 'order_status'
+                        ? 'order_status'
+                        : notif.type === 'promotion' || notif.type === 'custom_broadcast'
+                          ? 'promotion'
+                          : 'alert'
+                    );
+                  }
+                  showNativeCustomerNotification(notif);
+                } else {
+                  playNotificationSound(notif.type === 'order_status' ? 'order_status' : 'alert');
+                }
                 setTimeout(() => {
                   dismissPushToast(notif.id);
                 }, 7000);
