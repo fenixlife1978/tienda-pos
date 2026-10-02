@@ -674,7 +674,7 @@ export default async function handler(req: any, res: any) {
           issued_date TEXT NOT NULL, due_date TEXT NOT NULL, credit_days INTEGER NOT NULL,
           status TEXT NOT NULL, created_at TEXT NOT NULL, is_voided INTEGER NOT NULL DEFAULT 0,
           voided_at TEXT, void_reason TEXT, payment_history TEXT
-        `);
+        )`);
 
         const current = await tx.execute({
           sql: 'SELECT * FROM orders WHERE id = ? LIMIT 1',
