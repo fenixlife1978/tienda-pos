@@ -484,7 +484,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
 
   // Ref estable para que el polling de Turso no capture un currentCustomer obsoleto.
-  const currentCustomerIdRef = useRef<string | null>(currentCustomer?.id || null);
+  const currentCustomerIdRef = useRef<string | null>(
+    currentCustomer?.id || sessionStorage.getItem('omni_active_customer_id') || null
+  );
   currentCustomerIdRef.current = currentCustomer?.id || null;
   // Referencia estable para que el polling de notificaciones no capture un cliente obsoleto.
   const currentCustomerRef = useRef<Customer | null>(currentCustomer);
@@ -880,12 +882,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // cambios desde Turso debemos reconciliarlo con el registro cloud;
         // de lo contrario el cliente puede seguir mostrando el estado anterior
         // aunque customers[] ya esté actualizado.
-        const activeCustomerId = currentCustomerIdRef.current;
+        const activeCustomerId = currentCustomerIdRef.current || sessionStorage.getItem('omni_active_customer_id');
         if (activeCustomerId) {
           const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
           if (syncedCustomer) {
             setCurrentCustomer(syncedCustomer);
             currentCustomerRef.current = syncedCustomer;
+            currentCustomerIdRef.current = syncedCustomer.id;
+            sessionStorage.setItem('omni_active_customer_id', syncedCustomer.id);
+          } else {
+            // Turso is authoritative: if the session points to a customer that no
+            // longer exists in Turso, do not resurrect a stale local customer.
+            setCurrentCustomer(null);
+            currentCustomerRef.current = null;
+            currentCustomerIdRef.current = null;
+            sessionStorage.removeItem('omni_active_customer_id');
           }
         }
         setSuppliers(cloudData.suppliers);
@@ -901,9 +912,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const incoming = cloudData.notifications.filter((n) => {
             if (n.title === 'Sesión Finalizada') return false;
             if (clearedAtMs && new Date(n.createdAt).getTime() <= clearedAtMs && (isAdminActiveRef.current || mode === 'erp')) return false;
-            if (currentCustomerIdRef.current) {
+            const recipientCustomerId = currentCustomerIdRef.current || sessionStorage.getItem('omni_active_customer_id');
+            if (recipientCustomerId) {
               return (n.targetRole === 'client' || n.targetRole === 'all') &&
-                (!n.targetCustomerId || n.targetCustomerId === currentCustomerIdRef.current);
+                (!n.targetCustomerId || n.targetCustomerId === recipientCustomerId);
             }
             if (isAdminActiveRef.current || mode === 'erp') {
               return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
@@ -928,9 +940,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Emerger toasts flotantes y sonido si no es la carga inicial
           if (isInitialSyncDoneRef.current && brandNewFromCloud.length > 0) {
             for (const notif of brandNewFromCloud) {
+              const recipientCustomerId = currentCustomerIdRef.current || sessionStorage.getItem('omni_active_customer_id');
               const isForClient =
+                !!recipientCustomerId &&
                 (notif.targetRole === 'client' || notif.targetRole === 'all') &&
-                (!notif.targetCustomerId || (currentCustomerRef.current && notif.targetCustomerId === currentCustomerRef.current.id));
+                (!notif.targetCustomerId || notif.targetCustomerId === recipientCustomerId);
               const isForAdmin =
                 notif.targetRole === 'seller' ||
                 notif.targetRole === 'all' ||
