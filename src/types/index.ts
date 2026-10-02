@@ -271,7 +271,7 @@ export interface CartItem {
 }
 
 export type OrderStatus = 'en_tramite' | 'aprobado' | 'despachado_facturado' | 'cancelado';
-export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'deudas' | 'credito';
+export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'deudas' | 'balance' | 'credito';
 export type PaymentStatus = 'pendiente' | 'pagado' | 'a_credito';
 export type PaymentMethod =
   | 'efectivo_bs'
