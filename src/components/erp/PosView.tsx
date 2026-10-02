@@ -499,7 +499,7 @@ export const PosView: React.FC = () => {
     creditAvailableUSD >= totalUSD
   );
 
-  const handleChargeSale = (calculatorData?: {
+  const handleChargeSale = async (calculatorData?: {
     payments: Array<PaymentSplit & { currency: 'Bs' | 'USD'; originalAmount: number }>;
     totalPaidUSD: number;
     totalPaidBs: number;
