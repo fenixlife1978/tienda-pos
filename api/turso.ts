@@ -524,7 +524,7 @@ export default async function handler(req: any, res: any) {
       if (!order.id || !Array.isArray(order.items)) return res.status(400).json({ error: 'Pedido incompleto para reservar inventario' });
       const tx = await client.transaction('write');
       try {
-        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+        await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
           id TEXT PRIMARY KEY,
           order_id TEXT NOT NULL,
           product_id TEXT NOT NULL,
@@ -532,7 +532,7 @@ export default async function handler(req: any, res: any) {
           status TEXT NOT NULL DEFAULT 'reserved',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
-        )\`);
+        )`);
         await tx.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_order_product ON inventory_reservations(order_id, product_id)');
         await tx.execute('CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status_product ON inventory_reservations(status, product_id)');
 
@@ -566,16 +566,16 @@ export default async function handler(req: any, res: any) {
 
         for (const [productId, qty] of demand) {
           const p = await tx.execute({
-            sql: \`SELECT p.id, p.name, p.stock,
+            sql: `SELECT p.id, p.name, p.stock,
                     COALESCE((SELECT SUM(r.quantity) FROM inventory_reservations r WHERE r.product_id = p.id AND r.status = 'reserved'), 0) AS reserved
-                  FROM products p WHERE p.id = ? LIMIT 1\`,
+                  FROM products p WHERE p.id = ? LIMIT 1`,
             args: [productId],
           });
           if (!p.rows.length) throw new Error('Producto no encontrado para reserva: ' + productId);
           const row:any = p.rows[0];
           const available = Number(row.stock || 0) - Number(row.reserved || 0);
           if (qty > available + 0.000001) {
-            throw new Error(\`Stock disponible insuficiente para \${String(row.name)}. Disponible: \${available.toFixed(3)}, solicitado: \${qty.toFixed(3)}.\`);
+            throw new Error(`Stock disponible insuficiente para ${String(row.name)}. Disponible: ${available.toFixed(3)}, solicitado: ${qty.toFixed(3)}.`);
           }
         }
 
@@ -609,11 +609,11 @@ export default async function handler(req: any, res: any) {
       if (!orderId) return res.status(400).json({ error: 'Pedido incompleto para liberar inventario' });
       const tx = await client.transaction('write');
       try {
-        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+        await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
           id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
           quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        )\`);
+        )`);
         const now = new Date().toISOString();
         await tx.execute({
           sql: "UPDATE inventory_reservations SET status = 'released', updated_at = ? WHERE order_id = ? AND status = 'reserved'",
@@ -648,33 +648,33 @@ export default async function handler(req: any, res: any) {
 
       const tx = await client.transaction('write');
       try {
-        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+        await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
           id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
           quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        )\`);
+        )`);
         await tx.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_order_product ON inventory_reservations(order_id, product_id)');
-        await tx.execute(\`CREATE TABLE IF NOT EXISTS sales_postings (
+        await tx.execute(`CREATE TABLE IF NOT EXISTS sales_postings (
           id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
           order_number TEXT NOT NULL, customer_id TEXT, channel TEXT NOT NULL,
           total_usd REAL NOT NULL, total_bs REAL NOT NULL, payment_method TEXT NOT NULL,
           payment_splits TEXT, is_credit INTEGER NOT NULL DEFAULT 0, cash_session_id TEXT,
           approved_at TEXT NOT NULL, approved_by TEXT NOT NULL, created_at TEXT NOT NULL
-        )\`);
+        )`);
         try { await tx.execute('ALTER TABLE sales_postings ADD COLUMN payment_date TEXT'); } catch {}
-        await tx.execute(\`CREATE TABLE IF NOT EXISTS accounting_entries (
+        await tx.execute(`CREATE TABLE IF NOT EXISTS accounting_entries (
           id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
           document_number TEXT NOT NULL, entry_date TEXT NOT NULL, description TEXT NOT NULL,
           source TEXT NOT NULL, lines TEXT NOT NULL, created_at TEXT NOT NULL
-        )\`);
-        await tx.execute(\`CREATE TABLE IF NOT EXISTS accounts_receivable (
+        )`);
+        await tx.execute(`CREATE TABLE IF NOT EXISTS accounts_receivable (
           id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, invoice_number TEXT NOT NULL,
           customer_id TEXT NOT NULL, customer_name TEXT NOT NULL, customer_phone TEXT,
           total_amount_usd REAL NOT NULL, amount_paid_usd REAL NOT NULL, balance_usd REAL NOT NULL,
           issued_date TEXT NOT NULL, due_date TEXT NOT NULL, credit_days INTEGER NOT NULL,
           status TEXT NOT NULL, created_at TEXT NOT NULL, is_voided INTEGER NOT NULL DEFAULT 0,
           voided_at TEXT, void_reason TEXT, payment_history TEXT
-        \`);
+        `);
 
         const current = await tx.execute({
           sql: 'SELECT * FROM orders WHERE id = ? LIMIT 1',
@@ -717,7 +717,7 @@ export default async function handler(req: any, res: any) {
           const p = await tx.execute({ sql: 'SELECT id, name, stock FROM products WHERE id = ? LIMIT 1', args: [productId] });
           if (!p.rows.length) throw new Error('Producto no encontrado al registrar POS: ' + productId);
           const stock = Number(p.rows[0].stock || 0);
-          if (qty > stock + 0.000001) throw new Error(\`El stock físico de \${String(p.rows[0].name)} es insuficiente para completar el pedido. Disponible: \${stock.toFixed(3)}, solicitado: \${qty.toFixed(3)}.\`);
+          if (qty > stock + 0.000001) throw new Error(`El stock físico de ${String(p.rows[0].name)} es insuficiente para completar el pedido. Disponible: ${stock.toFixed(3)}, solicitado: ${qty.toFixed(3)}.`);
         }
 
         const now = new Date().toISOString();
@@ -752,11 +752,11 @@ export default async function handler(req: any, res: any) {
           const dueDate = String(order.creditDueDate || new Date(Date.now() + Number(order.creditDays || 15) * 86400000).toISOString().split('T')[0]);
           const recId = 'rec-' + String(invoice.id);
           await tx.execute({
-            sql: \`INSERT OR REPLACE INTO accounts_receivable
+            sql: `INSERT OR REPLACE INTO accounts_receivable
               (id, invoice_id, invoice_number, customer_id, customer_name, customer_phone, total_amount_usd,
                amount_paid_usd, balance_usd, issued_date, due_date, credit_days, status, created_at,
                is_voided, voided_at, void_reason, payment_history)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'al_dia', ?, 0, NULL, NULL, '[]')\`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'al_dia', ?, 0, NULL, NULL, '[]')`,
             args: [recId, String(invoice.id), String(invoice.invoiceNumber), String(order.customerId),
               String(order.customerName), String(order.customerPhone || ''), Number(order.totalUSD || 0),
               Number(order.totalUSD || 0), now.split('T')[0], dueDate, Number(order.creditDays || 15), now],
@@ -768,10 +768,10 @@ export default async function handler(req: any, res: any) {
           : [{ method: order.paymentMethod, amountUSD: Number(order.totalUSD || 0), amountBs: Number(order.totalBs || 0) }];
         const reportedPaymentDate = splits.map((x:any) => String(x.createdAt || '')).filter(Boolean).sort()[0] || String(order.createdAt || now);
         await tx.execute({
-          sql: \`INSERT OR IGNORE INTO sales_postings
+          sql: `INSERT OR IGNORE INTO sales_postings
             (id, order_id, invoice_id, order_number, customer_id, channel, total_usd, total_bs,
              payment_method, payment_splits, is_credit, cash_session_id, payment_date, approved_at, approved_by, created_at)
-            VALUES (?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
+            VALUES (?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: ['sale-post-' + String(order.id), String(order.id), String(invoice.id), String(order.orderNumber),
             String(order.customerId || ''), Number(order.totalUSD || 0), Number(order.totalBs || 0),
             String(order.paymentMethod || invoice.paymentMethod), order.paymentSplits ? JSON.stringify(order.paymentSplits) : null,
@@ -790,9 +790,9 @@ export default async function handler(req: any, res: any) {
         if (Number(order.taxUSD || 0) > 0) lines.push({ account: 'IVA DÉBITO FISCAL', debitUSD: 0, debitBs: 0, creditUSD: Number(order.taxUSD || 0), creditBs: Number((Number(order.taxUSD || 0) * Number(order.bcvRate || 0)).toFixed(2)) });
 
         await tx.execute({
-          sql: \`INSERT OR IGNORE INTO accounting_entries
+          sql: `INSERT OR IGNORE INTO accounting_entries
             (id, order_id, invoice_id, document_number, entry_date, description, source, lines, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: ['asiento-' + String(order.id), String(order.id), String(invoice.id), String(invoice.invoiceNumber || order.orderNumber),
             reportedPaymentDate, 'Venta registrada en POS ' + String(order.orderNumber), 'online_order_pos_registration', JSON.stringify(lines), now],
         });
@@ -817,11 +817,11 @@ export default async function handler(req: any, res: any) {
       await ensureColumn(client, 'orders', 'pos_registered_at', 'TEXT');
       const tx = await client.transaction('write');
       try {
-        await tx.execute(\`CREATE TABLE IF NOT EXISTS inventory_reservations (
+        await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
           id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
           quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        )\`);
+        )`);
         const row = await tx.execute({ sql: 'SELECT order_status, pos_registered_at FROM orders WHERE id = ? LIMIT 1', args: [orderId] });
         if (!row.rows.length) throw new Error('Pedido no encontrado para cancelar.');
         if (row.rows[0].pos_registered_at) throw new Error('El pedido ya fue registrado en POS; no puede rechazarse como reserva.');
