@@ -492,6 +492,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Ref estable para que el polling de Turso no capture un currentCustomer obsoleto.
   const currentCustomerIdRef = useRef<string | null>(currentCustomer?.id || null);
   currentCustomerIdRef.current = currentCustomer?.id || null;
+  // Referencia estable para que el polling de notificaciones no capture un cliente obsoleto.
+  const currentCustomerRef = useRef<Customer | null>(currentCustomer);
+  currentCustomerRef.current = currentCustomer;
   const [products, setProducts] = useState<Product[]>(() => {
     return safeLocalStorageJson<Product[]>('omni_products', []);
   });
@@ -928,7 +931,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             for (const notif of brandNewFromCloud) {
               const isForClient =
                 (notif.targetRole === 'client' || notif.targetRole === 'all') &&
-                (!notif.targetCustomerId || (currentCustomer && notif.targetCustomerId === currentCustomer.id));
+                (!notif.targetCustomerId || (currentCustomerRef.current && notif.targetCustomerId === currentCustomerRef.current.id));
               const isForAdmin =
                 notif.targetRole === 'seller' ||
                 notif.targetRole === 'all' ||
@@ -936,7 +939,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 isAdminActive ||
                 mode === 'erp';
   
-              const customerPrefs = currentCustomer?.notificationPreferences;
+              const customerPrefs = currentCustomerRef.current?.notificationPreferences;
               const customerWantsType = notif.type === 'promotion' || notif.type === 'custom_broadcast'
                 ? (customerPrefs?.promotions ?? true)
                 : notif.type === 'credit_alert'
@@ -1109,7 +1112,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Notificación nativa opcional: el toast interno sigue siendo el canal principal.
   // Si el navegador ya concedió permiso, también mostramos la alerta del sistema.
   const showNativeCustomerNotification = (notif: AppNotification) => {
-    if (typeof window === 'undefined' || !currentCustomer) return;
+    const customer = currentCustomerRef.current;
+    if (typeof window === 'undefined' || !customer) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     try {
       const native = new Notification(notif.title, {
@@ -1180,7 +1184,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isCustomerRecipient =
       !!currentCustomer &&
       (effectiveTargetRole === 'client' || effectiveTargetRole === 'all' || !effectiveTargetRole) &&
-      (!options.targetCustomerId || options.targetCustomerId === currentCustomer.id);
+      (!options.targetCustomerId || options.targetCustomerId === currentCustomerRef.current?.id);
     const shouldDisplayHere = isAdminRecipient || isCustomerRecipient;
     const newNotif: AppNotification = {
       id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -1352,8 +1356,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // el login ocurre mientras el primer snapshot cloud todavía está cargando.
       // No confiamos en el registro local para decidir si la cuenta está verificada.
       setCurrentCustomer(found);
+      currentCustomerRef.current = found;
       sessionStorage.setItem('omni_active_customer_id', found.id);
+      // La sesión de cliente es estrictamente local a esta pestaña.
+      sessionStorage.removeItem('tienda_pos_tab_session');
+      sessionStorage.removeItem('tienda_pos_admin_user');
+      sessionStorage.removeItem('omni_erp_active_tab');
       setIsAdminActive(false);
+      setMode('store');
 
       if (tursoService.isConfigured() && navigator.onLine) {
         void syncWithTurso(true).catch((error) =>
@@ -1411,6 +1421,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // No debe generar una notificación global ni persistirse en Turso,
     // porque las sesiones de administrador y cliente son independientes.
     setCurrentCustomer(null);
+    currentCustomerRef.current = null;
+    setCurrentUser(INITIAL_GENERIC_ADMIN);
+    setIsAdminActive(false);
+    setMode('store');
     setNotifications([]);
     setActivePushToasts([]);
     sessionStorage.removeItem('omni_active_customer_id');
