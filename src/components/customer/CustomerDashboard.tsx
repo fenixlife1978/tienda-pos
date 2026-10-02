@@ -1170,7 +1170,10 @@ export const CustomerDashboard: React.FC = () => {
                     />
                     <span className="text-[10px] text-slate-400">
                       {['pago_movil','transferencia_bs'].includes(debtPaymentMethod)
-                        ? 'Equivalente: 
+                        ? `Equivalente: $${(Number(debtPaymentAmount || 0) / Number(settings.bcvRate || 1)).toFixed(2)} USD`
+                        : `Equivalente: Bs. ${(Number(debtPaymentAmount || 0) * Number(settings.bcvRate || 1)).toFixed(2)}`}
+                    </span>
+                  </label>
                 ) : (
                   <div className="text-xs text-slate-700">
                     <div className="font-bold">Pago Mixto Online</div>
