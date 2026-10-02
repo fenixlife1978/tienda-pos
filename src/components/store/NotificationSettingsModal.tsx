@@ -39,7 +39,8 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    await requestCustomerPushPermission();
     updateCustomerPreferences(prefs);
     setSavedSuccess(true);
     setTimeout(() => {
