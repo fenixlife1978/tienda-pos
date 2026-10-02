@@ -993,6 +993,11 @@ export const CustomerDashboard: React.FC = () => {
                     } else {
                       setDebtPaymentMixed(false);
                       setDebtPaymentMethod(value);
+                      setDebtPaymentAmount(
+                        ['pago_movil', 'transferencia_bs'].includes(value)
+                          ? (selectedDebt ? selectedDebt.balanceUSD * settings.bcvRate : 0).toFixed(2)
+                          : (selectedDebt ? selectedDebt.balanceUSD : 0).toFixed(2)
+                      );
                     }
                   }} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white">
                     {onlinePaymentMethods.map((method) => <option key={method} value={method}>{formatPaymentMethod(method)}</option>)}
