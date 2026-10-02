@@ -19,24 +19,31 @@ import { InventoryTransfersView } from './InventoryTransfersView';
 import { TerminalManagementView } from './TerminalManagementView';
 
 export const ErpDashboard: React.FC = () => {
-  const { orders, products, receivables, customers } = useApp();
+  const { currentUser, orders, products, receivables, customers } = useApp();
+  const isCashier = currentUser?.role === 'cajero';
+  const cashierAllowedTabs: ErpTab[] = ['caja', 'pos', 'pedidos', 'cxc'];
+  const isAllowedForCashier = (tab: ErpTab) => !isCashier || cashierAllowedTabs.includes(tab);
   const [activeTab, setActiveTab] = useState<ErpTab>(() => {
     const saved = localStorage.getItem('omni_erp_active_tab') as ErpTab | null;
     return saved || 'dashboard';
   });
 
   useEffect(() => {
+    if (isCashier && !isAllowedForCashier(activeTab)) {
+      setActiveTab('pos');
+      return;
+    }
     localStorage.setItem('omni_erp_active_tab', activeTab);
-  }, [activeTab]);
+  }, [activeTab, isCashier]);
 
   useEffect(() => {
     const handler = (event: Event) => {
       const tab = (event as CustomEvent<string>).detail as ErpTab;
-      if (tab) setActiveTab(tab);
+      if (tab && isAllowedForCashier(tab)) setActiveTab(tab);
     };
     window.addEventListener('omni-restore-erp-tab', handler);
     return () => window.removeEventListener('omni-restore-erp-tab', handler);
-  }, []);
+  }, [isCashier]);
 
   // Count badges for the ERP tabs
   const pendingOrdersCount = orders.filter(
@@ -56,7 +63,9 @@ export const ErpDashboard: React.FC = () => {
       {/* ERP Secondary Navigation Bar */}
       <ErpNavbar
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={(tab) => {
+          if (isAllowedForCashier(tab)) setActiveTab(tab);
+        }}
         pendingOrdersCount={pendingOrdersCount}
         pendingRequestsCount={pendingRequestsCount}
         lowStockCount={lowStockCount}
@@ -65,22 +74,22 @@ export const ErpDashboard: React.FC = () => {
 
       {/* Render Active Module */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {activeTab === 'dashboard' && <SalesDashboardView />}
+        {activeTab === 'dashboard' && !isCashier && <SalesDashboardView />}
         {activeTab === 'caja' && <CashRegisterView />}
         {activeTab === 'pos' && <PosView />}
         {activeTab === 'pedidos' && <OrdersManagementView />}
-        {activeTab === 'solicitudes' && <CustomerRequestsManagementView />}
-        {activeTab === 'inventario' && <InventoryView />}
-        {activeTab === 'almacenes' && <InventoryTransfersView />}
-        {activeTab === 'entradas_compras' && <PurchasesEntryView />}
-        {activeTab === 'proveedores' && <SupplierManagementView />}
-        {activeTab === 'rentabilidad' && <ProfitabilityMarginView />}
-        {activeTab === 'promociones' && <PromotionsManagementView />}
+        {activeTab === 'solicitudes' && !isCashier && <CustomerRequestsManagementView />}
+        {activeTab === 'inventario' && !isCashier && <InventoryView />}
+        {activeTab === 'almacenes' && !isCashier && <InventoryTransfersView />}
+        {activeTab === 'entradas_compras' && !isCashier && <PurchasesEntryView />}
+        {activeTab === 'proveedores' && !isCashier && <SupplierManagementView />}
+        {activeTab === 'rentabilidad' && !isCashier && <ProfitabilityMarginView />}
+        {activeTab === 'promociones' && !isCashier && <PromotionsManagementView />}
         {activeTab === 'cxc' && <AccountsReceivableView />}
-        {activeTab === 'cxp' && <AccountsPayableView />}
-        {activeTab === 'reportes' && <FinancialReportsView />}
-        {activeTab === 'terminales' && <TerminalManagementView />}
-        {activeTab === 'configuracion' && <SettingsAndUsersView />}
+        {activeTab === 'cxp' && !isCashier && <AccountsPayableView />}
+        {activeTab === 'reportes' && !isCashier && <FinancialReportsView />}
+        {activeTab === 'terminales' && !isCashier && <TerminalManagementView />}
+        {activeTab === 'configuracion' && !isCashier && <SettingsAndUsersView />}
       </main>
     </div>
   );
