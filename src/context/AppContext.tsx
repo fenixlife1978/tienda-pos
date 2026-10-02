@@ -901,12 +901,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const incoming = cloudData.notifications.filter((n) => {
             if (n.title === 'Sesión Finalizada') return false;
             if (clearedAtMs && new Date(n.createdAt).getTime() <= clearedAtMs && (isAdminActiveRef.current || mode === 'erp')) return false;
+            // La sesión administrativa tiene prioridad absoluta en esta pestaña.
+            // Nunca debe consumir notificaciones destinadas a clientes, aunque exista
+            // un estado de cliente residual en memoria.
+            if (isAdminActiveRef.current || mode === 'erp') {
+              return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
+            }
             if (currentCustomerIdRef.current) {
               return (n.targetRole === 'client' || n.targetRole === 'all') &&
                 (!n.targetCustomerId || n.targetCustomerId === currentCustomerIdRef.current);
-            }
-            if (isAdminActiveRef.current || mode === 'erp') {
-              return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
             }
             return false;
           });
@@ -1205,14 +1208,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const type = options.type || 'promotion';
-    const effectiveTargetRole =
-      options.targetCustomerId
+    const adminSessionActive = isAdminActiveRef.current || mode === 'erp';
+
+    // Regla de aislamiento:
+    // - Una acción administrativa sin cliente explícito siempre es SOLO para ERP/seller.
+    // - Una acción administrativa dirigida a un cliente concreto puede llegar SOLO a ese cliente.
+    // - Nunca se permite que una acción administrativa se convierta accidentalmente
+    //   en un broadcast para todos los clientes.
+    const effectiveTargetRole = adminSessionActive
+      ? (options.targetCustomerId
+        ? (options.targetRole === 'seller' ? 'seller' : 'client')
+        : 'seller')
+      : options.targetCustomerId
         ? (options.targetRole || 'client')
-        : (isAdminActiveRef.current && !options.targetRole ? 'seller' : options.targetRole);
+        : options.targetRole;
+
     const isAdminRecipient =
-      (isAdminActiveRef.current || mode === 'erp') &&
+      adminSessionActive &&
       (effectiveTargetRole === 'seller' || effectiveTargetRole === 'all' || !effectiveTargetRole);
     const isCustomerRecipient =
+      !adminSessionActive &&
       !!currentCustomerRef.current &&
       (effectiveTargetRole === 'client' || effectiveTargetRole === 'all' || !effectiveTargetRole) &&
       (!options.targetCustomerId || options.targetCustomerId === currentCustomerRef.current?.id);
