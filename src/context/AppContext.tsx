@@ -487,7 +487,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const currentCustomerIdRef = useRef<string | null>(
     currentCustomer?.id || sessionStorage.getItem('omni_active_customer_id') || null
   );
-  currentCustomerIdRef.current = currentCustomer?.id || null;
+  currentCustomerIdRef.current = currentCustomer?.id || sessionStorage.getItem('omni_active_customer_id') || null;
   // Referencia estable para que el polling de notificaciones no capture un cliente obsoleto.
   const currentCustomerRef = useRef<Customer | null>(currentCustomer);
   currentCustomerRef.current = currentCustomer;
