@@ -112,72 +112,6 @@ export const CashRegisterView: React.FC = () => {
     );
   }, [orders, session, terminalId]);
 
-  const arqueoRows = useMemo(() => {
-    const rows = arqueoMethods.map((method) => ({
-      method,
-      openingBs: method === 'efectivo_bs' ? Number(session?.openingBs || 0) : 0,
-      openingUSD: method === 'efectivo_usd' ? Number(session?.openingUSD || 0) : 0,
-      salesBs: 0, salesUSD: 0, cxcBs: 0, cxcUSD: 0,
-      devAnuBs: 0, devAnuUSD: 0, plusBs: 0, plusUSD: 0, minusBs: 0, minusUSD: 0,
-    }));
-
-    const rowMap = new Map(rows.map((r) => [r.method, r]));
-    const addSale = (order: any, sign = 1) => {
-      const splits = order.paymentSplits?.length ? order.paymentSplits : [{
-        method: order.paymentMethod, amountBs: order.totalBs, amountUSD: order.totalUSD,
-      }];
-      for (const split of splits) {
-        const row = rowMap.get(split.method);
-        if (!row) continue;
-        const amountBs = Number(split.amountBs || 0);
-        const amountUSD = Number(split.amountUSD || 0);
-        if (sign < 0) {
-          row.devAnuBs += amountBs;
-          row.devAnuUSD += amountUSD;
-        } else {
-          row.salesBs += amountBs;
-          row.salesUSD += amountUSD;
-        }
-      }
-    };
-    for (const order of sessionAllOrders) {
-      if (order.isVoided || order.isReturned) addSale(order, -1);
-      else addSale(order, 1);
-    }
-    for (const { p } of cxcPayments) {
-      const splits = p.paymentSplits?.length ? p.paymentSplits : [{
-        method: p.paymentMethod, currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(p.paymentMethod) ? 'Bs' : 'USD',
-        amountBs: p.amountBs, amountUSD: p.amountUSD,
-      }];
-      for (const split of splits) {
-        const row = rowMap.get(split.method);
-        if (!row) continue;
-        if (split.currency === 'Bs') row.cxcBs += Number(split.amountBs || 0);
-        else row.cxcUSD += Number(split.amountUSD || 0);
-      }
-    }
-    for (const movement of sessionMovements) {
-      const method = movement.currency === 'Bs' ? 'efectivo_bs' : 'efectivo_usd';
-      const row = rowMap.get(method);
-      if (!row) continue;
-      if (movement.type === 'ingreso' || movement.type === 'deposito') {
-        if (movement.currency === 'Bs') row.plusBs += movement.amount;
-        else row.plusUSD += movement.amount;
-      } else {
-        if (movement.currency === 'Bs') row.minusBs += movement.amount;
-        else row.minusUSD += movement.amount;
-      }
-    }
-    return rows.map((r) => {
-      const currency = r.method === 'efectivo_bs' || r.method === 'pago_movil' || r.method === 'transferencia_bs' || r.method === 'biopago' || r.method === 'tarjeta'
-        ? 'Bs' : 'USD';
-      const system = currency === 'Bs'
-        ? r.openingBs + r.salesBs + r.cxcBs + r.devAnuBs + r.plusBs - r.minusBs
-        : r.openingUSD + r.salesUSD + r.cxcUSD + r.devAnuUSD + r.plusUSD - r.minusUSD;
-      return { ...r, currency, system: Number(system.toFixed(2)) };
-    });
-  }, [session, sessionAllOrders, cxcPayments, sessionMovements]);
-
   const calculatePreZ = (values = preZReal) => {
     let bs = 0, usd = 0;
     for (const row of arqueoRows) {
@@ -339,6 +273,72 @@ export const CashRegisterView: React.FC = () => {
     }
     return {cxcCashSalesUSD:Number(usd.toFixed(2)),cxcCashSalesBs:Number(bs.toFixed(2))};
   },[cxcPayments]);
+
+  const arqueoRows = useMemo(() => {
+    const rows = arqueoMethods.map((method) => ({
+      method,
+      openingBs: method === 'efectivo_bs' ? Number(session?.openingBs || 0) : 0,
+      openingUSD: method === 'efectivo_usd' ? Number(session?.openingUSD || 0) : 0,
+      salesBs: 0, salesUSD: 0, cxcBs: 0, cxcUSD: 0,
+      devAnuBs: 0, devAnuUSD: 0, plusBs: 0, plusUSD: 0, minusBs: 0, minusUSD: 0,
+    }));
+
+    const rowMap = new Map(rows.map((r) => [r.method, r]));
+    const addSale = (order: any, sign = 1) => {
+      const splits = order.paymentSplits?.length ? order.paymentSplits : [{
+        method: order.paymentMethod, amountBs: order.totalBs, amountUSD: order.totalUSD,
+      }];
+      for (const split of splits) {
+        const row = rowMap.get(split.method);
+        if (!row) continue;
+        const amountBs = Number(split.amountBs || 0);
+        const amountUSD = Number(split.amountUSD || 0);
+        if (sign < 0) {
+          row.devAnuBs += amountBs;
+          row.devAnuUSD += amountUSD;
+        } else {
+          row.salesBs += amountBs;
+          row.salesUSD += amountUSD;
+        }
+      }
+    };
+    for (const order of sessionAllOrders) {
+      if (order.isVoided || order.isReturned) addSale(order, -1);
+      else addSale(order, 1);
+    }
+    for (const { p } of cxcPayments) {
+      const splits = p.paymentSplits?.length ? p.paymentSplits : [{
+        method: p.paymentMethod, currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(p.paymentMethod) ? 'Bs' : 'USD',
+        amountBs: p.amountBs, amountUSD: p.amountUSD,
+      }];
+      for (const split of splits) {
+        const row = rowMap.get(split.method);
+        if (!row) continue;
+        if (split.currency === 'Bs') row.cxcBs += Number(split.amountBs || 0);
+        else row.cxcUSD += Number(split.amountUSD || 0);
+      }
+    }
+    for (const movement of sessionMovements) {
+      const method = movement.currency === 'Bs' ? 'efectivo_bs' : 'efectivo_usd';
+      const row = rowMap.get(method);
+      if (!row) continue;
+      if (movement.type === 'ingreso' || movement.type === 'deposito') {
+        if (movement.currency === 'Bs') row.plusBs += movement.amount;
+        else row.plusUSD += movement.amount;
+      } else {
+        if (movement.currency === 'Bs') row.minusBs += movement.amount;
+        else row.minusUSD += movement.amount;
+      }
+    }
+    return rows.map((r) => {
+      const currency = r.method === 'efectivo_bs' || r.method === 'pago_movil' || r.method === 'transferencia_bs' || r.method === 'biopago' || r.method === 'tarjeta'
+        ? 'Bs' : 'USD';
+      const system = currency === 'Bs'
+        ? r.openingBs + r.salesBs + r.cxcBs + r.devAnuBs + r.plusBs - r.minusBs
+        : r.openingUSD + r.salesUSD + r.cxcUSD + r.devAnuUSD + r.plusUSD - r.minusUSD;
+      return { ...r, currency, system: Number(system.toFixed(2)) };
+    });
+  }, [session, sessionAllOrders, cxcPayments, sessionMovements]);
 
   const salesByMethod = useMemo(() => {
     const map: Record<string, { method: string; currency: 'Bs' | 'USD'; amount: number }> = {};
