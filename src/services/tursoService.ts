@@ -2223,38 +2223,32 @@ class TursoService {
   public async saveNotification(n: AppNotification) {
     const client = this.getClient();
     if (!client) throw new Error('Cliente Turso no configurado');
-    const tx = await client.transaction('write');
-    try {
-      await tx.execute({
-        sql: `INSERT OR REPLACE INTO system_notifications
-          (id, title, message, type, target_role, target_customer_id, related_order_id, read, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          n.id,
-          n.title,
-          n.message,
-          n.type,
-          n.targetRole || null,
-          n.targetCustomerId || null,
-          n.relatedOrderId || null,
-          n.read ? 1 : 0,
-          n.createdAt || new Date().toISOString(),
-        ],
-      });
-      await tx.execute({
-        sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('system_notifications', ?, 'upsert', ?)",
-        args: [n.id, new Date().toISOString()],
-      });
-      await tx.commit();
-      const verify = await client.execute({
-        sql: 'SELECT id FROM system_notifications WHERE id = ? LIMIT 1',
-        args: [n.id],
-      });
-      if (!verify.rows.length) throw new Error('Turso no confirmó la notificación');
-    } catch (e) {
-      try { await tx.rollback(); } catch {}
-      throw e;
-    }
+
+    // Las transacciones del cliente web están deshabilitadas a propósito. Las
+    // notificaciones usan escrituras idempotentes y verifican la persistencia;
+    // activity_changes despierta el sincronizador en todos los clientes.
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO system_notifications
+        (id, title, message, type, target_role, target_customer_id, related_order_id, read, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        n.id, n.title, n.message, n.type,
+        n.targetRole || null, n.targetCustomerId || null, n.relatedOrderId || null,
+        n.read ? 1 : 0, n.createdAt || new Date().toISOString(),
+      ],
+    });
+
+    const verify = await client.execute({
+      sql: 'SELECT id FROM system_notifications WHERE id = ? LIMIT 1',
+      args: [n.id],
+    });
+    if (!verify.rows.length) throw new Error('Turso no confirmó la notificación');
+
+    // Garantía adicional para bases antiguas sin el trigger correspondiente.
+    await client.execute({
+      sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('system_notifications', ?, 'upsert', ?)",
+      args: [n.id, new Date().toISOString()],
+    });
   }
 
   public async loadUsers(): Promise<User[]> {
