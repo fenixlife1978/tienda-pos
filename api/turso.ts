@@ -572,6 +572,7 @@ export default async function handler(req: any, res: any) {
         }
 
         const now = new Date().toISOString();
+        await tx.execute({ sql: "UPDATE orders SET reserved_at = ? WHERE id = ?", args: [now, String(order.id)] });
         for (const [productId, qty] of demand) {
           await tx.execute({
             sql: "INSERT INTO inventory_reservations (id, order_id, product_id, quantity, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'reserved', ?, ?)",
