@@ -546,7 +546,7 @@ export const PosView: React.FC = () => {
           ? 'mixto'
           : (paymentSplits?.[0]?.method || 'efectivo_bs');
 
-      const { invoice } = createOrder({
+      const { invoice } = await createOrder({
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         customerRif: selectedCustomer.rif,
