@@ -1417,7 +1417,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Cart operations
   const addToCart = (product: Product, quantity = 1) => {
-    if (product.stock <= 0) {
+    const availableStock = Math.max(0, Number(availableStock || 0) - Number(product.reservedStock || 0));
+    if (availableStock <= 0) {
       alert(`El producto "${product.name}" está agotado en inventario.`);
       return;
     }
@@ -1429,8 +1430,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (existingIndex >= 0) {
         const existing = prev[existingIndex];
         const nextQty = existing.quantity + quantity;
-        if (nextQty > product.stock) {
-          alert(`Stock insuficiente. Solo quedan ${product.stock} unidades de "${product.name}".`);
+        if (nextQty > availableStock) {
+          alert(`Stock insuficiente. Solo quedan ${availableStock} unidades de "${product.name}".`);
           return prev;
         }
         const updated = [...prev];
@@ -1442,7 +1443,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         {
           id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           product,
-          quantity: Math.min(quantity, product.stock),
+          quantity: Math.min(quantity, availableStock),
           saleMode: 'standard',
         },
       ];
@@ -1463,9 +1464,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   ) => {
     const saleMode = options.saleMode || (options.presentation ? 'presentation' : 'standard');
+    const availableStock = Math.max(0, Number(availableStock || 0) - Number(product.reservedStock || 0));
     const quantity = options.quantity !== undefined ? options.quantity : 1;
 
-    if (product.stock <= 0) {
+    if (availableStock <= 0) {
       alert(`El producto "${product.name}" no tiene existencias disponibles.`);
       return;
     }
@@ -1480,8 +1482,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       requiredStockUnits = quantity;
     }
 
-    if (requiredStockUnits > product.stock) {
-      alert(`Stock insuficiente. Solo quedan ${product.stock} ${product.unit} de "${product.name}".`);
+    if (requiredStockUnits > availableStock) {
+      alert(`Stock insuficiente. Solo quedan ${availableStock} ${product.unit} de "${product.name}".`);
       return;
     }
 
@@ -1544,12 +1546,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const item = prev.find((i) => i.id === cartItemIdOrProdId || i.product.id === cartItemIdOrProdId);
       if (item && item.saleMode === 'presentation' && item.selectedPresentation) {
         const requiredUnits = quantity * item.selectedPresentation.factor;
-        if (requiredUnits > item.product.stock) {
-          alert(`Stock insuficiente para ${quantity} empaques (${requiredUnits} unidades). Máximo disponible: ${item.product.stock} unidades.`);
+        if (requiredUnits > item.availableStock) {
+          alert(`Stock insuficiente para ${quantity} empaques (${requiredUnits} unidades). Máximo disponible: ${item.availableStock} unidades.`);
           return prev;
         }
-      } else if (item && quantity > item.product.stock) {
-        alert(`Stock máximo disponible: ${item.product.stock} ${item.product.unit}.`);
+      } else if (item && quantity > item.availableStock) {
+        alert(`Stock máximo disponible: ${item.availableStock} ${item.product.unit}.`);
         return prev;
       }
 
