@@ -54,11 +54,11 @@ export const NotificationManagerModal: React.FC<NotificationManagerModalProps> =
   const lowStockItems = products.filter((p) => p.stock <= p.minStock);
   const overdueReceivables = receivables.filter((r) => r.status === 'vencido');
 
-  const handleSendBroadcast = (e: React.FormEvent) => {
+  const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!broadcastTitle.trim() || !broadcastMessage.trim()) return;
 
-    broadcastPushNotification({
+    await broadcastPushNotification({
       title: broadcastTitle.trim(),
       message: broadcastMessage.trim(),
       type: broadcastType,
