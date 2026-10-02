@@ -1110,6 +1110,25 @@ class TursoService {
       console.warn('Error fetching products from Turso:', e);
     }
 
+    // Reservas online: el stock físico permanece intacto; el catálogo muestra
+    // stock disponible = stock físico - reservas activas.
+    try {
+      await client.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
+        id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+        quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`);
+      const reservations = await client.execute(
+        "SELECT product_id, COALESCE(SUM(quantity), 0) AS reserved FROM inventory_reservations WHERE status = 'reserved' GROUP BY product_id"
+      );
+      const reservedByProduct = new Map<string, number>();
+      for (const row of reservations.rows) reservedByProduct.set(String(row.product_id), Number(row.reserved || 0));
+      for (const product of products) product.reservedStock = Number((reservedByProduct.get(product.id) || 0).toFixed(3));
+    } catch (e) {
+      console.warn('No se pudieron cargar reservas de inventario:', e);
+      for (const product of products) product.reservedStock = 0;
+    }
+
     // 5. Customers
     const customers: Customer[] = [];
     try {
