@@ -24,7 +24,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
   isOpen,
   onClose,
 }) => {
-  const { currentCustomer, updateCustomerPreferences, triggerPushNotification } = useApp();
+  const { currentCustomer, updateCustomerPreferences, triggerPushNotification, requestCustomerPushPermission } = useApp();
 
   const currentPrefs = currentCustomer?.notificationPreferences || {
     orderStatus: true,
@@ -48,7 +48,12 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
     }, 1000);
   };
 
-  const handleTestNotification = () => {
+  const handleTestNotification = async () => {
+    const permission = await requestCustomerPushPermission();
+    if (permission === 'denied') {
+      alert('Las notificaciones del navegador están bloqueadas. Debes habilitarlas en los permisos del navegador para recibir promociones cuando lleguen.');
+      return;
+    }
     if (prefs.soundEnabled) {
       playNotificationSound('promotion');
     }
