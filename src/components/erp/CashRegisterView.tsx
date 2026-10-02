@@ -94,6 +94,7 @@ export const CashRegisterView: React.FC = () => {
   const [preZOpen, setPreZOpen] = useState(false);
   const [preZReal, setPreZReal] = useState<Record<string, string>>({});
   const [preZStatus, setPreZStatus] = useState<{ kind: 'ok' | 'positive' | 'negative'; bs: number; usd: number } | null>(null);
+  const [historyBoxFilter, setHistoryBoxFilter] = useState('all');
 
   const arqueoMethods = [
     'efectivo_bs', 'efectivo_usd', 'zelle', 'pago_movil', 'transferencia_bs',
@@ -208,8 +209,8 @@ export const CashRegisterView: React.FC = () => {
       try {
         const [remoteSession, remoteHistory, remoteMovements] = await Promise.all([
           tursoService.loadOpenCashSession(terminalId, currentUser.id),
-          tursoService.loadCashHistory(terminalId),
-          tursoService.loadCashMovements(terminalId),
+          tursoService.loadCashHistory(),
+          tursoService.loadCashMovements(),
         ]);
         if (cancelled) return;
         if (remoteSession) {
@@ -586,8 +587,8 @@ export const CashRegisterView: React.FC = () => {
     setCashReportPreview(report);
   };
 
-  const buildCashReport = (kind: 'X' | 'Z'): CashReportData | null => {
-    const base = session || (kind === 'Z' ? lastClosed : null);
+  const buildCashReport = (kind: 'X' | 'Z', baseOverride?: CashSession): CashReportData | null => {
+    const base = baseOverride || session || (kind === 'Z' ? lastClosed : null);
     if (!base) {
       alert(`No hay una sesión de caja abierta para generar el Reporte ${kind}.`);
       return null;
@@ -596,7 +597,7 @@ export const CashRegisterView: React.FC = () => {
     // X usa la sesión abierta en tiempo real. Z puede invocarse después del cierre;
     // en ese caso reconstruimos sus cifras desde la sesión cerrada y las ventas
     // persistidas, sin guardar el reporte en el navegador.
-    if (kind === 'X' || session) {
+    if (kind === 'X' || (session && !baseOverride)) {
       return {
         kind,
         terminalId: base.terminalId,
@@ -880,24 +881,90 @@ export const CashRegisterView: React.FC = () => {
         </div>
       )}
 
-      {lastClosed && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4">
-          <div className="flex items-center gap-2 text-sm font-bold">
-            {Math.abs(lastClosed.differenceBs || 0) < 0.01 && Math.abs(lastClosed.differenceUSD || 0) < 0.01 ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            ) : (
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-            )}
-            Último cierre: {new Date(lastClosed.closedAt || lastClosed.openedAt).toLocaleString('es-VE')}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-indigo-600" />
+            <div>
+              <h3 className="font-bold text-sm">Historial de Cortes Z</h3>
+              <p className="text-[11px] text-slate-500">Cortes cerrados conservados en Turso. Cada Z puede reimprimirse en 80 mm.</p>
+            </div>
           </div>
-          <div className="grid sm:grid-cols-4 gap-3 mt-3 text-xs">
-            <div>Esperado Bs.<b className="block">{formatBs(lastClosed.expectedBs || 0)}</b></div>
-            <div>Contado Bs.<b className="block">{formatBs(lastClosed.closingBs || 0)}</b></div>
-            <div>Esperado USD<b className="block">{formatUSD(lastClosed.expectedUSD || 0)}</b></div>
-            <div>Contado USD<b className="block">{formatUSD(lastClosed.closingUSD || 0)}</b></div>
-          </div>
+          <select
+            value={historyBoxFilter}
+            onChange={(e) => setHistoryBoxFilter(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold bg-white"
+          >
+            <option value="all">Todas las Cajas</option>
+            {Array.from(new Set(history.map((z) => z.terminalId))).sort().map((box) => (
+              <option key={box} value={box}>{box}</option>
+            ))}
+          </select>
         </div>
-      )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-slate-500 uppercase">
+              <tr>
+                <th className="text-left p-3">Fecha Z</th>
+                <th className="text-left p-3">Caja</th>
+                <th className="text-left p-3">Cajero</th>
+                <th className="text-right p-3">Esperado Bs.</th>
+                <th className="text-right p-3">Real Bs.</th>
+                <th className="text-right p-3">DIF. Bs.</th>
+                <th className="text-right p-3">Esperado USD</th>
+                <th className="text-right p-3">Real USD</th>
+                <th className="text-right p-3">DIF. USD</th>
+                <th className="text-center p-3">Resultado</th>
+                <th className="text-center p-3">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {history.filter((z) => historyBoxFilter === 'all' || z.terminalId === historyBoxFilter).length === 0 ? (
+                <tr><td colSpan={11} className="p-6 text-center text-slate-400">No hay Cortes Z para el filtro seleccionado.</td></tr>
+              ) : history
+                .filter((z) => historyBoxFilter === 'all' || z.terminalId === historyBoxFilter)
+                .map((z) => {
+                  const dbs = Number(z.differenceBs || 0);
+                  const dusd = Number(z.differenceUSD || 0);
+                  const hasPositive = dbs > 0.01 || dusd > 0.01;
+                  const hasNegative = dbs < -0.01 || dusd < -0.01;
+                  const reconciled = !hasPositive && !hasNegative;
+                  const result = reconciled ? 'CONCILIADO' : hasPositive && !hasNegative ? 'SOBRANTE' : hasNegative && !hasPositive ? 'FALTANTE' : 'DIFERENCIA MIXTA';
+                  return (
+                    <tr key={z.id}>
+                      <td className="p-3 whitespace-nowrap">{new Date(z.closedAt || z.openedAt).toLocaleString('es-VE')}</td>
+                      <td className="p-3 font-bold">{z.terminalId}</td>
+                      <td className="p-3">{z.closedBy || z.openedBy || '—'}</td>
+                      <td className="p-3 text-right font-mono">{formatBs(z.expectedBs || 0)}</td>
+                      <td className="p-3 text-right font-mono">{formatBs(z.closingBs || 0)}</td>
+                      <td className={`p-3 text-right font-mono ${Math.abs(dbs) < 0.01 ? 'text-slate-500' : dbs > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatBs(dbs)}</td>
+                      <td className="p-3 text-right font-mono">{formatUSD(z.expectedUSD || 0)}</td>
+                      <td className="p-3 text-right font-mono">{formatUSD(z.closingUSD || 0)}</td>
+                      <td className={`p-3 text-right font-mono ${Math.abs(dusd) < 0.01 ? 'text-slate-500' : dusd > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatUSD(dusd)}</td>
+                      <td className="p-3 text-center">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black ${reconciled ? 'bg-emerald-100 text-emerald-800' : hasPositive && !hasNegative ? 'bg-amber-100 text-amber-800' : hasNegative && !hasPositive ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}>
+                          {reconciled ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                          {result}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => {
+                            const report = buildCashReport('Z', z);
+                            if (report) setCashReportPreview(report);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] font-black hover:bg-slate-50"
+                        >
+                          <Printer className="w-3.5 h-3.5" /> Reimprimir Z
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {preZOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3">
