@@ -35,8 +35,7 @@ const dateInputValue = (d: Date) => {
 };
 
 const isCountableSale = (o: Order) =>
-  (o.channel === 'pos' || (o.channel === 'online' && !!o.posRegisteredAt)) &&
-  !!o.posRegisteredAt;
+  o.channel === 'pos' || (o.channel === 'online' && !!o.posRegisteredAt);
 
 export const SalesManagementView: React.FC = () => {
   const { orders, users } = useApp();
