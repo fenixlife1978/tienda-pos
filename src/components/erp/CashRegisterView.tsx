@@ -128,8 +128,15 @@ export const CashRegisterView: React.FC = () => {
       for (const split of splits) {
         const row = rowMap.get(split.method);
         if (!row) continue;
-        row.salesBs += sign * Number(split.amountBs || 0);
-        row.salesUSD += sign * Number(split.amountUSD || 0);
+        const amountBs = Number(split.amountBs || 0);
+        const amountUSD = Number(split.amountUSD || 0);
+        if (sign < 0) {
+          row.devAnuBs += amountBs;
+          row.devAnuUSD += amountUSD;
+        } else {
+          row.salesBs += amountBs;
+          row.salesUSD += amountUSD;
+        }
       }
     };
     for (const order of sessionAllOrders) {
