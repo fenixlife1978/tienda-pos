@@ -574,7 +574,7 @@ export default async function handler(req: any, res: any) {
         const now = new Date().toISOString();
         for (const [productId, qty] of demand) {
           await tx.execute({
-            sql: 'INSERT INTO inventory_reservations (id, order_id, product_id, quantity, status, created_at, updated_at) VALUES (?, ?, ?, ?, \\'reserved\\', ?, ?)',
+            sql: "INSERT INTO inventory_reservations (id, order_id, product_id, quantity, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'reserved', ?, ?)",
             args: ['resv-' + String(order.id) + '-' + productId, String(order.id), productId, qty, now, now],
           });
         }
