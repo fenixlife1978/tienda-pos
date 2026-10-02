@@ -78,8 +78,12 @@ export const OrderChecklistModal: React.FC<OrderChecklistModalProps> = ({
     setCheckedItems(updated);
   };
 
-  const handleApproveOrder = () => {
-    updateOrderStatus(order.id, 'aprobado');
+  const handleApproveOrder = async () => {
+    if (!order.posRegisteredAt) {
+      alert('Primero registra este pedido en una caja POS. La aprobación queda habilitada después de la registración POS.');
+      return;
+    }
+    await updateOrderStatus(order.id, 'aprobado');
     setJustApproved(true);
     playNotificationSound('cash');
     triggerPushNotification({
@@ -512,10 +516,11 @@ export const OrderChecklistModal: React.FC<OrderChecklistModalProps> = ({
 
             {/* En trámite -> Aprobado */}
             {effectiveStatus === 'en_tramite' && (
-              <button type="button" onClick={handleApproveOrder}
-                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 w-full sm:w-auto">
+              <button type="button" onClick={() => void handleApproveOrder().catch((error) => alert(error instanceof Error ? error.message : String(error)))} disabled={!order.posRegisteredAt}
+                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5 w-full sm:w-auto"
+                title={order.posRegisteredAt ? 'Aprobar pedido después del registro POS' : 'Primero registrar el pedido en POS'}>
                 <CheckCircle2 className="w-4 h-4 text-blue-200" />
-                <span>Aprobar Pedido</span>
+                <span>{order.posRegisteredAt ? 'Aprobar Pedido' : 'Registrar en POS primero'}</span>
               </button>
             )}
 
