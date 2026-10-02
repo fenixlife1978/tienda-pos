@@ -1082,6 +1082,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Active push notification toasts floating on screen
   const [activePushToasts, setActivePushToasts] = useState<AppNotification[]>([]);
+\n  // Notificación nativa opcional: el toast interno sigue siendo el canal principal.
+  // Si el navegador ya concedió permiso, también mostramos la alerta del sistema.
+  const showNativeCustomerNotification = (notif: AppNotification) => {
+    if (typeof window === 'undefined' || !currentCustomer) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      const native = new Notification(notif.title, {
+        body: notif.message,
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-192x192.png',
+        tag: notif.id,
+      });
+      native.onclick = () => {
+        window.focus();
+        if (notif.type === 'promotion' || notif.type === 'custom_broadcast') {
+          setMode('store');
+          setStoreTab('offers');
+        }
+        native.close();
+      };
+    } catch (error) {
+      console.warn('No se pudo mostrar la notificación nativa:', error);
+    }
+  };
 
   const dismissPushToast = (id: string) => {
     setActivePushToasts((prev) => prev.filter((t) => t.id !== id));
@@ -1149,8 +1173,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     seenNotificationIdsRef.current.add(newNotif.id);
 
     // Check sound preference del receptor actual.
+    const customerPrefs = currentCustomer?.notificationPreferences;
+    const customerWantsType = type === 'promotion' || type === 'custom_broadcast'
+      ? (customerPrefs?.promotions ?? true)
+      : type === 'credit_alert'
+        ? (customerPrefs?.creditAlerts ?? true)
+        : (customerPrefs?.orderStatus ?? true);
+    if (isCustomerRecipient && !customerWantsType) return;
+
     const soundAllowed =
-      options.sound !== false && (currentCustomer?.notificationPreferences?.soundEnabled ?? true);
+      options.sound !== false && (customerPrefs?.soundEnabled ?? true);
     if (soundAllowed) {
       if (type === 'order_status') {
         playNotificationSound('order_status');
@@ -1164,7 +1196,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Add to visible toasts (max 3 visible simultaneously)
-    setActivePushToasts((prev) => [newNotif, ...prev.slice(0, 2)]);
+    setActivePushToasts((prev) => [newNotif, ...prev.filter((t) => t.id !== newNotif.id).slice(0, 2)]);
+    if (isCustomerRecipient) showNativeCustomerNotification(newNotif);
 
     // Auto dismiss after 6 seconds
     setTimeout(() => {
@@ -1354,6 +1387,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updated = { ...currentCustomer, notificationPreferences: preferences };
     setCurrentCustomer(updated);
     setCustomers((prev) => prev.map((c) => (c.id === currentCustomer.id ? updated : c)));
+    if (tursoService.isConfigured() && navigator.onLine) {
+      void tursoService.saveCustomer(updated).catch((error) =>
+        console.warn('No se pudieron guardar las preferencias de notificaciones en Turso:', error)
+      );
+    }
   };
 
   // Dynamic Category & Unit Management
