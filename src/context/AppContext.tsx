@@ -1796,51 +1796,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!liveProduct) {
         throw new Error(`Producto no encontrado en inventario: ${productId}`);
       }
-      if (deduction > Number(liveProduct.stock) + 0.000001) {
+      const availableStock = Number(liveProduct.stock) - Number(liveProduct.reservedStock || 0);
+      if (deduction > availableStock + 0.000001) {
         throw new Error(
-          `Stock insuficiente para ${liveProduct.name}. Disponible: ${liveProduct.stock} ${liveProduct.unit}; solicitado: ${deduction}.`
+          `Stock disponible insuficiente para ${liveProduct.name}. Disponible: ${availableStock.toFixed(3)} ${liveProduct.unit}; solicitado: ${deduction}.`
         );
       }
     }
 
-    // Deduct stock in real-time accurately by presentation factor / weight / fractional
-    const boughtProductIds: string[] = [];
-    const updatedProducts = products.map((p) => {
-      const boughtItems = orderInput.items.filter((item) => item.product.id === p.id);
-      if (boughtItems.length > 0) {
-        boughtProductIds.push(p.id);
-        let totalStockDeduction = 0;
-        for (const bought of boughtItems) {
-          if (bought.selectedPresentation) {
-            totalStockDeduction += bought.quantity * bought.selectedPresentation.factor;
-          } else if (bought.saleMode === 'weight' && bought.weightKg) {
-            totalStockDeduction += bought.weightKg;
-          } else {
-            totalStockDeduction += bought.quantity;
+    // Las ventas POS consumen inventario físico. Los pedidos online solo reservan
+    // unidades después de persistirse en Turso; nunca se descuenta stock físico aquí.
+    if (orderInput.channel === 'pos') {
+      const boughtProductIds: string[] = [];
+      const updatedProducts = products.map((p) => {
+        const boughtItems = orderInput.items.filter((item) => item.product.id === p.id);
+        if (boughtItems.length > 0) {
+          boughtProductIds.push(p.id);
+          let totalStockDeduction = 0;
+          for (const bought of boughtItems) {
+            if (bought.selectedPresentation) {
+              totalStockDeduction += bought.quantity * bought.selectedPresentation.factor;
+            } else if (bought.saleMode === 'weight' && bought.weightKg) {
+              totalStockDeduction += bought.weightKg;
+            } else {
+              totalStockDeduction += bought.quantity;
+            }
           }
+          const remaining = Number((p.stock - totalStockDeduction).toFixed(3));
+          if (remaining <= p.minStock) {
+            pushNotification(
+              'Alerta de Inventario',
+              `El producto ${p.name} ha alcanzado su nivel crítico (${remaining} ${p.unit}).`,
+              'inventory_alert'
+            );
+          }
+          return { ...p, stock: remaining };
         }
-        const remaining = Number((p.stock - totalStockDeduction).toFixed(3));
-        if (remaining <= p.minStock) {
-          pushNotification(
-            'Alerta de Inventario',
-            `El producto ${p.name} ha alcanzado su nivel crítico (${remaining} ${p.unit}).`,
-            'inventory_alert'
-          );
-        }
-        return { ...p, stock: remaining };
-      }
-      return p;
-    });
+        return p;
+      });
 
-    setProducts(updatedProducts);
-    broadcastStockUpdate(updatedProducts, {
-      productIds: boughtProductIds,
-      source: orderInput.channel === 'pos' ? 'pos' : 'order',
-      summary: `Pedido ${newOrder.orderNumber}: Stock sincronizado en tiempo real`,
-    });
-
+      setProducts(updatedProducts);
+      broadcastStockUpdate(updatedProducts, {
+        productIds: boughtProductIds,
+        source: 'pos',
+        summary: `Venta POS ${newOrder.orderNumber}: Stock físico actualizado en tiempo real`,
+      });
+    }
     // If credit, add to Cuentas por Cobrar (CxC) and increase customer debt
-    if (isCredit && dueDate) {
+    if (isCredit && dueDate && orderInput.channel === 'pos') {
       const newRec: ReceivableItem = {
         id: `rec-${newInvoice.id}`,
         invoiceId: newInvoice.id,
@@ -1874,23 +1877,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Stock is never uploaded as a snapshot: every terminal contributes its movement
     // to the single global inventory when it reconnects.
     const inventoryByProduct = new Map<string, number>();
-    for (const bought of orderInput.items) {
-      const units = bought.selectedPresentation
-        ? bought.quantity * bought.selectedPresentation.factor
-        : bought.saleMode === 'weight' && bought.weightKg
-        ? bought.weightKg
-        : bought.quantity;
-      inventoryByProduct.set(
-        bought.product.id,
-        Number(((inventoryByProduct.get(bought.product.id) || 0) - units).toFixed(3))
-      );
+    if (orderInput.channel === 'pos') {
+      for (const bought of orderInput.items) {
+        const units = bought.selectedPresentation
+          ? bought.quantity * bought.selectedPresentation.factor
+          : bought.saleMode === 'weight' && bought.weightKg
+          ? bought.weightKg
+          : bought.quantity;
+        inventoryByProduct.set(
+          bought.product.id,
+          Number(((inventoryByProduct.get(bought.product.id) || 0) - units).toFixed(3))
+        );
+      }
     }
     const inventoryMovements = Array.from(inventoryByProduct.entries()).map(([productId, quantityDelta]) => ({
       productId,
       quantityDelta,
       movementType: 'sale' as const,
     }));
-    const receivable = isCredit
+    const receivable = isCredit && orderInput.channel === 'pos'
       ? {
           id: 'rec-' + newInvoice.id,
           invoiceId: newInvoice.id,
@@ -1907,7 +1912,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: 'al_dia' as const,
         }
       : undefined;
-    const syncedCustomer = isCredit
+    const syncedCustomer = isCredit && orderInput.channel === 'pos'
       ? (() => {
           const baseCustomer = customers.find((c) => c.id === orderInput.customerId);
           return baseCustomer ? { ...baseCustomer, currentDebtUSD: baseCustomer.currentDebtUSD + totalUSD } : undefined;
@@ -1921,7 +1926,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       receivable,
       customer: syncedCustomer,
     });
-
     clearCart();
 
     // La confirmación del pedido online la hace exclusivamente CheckoutModal.
