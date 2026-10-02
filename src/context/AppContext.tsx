@@ -1099,9 +1099,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     badge?: string;
     sound?: boolean;
   }) => {
-    // Push toasts are private to authenticated areas only:
-    // admin dashboard or an authenticated customer account. Never show them on landing/login.
-    if (!isAdminActive && !currentCustomer) return;
+    // La notificación se persiste en Turso aunque el emisor sea otra sesión
+    // (por ejemplo, un cliente enviando un pedido o reportando un pago). Solo
+    // la sesión que pertenece al destinatario la muestra en pantalla.
+    // Esto permite que cliente y administración funcionen simultáneamente en
+    // dispositivos/pestañas independientes.
+    if (!isAdminActive && !currentCustomer && !options.targetRole) return;
 
     // Suppress push notifications and sound alerts for BCV rate updates
     if (options.type === 'bcv_update') {
@@ -1113,6 +1116,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       options.targetCustomerId
         ? (options.targetRole || 'client')
         : (isAdminActiveRef.current && !options.targetRole ? 'seller' : options.targetRole);
+    const isAdminRecipient =
+      (isAdminActiveRef.current || mode === 'erp') &&
+      (effectiveTargetRole === 'seller' || effectiveTargetRole === 'all' || !effectiveTargetRole);
+    const isCustomerRecipient =
+      !!currentCustomer &&
+      (effectiveTargetRole === 'client' || effectiveTargetRole === 'all' || !effectiveTargetRole) &&
+      (!options.targetCustomerId || options.targetCustomerId === currentCustomer.id);
+    const shouldDisplayHere = isAdminRecipient || isCustomerRecipient;
     const newNotif: AppNotification = {
       id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       title: options.title,
@@ -1128,11 +1139,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       badge: options.badge,
     };
 
-    setNotifications((prev) => [newNotif, ...prev]);
-    seenNotificationIdsRef.current.add(newNotif.id);
+    // Siempre persistimos la alerta en Turso. El receptor la recogerá mediante
+    // el cursor de cambios aunque esté en otro dispositivo.
     void tursoService.saveNotification(newNotif).catch((e) => console.warn('Error saving notification to Turso:', e));
 
-    // Check sound preference
+    if (!shouldDisplayHere) return;
+
+    setNotifications((prev) => [newNotif, ...prev]);
+    seenNotificationIdsRef.current.add(newNotif.id);
+
+    // Check sound preference del receptor actual.
     const soundAllowed =
       options.sound !== false && (currentCustomer?.notificationPreferences?.soundEnabled ?? true);
     if (soundAllowed) {
