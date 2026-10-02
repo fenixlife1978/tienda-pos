@@ -1166,7 +1166,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // la sesión que pertenece al destinatario la muestra en pantalla.
     // Esto permite que cliente y administración funcionen simultáneamente en
     // dispositivos/pestañas independientes.
-    if (!isAdminActive && !currentCustomer && !options.targetRole) return;
+    if (!isAdminActiveRef.current && !currentCustomerRef.current && !options.targetRole) return;
 
     // Suppress push notifications and sound alerts for BCV rate updates
     if (options.type === 'bcv_update') {
@@ -1182,7 +1182,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (isAdminActiveRef.current || mode === 'erp') &&
       (effectiveTargetRole === 'seller' || effectiveTargetRole === 'all' || !effectiveTargetRole);
     const isCustomerRecipient =
-      !!currentCustomer &&
+      !!currentCustomerRef.current &&
       (effectiveTargetRole === 'client' || effectiveTargetRole === 'all' || !effectiveTargetRole) &&
       (!options.targetCustomerId || options.targetCustomerId === currentCustomerRef.current?.id);
     const shouldDisplayHere = isAdminRecipient || isCustomerRecipient;
@@ -1211,7 +1211,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     seenNotificationIdsRef.current.add(newNotif.id);
 
     // Check sound preference del receptor actual.
-    const customerPrefs = currentCustomer?.notificationPreferences;
+    const customerPrefs = currentCustomerRef.current?.notificationPreferences;
     const customerWantsType = type === 'promotion' || type === 'custom_broadcast'
       ? (customerPrefs?.promotions ?? true)
       : type === 'credit_alert'
