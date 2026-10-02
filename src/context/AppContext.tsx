@@ -294,7 +294,7 @@ interface AppContextType {
     relatedOrderId?: string;
     badge?: string;
     sound?: boolean;
-  }) => void;
+  }) => Promise<void>;
   broadcastPushNotification: (options: {
     title: string;
     message: string;
@@ -302,13 +302,14 @@ interface AppContextType {
     targetRole?: 'client' | 'seller' | 'all';
     targetCustomerId?: string;
     badge?: string;
-  }) => void;
+  }) => Promise<void>;
   // Customer Auth & Preferences
   loginCustomer: (identifier: string, password?: string) => boolean;
   registerCustomer: (customerData: Omit<Customer, 'id'>) => Customer;
   logoutCustomer: () => void;
   logoutAdmin: () => Promise<void>;
   updateCustomerPreferences: (preferences: CustomerNotificationPreferences) => void;
+  requestCustomerPushPermission: () => Promise<NotificationPermission | 'unsupported'>;
   // Navigation tabs & modals
   storeTab: 'catalog' | 'offers';
   setStoreTab: (tab: 'catalog' | 'offers') => void;
@@ -1134,7 +1135,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActivePushToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const triggerPushNotification = (options: {
+  const requestCustomerPushPermission = async (): Promise<NotificationPermission | 'unsupported'> => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+    if (Notification.permission === 'granted' || Notification.permission === 'denied') return Notification.permission;
+    try {
+      return await Notification.requestPermission();
+    } catch {
+      return 'unsupported';
+    }
+  };
+
+  const triggerPushNotification = async (options: {
     title: string;
     message: string;
     type?: AppNotification['type'];
@@ -1188,7 +1199,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Siempre persistimos la alerta en Turso. El receptor la recogerá mediante
     // el cursor de cambios aunque esté en otro dispositivo.
-    void tursoService.saveNotification(newNotif).catch((e) => console.warn('Error saving notification to Turso:', e));
+    await tursoService.saveNotification(newNotif);
 
     if (!shouldDisplayHere) return;
 
@@ -1228,7 +1239,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 6000);
   };
 
-  const broadcastPushNotification = (options: {
+  const broadcastPushNotification = async (options: {
     title: string;
     message: string;
     type: AppNotification['type'];
@@ -1236,7 +1247,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     targetCustomerId?: string;
     badge?: string;
   }) => {
-    triggerPushNotification({
+    await triggerPushNotification({
       title: options.title,
       message: options.message,
       type: options.type,
@@ -4031,7 +4042,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
-      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
+      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, requestCustomerPushPermission, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
       storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
       isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
       isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
