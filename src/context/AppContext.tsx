@@ -122,7 +122,9 @@ interface AppContextType {
     customCreditDays?: number;
   }) => Promise<{ order: Order; invoice: Invoice }>;
   reorder: (orderId: string) => boolean;
-  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  registerOnlineOrderInPos: (orderId: string) => Promise<Order>;
+  cancelOnlineOrder: (orderId: string) => Promise<boolean>;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   updatePaymentStatus: (orderId: string, paymentStatus: PaymentStatus) => void;
   processSaleReturn: (orderId: string, reason: string) => { success: boolean; message: string; refundUSD: number; returnNumber?: string };
   voidSale: (orderId: string, reason: string) => { success: boolean; message: string; voidNumber?: string };
