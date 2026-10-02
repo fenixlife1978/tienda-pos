@@ -1034,7 +1034,20 @@ export const CustomerDashboard: React.FC = () => {
                         <tr key={movement.id} className="hover:bg-slate-50/70 transition">
                           <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500 font-mono">{new Date(movement.date).toLocaleString('es-VE')}</td>
                           <td className="px-4 py-3"><div className="flex items-center gap-2">{movement.detailType === 'credito' ? <ArrowUpCircle className="w-4 h-4 text-amber-600 shrink-0" /> : <ArrowDownCircle className="w-4 h-4 text-emerald-600 shrink-0" />}<div><div className="text-xs font-bold text-slate-800">{movement.concept}</div>{movement.reference && <div className="text-[10px] text-slate-400 font-mono">{movement.reference}</div>}</div></div></td>
-                          <td className="px-4 py-3 text-right font-mono font-black text-amber-700">{movement.creditUSD > 0 ? '+
+                          <td className="px-4 py-3 text-right font-mono font-black text-amber-700">{movement.creditUSD > 0 ? `+${movement.creditUSD.toFixed(2)}` : '—'}</td>
+                          <td className="px-4 py-3 text-right font-mono font-black text-emerald-700">{movement.paymentUSD > 0 ? `-${movement.paymentUSD.toFixed(2)}` : '—'}</td>
+                          <td className="px-4 py-3 text-right font-mono font-black text-slate-900">${movement.balanceUSD.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-xs"><div className="font-semibold text-slate-700">{movement.method || '—'}</div><div className="text-[10px] text-slate-400">{movement.status || 'Registrado'}</div></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {customerPortalTab === 'credito' && (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
