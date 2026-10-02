@@ -210,7 +210,9 @@ export interface Product {
   priceListMatrix?: PriceListMatrix; // Matriz de listas (Público, Mayorista, Distribuidor, Especial)
   
   // Pestaña Inventario
-  stock: number; // Stock físico o virtual
+  stock: number;
+  /** Unidades comprometidas por pedidos online aún no consumidos físicamente. */
+  reservedStock?: number; // Stock físico o virtual
   initialStock?: number; // Stock inicial
   minStock: number; // Stock mínimo
   maxStock?: number; // Stock máximo
@@ -268,7 +270,7 @@ export interface CartItem {
   customNote?: string;
 }
 
-export type OrderStatus = 'en_tramite' | 'aprobado' | 'despachado_facturado';
+export type OrderStatus = 'en_tramite' | 'aprobado' | 'despachado_facturado' | 'cancelado';
 export type CustomerPortalTab = 'catalogo' | 'ofertas' | 'pedidos' | 'facturas' | 'deudas' | 'credito';
 export type PaymentStatus = 'pendiente' | 'pagado' | 'a_credito';
 export type PaymentMethod =
@@ -359,6 +361,12 @@ export interface Order {
   createdAt: string;
   /** Momento en que administración aprobó y contabilizó la venta. */
   approvedAt?: string;
+  /** Momento en que la reserva del pedido fue confirmada en Turso. */
+  reservedAt?: string;
+  /** Momento en que el pedido fue registrado físicamente en una caja POS. */
+  posRegisteredAt?: string;
+  /** Usuario que registró el pedido en POS. */
+  posRegisteredBy?: string;
   /** Caja/terminal POS que originó la venta; permite arqueo exacto multi-caja. */
   cashSessionId?: string;
   /** Terminal POS que originó la operación; vacío para pedidos online. */
