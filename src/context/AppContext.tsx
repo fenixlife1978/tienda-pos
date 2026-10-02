@@ -1274,7 +1274,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     let cancelled = false;
     const restoreSession = async () => {
+      // Una pestaña que ya tiene una sesión cliente nunca debe revivir una
+      // sesión ERP residual (por ejemplo, al duplicar una pestaña administrativa).
+      const activeCustomerId = sessionStorage.getItem('omni_active_customer_id');
       const tabSession = sessionStorage.getItem('tienda_pos_tab_session');
+      if (activeCustomerId) {
+        sessionStorage.removeItem('tienda_pos_tab_session');
+        sessionStorage.removeItem('tienda_pos_admin_user');
+        sessionStorage.removeItem('omni_erp_active_tab');
+        return;
+      }
       if (!tabSession) return;
       try {
         const response = await fetch('/api/auth/session', {
