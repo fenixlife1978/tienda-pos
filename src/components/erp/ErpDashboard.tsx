@@ -17,6 +17,7 @@ import { SettingsAndUsersView } from './SettingsAndUsersView';
 import { CashRegisterView } from './CashRegisterView';
 import { InventoryTransfersView } from './InventoryTransfersView';
 import { TerminalManagementView } from './TerminalManagementView';
+import { SalesManagementView } from './SalesManagementView';
 
 export const ErpDashboard: React.FC = () => {
   const { currentUser, orders, products, receivables, customers } = useApp();
@@ -74,7 +75,8 @@ export const ErpDashboard: React.FC = () => {
 
       {/* Render Active Module */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {activeTab === 'dashboard' && !isCashier && <SalesDashboardView />}
+        {activeTab === 'dashboard' && !isCashier && <SalesDashboardView />} 
+        {activeTab === 'ventas' && !isCashier && <SalesManagementView />}
         {activeTab === 'caja' && <CashRegisterView />}
         {activeTab === 'pos' && <PosView />}
         {activeTab === 'pedidos' && <OrdersManagementView />}
