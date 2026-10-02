@@ -2001,10 +2001,10 @@ class TursoService {
       });
     }
     const r = await client.execute({
-      sql: \`SELECT t.* FROM terminals t
+      sql: `SELECT t.* FROM terminals t
             INNER JOIN terminal_user_assignments a ON a.terminal_id = t.id
-            WHERE a.user_id = ? \${activeOnly ? 'AND t.active = 1' : ''}
-            ORDER BY CASE WHEN t.id = 'terminal-admin-default' THEN 0 ELSE 1 END, t.code ASC\`,
+            WHERE a.user_id = ? ${activeOnly ? 'AND t.active = 1' : ''}
+            ORDER BY CASE WHEN t.id = 'terminal-admin-default' THEN 0 ELSE 1 END, t.code ASC`,
       args: [userId],
     });
     return r.rows.map((row: any) => ({
