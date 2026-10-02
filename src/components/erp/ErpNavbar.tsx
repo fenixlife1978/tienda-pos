@@ -20,11 +20,13 @@ import {
   WalletCards,
   ArrowRightLeft,
   MonitorCog,
+  ShoppingCart,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
 export type ErpTab =
   | 'dashboard'
+  | 'ventas'
   | 'caja'
   | 'pos'
   | 'pedidos'
@@ -77,6 +79,12 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       id: 'dashboard' as ErpTab,
       label: 'Dashboard & Ventas',
       icon: LayoutDashboard,
+      badge: null,
+    },
+    {
+      id: 'ventas' as ErpTab,
+      label: 'Gestión de Ventas',
+      icon: ShoppingCart,
       badge: null,
     },
     {
