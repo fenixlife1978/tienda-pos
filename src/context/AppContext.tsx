@@ -1104,7 +1104,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Active push notification toasts floating on screen
   const [activePushToasts, setActivePushToasts] = useState<AppNotification[]>([]);
-\n  // Notificación nativa opcional: el toast interno sigue siendo el canal principal.
+
+  // Notificación nativa opcional: el toast interno sigue siendo el canal principal.
   // Si el navegador ya concedió permiso, también mostramos la alerta del sistema.
   const showNativeCustomerNotification = (notif: AppNotification) => {
     if (typeof window === 'undefined' || !currentCustomer) return;
