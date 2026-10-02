@@ -405,8 +405,10 @@ const safeLocalStorageJson = <T,>(key: string, fallback: T): T => {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // El modo de navegación es estrictamente por pestaña. Nunca leerlo desde
+  // localStorage porque otra pestaña puede estar trabajando en ERP.
   const [mode, setMode] = useState<'store' | 'erp'>(() => {
-    return (localStorage.getItem('omni_mode') as 'store' | 'erp') || 'store';
+    return (sessionStorage.getItem('omni_mode_tab') as 'store' | 'erp') || 'store';
   });
 
   const [settings, setSettings] = useState<SystemSettings>(() => {
@@ -462,17 +464,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return [INITIAL_GENERIC_ADMIN];
   });
 
-  const [currentUser, setCurrentUser] = useState<User>(() => {
-    const savedUsers = localStorage.getItem('omni_users');
-    if (savedUsers) {
-      try {
-        const list: User[] = JSON.parse(savedUsers);
-        const admin = list.find((u) => u.role === 'admin' && u.active);
-        if (admin) return admin;
-      } catch (e) {}
-    }
-    return INITIAL_GENERIC_ADMIN;
-  });
+  // El usuario autenticado también es por pestaña. El administrador real se
+  // restaura únicamente mediante la sesión tab-scoped de /api/auth/session.
+  const [currentUser, setCurrentUser] = useState<User>(INITIAL_GENERIC_ADMIN);
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
     return safeLocalStorageJson<Customer[]>('omni_customers', []);
@@ -557,6 +551,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [storeTab, setStoreTab] = useState<'catalog' | 'offers'>('catalog');
   const [customerPortalTab, setCustomerPortalTab] = useState<CustomerPortalTab>('catalogo');
   const [isAdminActive, setIsAdminActive] = useState<boolean>(false);
+
+  useEffect(() => {
+    sessionStorage.setItem('omni_mode_tab', mode);
+  }, [mode]);
   const isAdminActiveRef = useRef<boolean>(false);
   isAdminActiveRef.current = isAdminActive;
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'register'>('login');
