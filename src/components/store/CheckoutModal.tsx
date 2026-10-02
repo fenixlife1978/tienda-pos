@@ -121,9 +121,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
           );
         }
 
-        // Turso es la única fuente de verdad: después del COMMIT exitoso
-        // rehidratamos el estado antes de declarar enviado el pedido.
-        await syncWithTurso(true);
+        // Primero persistimos el pedido; después Turso reserva físicamente las
+        // unidades comprometidas. La reserva reduce el disponible del catálogo
+        // sin tocar todavía el stock físico.
+        try {
+          await tursoService.reserveOrderInventory(order);
+          await syncWithTurso(true);
+        } catch (reservationError) {
+          try {
+            await tursoService.cancelOnlineOrder(order.id);
+            await syncWithTurso(true);
+          } catch (cancelError) {
+            console.error('No se pudo liberar/cancelar el pedido tras fallar la reserva:', cancelError);
+          }
+          throw reservationError;
+        }
 
         // La notificación administrativa ocurre únicamente después de que
         // Turso confirmó la operación y el estado local fue rehidratado.
