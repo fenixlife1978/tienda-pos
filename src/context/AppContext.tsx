@@ -1419,7 +1419,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Cart operations
   const addToCart = (product: Product, quantity = 1) => {
-    const availableStock = Math.max(0, Number(availableStock || 0) - Number(product.reservedStock || 0));
+    const availableStock = Math.max(0, Number(product.stock || 0) - Number(product.reservedStock || 0));
     if (availableStock <= 0) {
       alert(`El producto "${product.name}" está agotado en inventario.`);
       return;
