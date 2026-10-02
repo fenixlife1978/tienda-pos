@@ -1223,10 +1223,71 @@ export default async function handler(req: any, res: any) {
         const effectiveApprovedAt = preserveApproved
           ? (existingOrderRow.approved_at || o.approvedAt || null)
           : (o.approvedAt || null);
-        await tx.execute({sql:'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,payment_status,order_status,payment_reference,channel,created_at,approved_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason,terminal_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,effectivePaymentStatus,effectiveOrderStatus,o.paymentReference||null,o.channel,o.createdAt,effectiveApprovedAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null,o.terminalId||null]});
+        await ensureColumn(client, 'orders', 'cash_session_id', 'TEXT');
+        await ensureColumn(client, 'orders', 'terminal_id', 'TEXT');
+        await ensureColumn(client, 'invoices', 'cash_session_id', 'TEXT');
+        await ensureColumn(client, 'invoices', 'terminal_id', 'TEXT');
+
+        await tx.execute({sql:'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,terminal_id,payment_status,order_status,payment_reference,channel,created_at,approved_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.cashSessionId||null,o.terminalId||null,effectivePaymentStatus,effectiveOrderStatus,o.paymentReference||null,o.channel,o.createdAt,effectiveApprovedAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null]});
         const inv=op.invoice;
-        await tx.execute({sql:'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason,terminal_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null,inv.terminalId||null]});
+        await tx.execute({sql:'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,terminal_id,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.cashSessionId||null,inv.terminalId||null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null]});
         if(op.customer){const x=op.customer;await tx.execute({sql:'INSERT OR REPLACE INTO customers (id,name,rif,email,phone,address,has_credit,credit_days,credit_limit_usd,current_debt_usd,password,avatar,notification_preferences,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[x.id,x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.password||null,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,new Date().toISOString()]});}
+        // Cada venta POS queda además asentada en ventas_postings y accounting_entries.
+        // Son registros idempotentes: un reintento de la misma operación no duplica el asiento.
+        await tx.execute(`CREATE TABLE IF NOT EXISTS sales_postings (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+          order_number TEXT NOT NULL, customer_id TEXT, channel TEXT NOT NULL,
+          total_usd REAL NOT NULL, total_bs REAL NOT NULL, payment_method TEXT NOT NULL,
+          payment_splits TEXT, is_credit INTEGER NOT NULL DEFAULT 0, cash_session_id TEXT,
+          payment_date TEXT, approved_at TEXT NOT NULL, approved_by TEXT NOT NULL, created_at TEXT NOT NULL
+        )`);
+        try { await tx.execute('ALTER TABLE sales_postings ADD COLUMN payment_date TEXT'); } catch {}
+        await tx.execute(`CREATE TABLE IF NOT EXISTS accounting_entries (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+          document_number TEXT NOT NULL, entry_date TEXT NOT NULL, description TEXT NOT NULL,
+          source TEXT NOT NULL, lines TEXT NOT NULL, created_at TEXT NOT NULL
+        )`);
+        const saleSplits = Array.isArray(o.paymentSplits) && o.paymentSplits.length
+          ? o.paymentSplits
+          : [{ method: o.paymentMethod, amountUSD: Number(o.totalUSD || 0), amountBs: Number(o.totalBs || 0) }];
+        const salePaymentDate = saleSplits.map((x:any) => String(x.createdAt || '')).filter(Boolean).sort()[0] || String(o.createdAt || new Date().toISOString());
+        const saleLines:any[] = [];
+        if (String(o.paymentMethod) === 'credito') {
+          saleLines.push({ account: 'CUENTAS POR COBRAR - CLIENTES', debitUSD: Number(o.totalUSD || 0), debitBs: Number(o.totalBs || 0), creditUSD: 0, creditBs: 0, paymentMethod: 'credito' });
+        } else {
+          for (const split of saleSplits) {
+            saleLines.push({
+              account: 'CAJA/BANCO - ' + String(split.method || o.paymentMethod),
+              debitUSD: Number(split.amountUSD || 0),
+              debitBs: Number(split.amountBs || 0),
+              creditUSD: 0,
+              creditBs: 0,
+              paymentMethod: String(split.method || o.paymentMethod),
+              reference: split.reference || o.paymentReference || null,
+            });
+          }
+        }
+        saleLines.push({ account: 'INGRESOS POR VENTAS', debitUSD: 0, debitBs: 0, creditUSD: Number(o.subtotalUSD || o.totalUSD || 0), creditBs: Number((Number(o.subtotalUSD || o.totalUSD || 0) * Number(o.bcvRate || 0)).toFixed(2)) });
+        if (Number(o.taxUSD || 0) > 0) saleLines.push({ account: 'IVA DÉBITO FISCAL', debitUSD: 0, debitBs: 0, creditUSD: Number(o.taxUSD || 0), creditBs: Number((Number(o.taxUSD || 0) * Number(o.bcvRate || 0)).toFixed(2)) });
+        await tx.execute({
+          sql: `INSERT OR IGNORE INTO sales_postings
+            (id, order_id, invoice_id, order_number, customer_id, channel, total_usd, total_bs,
+             payment_method, payment_splits, is_credit, cash_session_id, payment_date, approved_at, approved_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: ['sale-post-' + String(o.id), String(o.id), String(inv.id), String(o.orderNumber), String(o.customerId || ''),
+            String(o.channel || 'pos'), Number(o.totalUSD || 0), Number(o.totalBs || 0),
+            String(o.paymentMethod || inv.paymentMethod), o.paymentSplits ? JSON.stringify(o.paymentSplits) : null,
+            String(o.paymentMethod) === 'credito' ? 1 : 0, o.cashSessionId || null, salePaymentDate,
+            String(o.approvedAt || o.createdAt || new Date().toISOString()), String(op.terminalId || 'POS'), new Date().toISOString()]
+        });
+        await tx.execute({
+          sql: `INSERT OR IGNORE INTO accounting_entries
+            (id, order_id, invoice_id, document_number, entry_date, description, source, lines, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: ['asiento-' + String(o.id), String(o.id), String(inv.id), String(inv.invoiceNumber || o.orderNumber),
+            salePaymentDate, 'Venta registrada en POS ' + String(o.orderNumber), 'pos_sale', JSON.stringify(saleLines), new Date().toISOString()]
+        });
+
         if(op.receivable){const r=op.receivable;await tx.execute({sql:'INSERT OR REPLACE INTO accounts_receivable (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[r.id,r.invoiceId,r.invoiceNumber,r.customerId,r.customerName,r.customerPhone,r.totalAmountUSD,r.amountPaidUSD,r.balanceUSD,r.issuedDate,r.dueDate,r.creditDays,r.status,r.issuedDate,r.isVoided?1:0,r.voidedAt||null,r.voidReason||null,JSON.stringify(r.paymentHistory||[])]});}
         await tx.execute({sql:"UPDATE sync_operations SET status='processed',processed_at=?,error=NULL WHERE operation_id=?",args:[new Date().toISOString(),op.operationId]});
         await tx.commit();
