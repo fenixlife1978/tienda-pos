@@ -1048,6 +1048,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // El snapshot de Turso se carga inmediatamente; no se vuelve a crear
         // tablas ni se espera a que termine un bootstrap en cada F5.
         await syncWithTurso(true);
+
+        // La identidad de sesión de cliente también vive por pestaña, pero la
+        // información de esa cuenta siempre se recupera desde Turso al arrancar.
+        // Nunca reconstruimos la cuenta desde localStorage/caché.
+        const activeCustomerId = sessionStorage.getItem('omni_active_customer_id');
+        if (activeCustomerId) {
+          try {
+            const cloudState = await tursoService.loadAllData();
+            const cloudCustomer = cloudState.customers.find((c: Customer) => c.id === activeCustomerId);
+            if (cloudCustomer) {
+              setCurrentCustomer(cloudCustomer);
+              currentCustomerRef.current = cloudCustomer;
+              currentCustomerIdRef.current = cloudCustomer.id;
+              sessionStorage.removeItem('tienda_pos_tab_session');
+              sessionStorage.removeItem('tienda_pos_admin_user');
+              sessionStorage.removeItem('omni_erp_active_tab');
+              setIsAdminActive(false);
+              setMode('store');
+            } else {
+              // La cuenta ya no existe en Turso: no conservamos una identidad local.
+              sessionStorage.removeItem('omni_active_customer_id');
+              setCurrentCustomer(null);
+              currentCustomerRef.current = null;
+              currentCustomerIdRef.current = null;
+            }
+          } catch (error) {
+            console.warn('No se pudo validar la sesión del cliente contra Turso:', error);
+            sessionStorage.removeItem('omni_active_customer_id');
+            setCurrentCustomer(null);
+            currentCustomerRef.current = null;
+            currentCustomerIdRef.current = null;
+          }
+        }
+
         // Antes de habilitar el sincronizador normal, reintentamos las operaciones POS
         // durables que hayan quedado pendientes. Esto evita que una recarga deje una venta
         // registrada solo en memoria/localStorage.
