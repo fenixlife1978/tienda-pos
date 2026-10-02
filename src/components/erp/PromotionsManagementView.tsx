@@ -377,21 +377,27 @@ export const PromotionsManagementView: React.FC = () => {
   }, [customers, broadcastTarget]);
 
   // Send Push to all target customers
-  const handleBroadcastPush = () => {
-    let sentCount = 0;
-    targetCustomersList.forEach((c) => {
-      triggerPushNotification({
-        title: customPushTitle,
-        message: `Hola ${c.name}, ${customPushMessage}`,
-        type: 'promotion',
-        targetCustomerId: c.id,
-        badge: 'OFERTAS ACTIVAS',
-        sound: true,
-      });
-      sentCount++;
-    });
+  const handleBroadcastPush = async () => {
+    const results = await Promise.allSettled(
+      targetCustomersList.map((c) =>
+        triggerPushNotification({
+          title: customPushTitle,
+          message: `Hola ${c.name}, ${customPushMessage}`,
+          type: 'promotion',
+          targetCustomerId: c.id,
+          targetRole: 'client',
+          badge: 'OFERTAS ACTIVAS',
+          sound: true,
+        })
+      )
+    );
+    const sentCount = results.filter((result) => result.status === 'fulfilled').length;
+    const failedCount = results.length - sentCount;
 
     setPushSentSuccess(sentCount);
+    if (failedCount > 0) {
+      console.warn(`No se pudieron persistir ${failedCount} notificaciones de promoción en Turso.`);
+    }
     setTimeout(() => {
       setPushSentSuccess(null);
     }, 5000);
