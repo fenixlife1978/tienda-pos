@@ -91,6 +91,108 @@ export const CashRegisterView: React.FC = () => {
   // Los reportes X/Z son efímeros: solo existen mientras el usuario los haya
   // invocado mediante su botón. Nunca se restauran desde localStorage.
   const [cashReportPreview, setCashReportPreview] = useState<CashReportData | null>(null);
+  const [preZOpen, setPreZOpen] = useState(false);
+  const [preZReal, setPreZReal] = useState<Record<string, string>>({});
+  const [preZStatus, setPreZStatus] = useState<{ kind: 'ok' | 'positive' | 'negative'; bs: number; usd: number } | null>(null);
+
+  const arqueoMethods = [
+    'efectivo_bs', 'efectivo_usd', 'zelle', 'pago_movil', 'transferencia_bs',
+    'transferencia_usd', 'biopago', 'tarjeta', 'credito',
+  ] as const;
+
+  const sessionAllOrders = useMemo(() => {
+    if (!session) return [];
+    return orders.filter((o) =>
+      (o.channel === 'pos' || (o.channel === 'online' && !!o.posRegisteredAt)) &&
+      (o.cashSessionId === session.id ||
+        (o.terminalId === terminalId && !o.cashSessionId &&
+          o.createdAt >= session.openedAt &&
+          o.createdAt <= new Date().toISOString()))
+    );
+  }, [orders, session, terminalId]);
+
+  const arqueoRows = useMemo(() => {
+    const rows = arqueoMethods.map((method) => ({
+      method,
+      openingBs: method === 'efectivo_bs' ? Number(session?.openingBs || 0) : 0,
+      openingUSD: method === 'efectivo_usd' ? Number(session?.openingUSD || 0) : 0,
+      salesBs: 0, salesUSD: 0, cxcBs: 0, cxcUSD: 0,
+      devAnuBs: 0, devAnuUSD: 0, plusBs: 0, plusUSD: 0, minusBs: 0, minusUSD: 0,
+    }));
+
+    const rowMap = new Map(rows.map((r) => [r.method, r]));
+    const addSale = (order: any, sign = 1) => {
+      const splits = order.paymentSplits?.length ? order.paymentSplits : [{
+        method: order.paymentMethod, amountBs: order.totalBs, amountUSD: order.totalUSD,
+      }];
+      for (const split of splits) {
+        const row = rowMap.get(split.method);
+        if (!row) continue;
+        row.salesBs += sign * Number(split.amountBs || 0);
+        row.salesUSD += sign * Number(split.amountUSD || 0);
+      }
+    };
+    for (const order of sessionAllOrders) {
+      if (order.isVoided || order.isReturned) addSale(order, -1);
+      else addSale(order, 1);
+    }
+    for (const { p } of cxcPayments) {
+      const splits = p.paymentSplits?.length ? p.paymentSplits : [{
+        method: p.paymentMethod, currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(p.paymentMethod) ? 'Bs' : 'USD',
+        amountBs: p.amountBs, amountUSD: p.amountUSD,
+      }];
+      for (const split of splits) {
+        const row = rowMap.get(split.method);
+        if (!row) continue;
+        if (split.currency === 'Bs') row.cxcBs += Number(split.amountBs || 0);
+        else row.cxcUSD += Number(split.amountUSD || 0);
+      }
+    }
+    for (const movement of sessionMovements) {
+      const method = movement.currency === 'Bs' ? 'efectivo_bs' : 'efectivo_usd';
+      const row = rowMap.get(method);
+      if (!row) continue;
+      if (movement.type === 'ingreso' || movement.type === 'deposito') {
+        if (movement.currency === 'Bs') row.plusBs += movement.amount;
+        else row.plusUSD += movement.amount;
+      } else {
+        if (movement.currency === 'Bs') row.minusBs += movement.amount;
+        else row.minusUSD += movement.amount;
+      }
+    }
+    return rows.map((r) => {
+      const currency = r.method === 'efectivo_bs' || r.method === 'pago_movil' || r.method === 'transferencia_bs' || r.method === 'biopago' || r.method === 'tarjeta'
+        ? 'Bs' : 'USD';
+      const system = currency === 'Bs'
+        ? r.openingBs + r.salesBs + r.cxcBs + r.devAnuBs + r.plusBs - r.minusBs
+        : r.openingUSD + r.salesUSD + r.cxcUSD + r.devAnuUSD + r.plusUSD - r.minusUSD;
+      return { ...r, currency, system: Number(system.toFixed(2)) };
+    });
+  }, [session, sessionAllOrders, cxcPayments, sessionMovements]);
+
+  const calculatePreZ = (values = preZReal) => {
+    let bs = 0, usd = 0;
+    for (const row of arqueoRows) {
+      const raw = String(values[row.method] ?? '').trim().replace(',', '.');
+      if (!raw) continue;
+      const real = Number(raw);
+      if (!Number.isFinite(real)) continue;
+      const diff = real - row.system;
+      if (row.currency === 'Bs') bs += diff;
+      else usd += diff;
+    }
+    return { bs: Number(bs.toFixed(2)), usd: Number(usd.toFixed(2)) };
+  };
+
+  const openPreZ = () => {
+    if (!session) {
+      alert('Para ejecutar el corte Z primero debe abrirse una caja.');
+      return;
+    }
+    setPreZReal({});
+    setPreZStatus(null);
+    setPreZOpen(true);
+  };
 
   useEffect(() => {
     if (!tursoService.isConfigured() || !navigator.onLine) return;
@@ -415,13 +517,33 @@ export const CashRegisterView: React.FC = () => {
   };
 
   const close = () => {
+    openPreZ();
+  };
+
+  const executeZ = () => {
     if (!session) return;
+    const diff = calculatePreZ();
+    setPreZStatus({
+      kind: Math.abs(diff.bs) < 0.01 && Math.abs(diff.usd) < 0.01 ? 'ok' : (diff.bs > 0 || diff.usd > 0 ? 'positive' : 'negative'),
+      bs: diff.bs,
+      usd: diff.usd,
+    });
 
-    const countedBs = Number(closingBs) || 0;
-    const countedUSD = Number(closingUSD) || 0;
+    const realBs = Number(String(preZReal.efectivo_bs || '').replace(',', '.')) || 0;
+    const realUSD = Number(String(preZReal.efectivo_usd || '').replace(',', '.')) || 0;
     const closedAt = new Date().toISOString();
-
     const closed: CashSession = {
+      ...session,
+      closedAt,
+      closedBy: currentUser.name || 'Usuario',
+      closingBs: realBs,
+      closingUSD: realUSD,
+      expectedBs: Number(expectedBs.toFixed(2)),
+      expectedUSD: Number(expectedUSD.toFixed(2)),
+      differenceBs: diff.bs,
+      differenceUSD: diff.usd,
+      status: 'closed',
+    };
       ...session,
       closedAt,
       closedBy: currentUser.name || 'Usuario',
@@ -434,12 +556,39 @@ export const CashRegisterView: React.FC = () => {
       status: 'closed',
     };
 
-    // El cierre de caja no genera ni guarda automáticamente el Reporte Z.
-    // El Z solo se construye cuando el usuario pulsa "Vista previa Z".    persistHistory([closed, ...history]);
+    // Z se ejecuta ahora: queda guardado en histórico aunque el reporte no se imprima.
+    persistHistory([closed, ...history]);
     if (tursoService.isConfigured()) tursoService.saveCashSession(closed).catch(console.warn);
+
+    const report: CashReportData = {
+      kind: 'Z',
+      terminalId: closed.terminalId,
+      generatedAt: new Date().toISOString(),
+      openedAt: closed.openedAt,
+      openedBy: closed.openedBy,
+      closedAt: closed.closedAt,
+      closedBy: closed.closedBy,
+      openingBs: closed.openingBs,
+      openingUSD: closed.openingUSD,
+      salesUSD: totalSalesUSD,
+      salesByMethod,
+      cxcByMethod,
+      cxcCashSalesBs,
+      cxcCashSalesUSD,
+      expectedBs: closed.expectedBs || 0,
+      expectedUSD: closed.expectedUSD || 0,
+      closingBs: closed.closingBs,
+      closingUSD: closed.closingUSD,
+      differenceBs: closed.differenceBs,
+      differenceUSD: closed.differenceUSD,
+      movementBs: movementCashBs,
+      movementUSD: movementCashUSD,
+    };
     persistSession(null);
     setClosingBs('');
     setClosingUSD('');
+    setPreZOpen(false);
+    setCashReportPreview(report);
   };
 
   const buildCashReport = (kind: 'X' | 'Z'): CashReportData | null => {
@@ -698,7 +847,7 @@ export const CashRegisterView: React.FC = () => {
           </div>
           <div className="flex gap-2">
             <button onClick={() => printReport('X')} disabled={!session} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1 disabled:opacity-40"><Printer className="w-3.5 h-3.5" />Vista previa X</button>
-            <button onClick={() => printReport('Z')} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1"><FileText className="w-3.5 h-3.5" />Vista previa Z</button>
+            <button onClick={openPreZ} disabled={!session} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1 disabled:opacity-40"><FileText className="w-3.5 h-3.5" />Vista previa Z</button>
           </div>
           <div className="text-[10px] text-slate-500">
             Ambos reportes se preparan en ancho real de 80 mm para impresión térmica.
@@ -752,6 +901,55 @@ export const CashRegisterView: React.FC = () => {
             <div>Contado Bs.<b className="block">{formatBs(lastClosed.closingBs || 0)}</b></div>
             <div>Esperado USD<b className="block">{formatUSD(lastClosed.expectedUSD || 0)}</b></div>
             <div>Contado USD<b className="block">{formatUSD(lastClosed.closingUSD || 0)}</b></div>
+          </div>
+        </div>
+      )}
+
+      {preZOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3">
+          <div className="bg-white w-full max-w-7xl max-h-[94vh] overflow-hidden rounded-2xl shadow-2xl flex flex-col">
+            <div className="px-5 py-4 border-b flex items-center justify-between">
+              <div><h3 className="font-black text-lg">Arqueo previo al Corte Z</h3><p className="text-xs text-slate-500">Verifique cada medio de pago antes de guardar y ejecutar el cierre.</p></div>
+              <button onClick={() => setPreZOpen(false)} className="px-3 py-2 rounded-lg border text-xs font-bold">Cancelar</button>
+            </div>
+            <div className="p-4 overflow-auto">
+              <table className="min-w-[1250px] w-full text-xs border-collapse">
+                <thead className="bg-slate-100"><tr>
+                  {['Método de pago','Fondo Inicial Bs.','Fondo Inicial USD','Ventas','CxC (cobro)','Dev/Anu.','Mov. Caja (+)','Mov. Caja (-)','Total Monto Sistema','Monto Real','DIF. (+/-)'].map(h=><th key={h} className="p-2 border text-left">{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {arqueoRows.map(row => {
+                    const isBs = row.currency === 'Bs';
+                    const system = row.system;
+                    const raw = String(preZReal[row.method] ?? '');
+                    const real = raw.trim() === '' ? null : Number(raw.replace(',', '.'));
+                    const diff = real === null || !Number.isFinite(real) ? null : Number((real-system).toFixed(2));
+                    return <tr key={row.method}>
+                      <td className="p-2 border font-bold">{formatPaymentMethod(row.method)}</td>
+                      <td className="p-2 border text-right">{formatBs(row.openingBs)}</td>
+                      <td className="p-2 border text-right">{formatUSD(row.openingUSD)}</td>
+                      <td className="p-2 border text-right">{isBs ? formatBs(row.salesBs) : formatUSD(row.salesUSD)}</td>
+                      <td className="p-2 border text-right">{isBs ? formatBs(row.cxcBs) : formatUSD(row.cxcUSD)}</td>
+                      <td className="p-2 border text-right">{isBs ? formatBs(row.devAnuBs) : formatUSD(row.devAnuUSD)}</td>
+                      <td className="p-2 border text-right">{isBs ? formatBs(row.plusBs) : formatUSD(row.plusUSD)}</td>
+                      <td className="p-2 border text-right">{isBs ? formatBs(row.minusBs) : formatUSD(row.minusUSD)}</td>
+                      <td className="p-2 border text-right font-black">{isBs ? formatBs(system) : formatUSD(system)}</td>
+                      <td className="p-1 border"><input type="text" inputMode="decimal" value={raw} onChange={e=>setPreZReal(prev=>({...prev,[row.method]:e.target.value}))} placeholder={isBs ? 'Bs.' : 'USD'} className="w-32 px-2 py-1.5 border rounded-lg text-right" /></td>
+                      <td className={`p-2 border text-right font-black ${diff === null ? 'text-slate-400' : diff > 0.005 ? 'text-emerald-600' : diff < -0.005 ? 'text-rose-600' : 'text-slate-700'}`}>{diff === null ? '—' : (isBs ? formatBs(diff) : formatUSD(diff))}</td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+              {(() => {
+                const d = calculatePreZ();
+                const label = Math.abs(d.bs) < 0.01 && Math.abs(d.usd) < 0.01 ? 'ARQUEO CONCILIADO' : d.bs > 0 || d.usd > 0 ? 'SOBRANTE' : 'FALTANTE';
+                return <div className="mt-4 rounded-xl border p-4 bg-slate-50"><div className="font-black text-sm">{label}</div><div className="text-xs mt-1">Diferencia Bs.: <b>{formatBs(d.bs)}</b> · Diferencia USD: <b>{formatUSD(d.usd)}</b></div>{Math.abs(d.bs)<0.01&&Math.abs(d.usd)<0.01 ? <div className="text-xs text-emerald-700 mt-1">El arqueo previo está conciliado.</div> : <div className="text-xs mt-1">{d.bs>0||d.usd>0 ? 'Sobrante detectado' : 'Faltante detectado'} por los montos indicados.</div>}</div>;
+              })()}
+            </div>
+            <div className="p-4 border-t flex justify-end gap-2">
+              <button onClick={()=>setPreZOpen(false)} className="px-4 py-2 rounded-lg border text-xs font-bold">Cancelar</button>
+              <button onClick={executeZ} className="px-5 py-2 rounded-lg bg-rose-600 text-white text-xs font-black">Guardar y ejecutar Z</button>
+            </div>
           </div>
         </div>
       )}
