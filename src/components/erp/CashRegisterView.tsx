@@ -88,7 +88,9 @@ export const CashRegisterView: React.FC = () => {
   const [movementCurrency, setMovementCurrency] = useState<'Bs' | 'USD'>('Bs');
   const [movementAmount, setMovementAmount] = useState('');
   const [movementReason, setMovementReason] = useState('');
-  const [cashReportPreview, setCashReportPreview] = useState<CashReportData | null>(() => readJson<CashReportData | null>('omni_last_cash_report_v2', null));
+  // Los reportes X/Z son efímeros: solo existen mientras el usuario los haya
+  // invocado mediante su botón. Nunca se restauran desde localStorage.
+  const [cashReportPreview, setCashReportPreview] = useState<CashReportData | null>(null);
 
   useEffect(() => {
     if (!tursoService.isConfigured() || !navigator.onLine) return;
@@ -432,32 +434,8 @@ export const CashRegisterView: React.FC = () => {
       status: 'closed',
     };
 
-    const zReport: CashReportData = {
-      kind: 'Z',
-      terminalId: closed.terminalId,
-      generatedAt: closedAt,
-      openedAt: closed.openedAt,
-      openedBy: closed.openedBy,
-      closedAt: closed.closedAt,
-      closedBy: closed.closedBy,
-      openingBs: closed.openingBs,
-      openingUSD: closed.openingUSD,
-      salesUSD: totalSalesUSD,
-      salesByMethod,
-      cxcByMethod,
-      cxcCashSalesBs,
-      cxcCashSalesUSD,
-      expectedBs: closed.expectedBs || 0,
-      expectedUSD: closed.expectedUSD || 0,
-      closingBs: closed.closingBs,
-      closingUSD: closed.closingUSD,
-      differenceBs: closed.differenceBs,
-      differenceUSD: closed.differenceUSD,
-      movementBs: movementCashBs,
-      movementUSD: movementCashUSD,
-    };
-    localStorage.setItem(`omni_last_cash_report_v3:${terminalId}`, JSON.stringify(zReport));
-    persistHistory([closed, ...history]);
+    // El cierre de caja no genera ni guarda automáticamente el Reporte Z.
+    // El Z solo se construye cuando el usuario pulsa "Vista previa Z".    persistHistory([closed, ...history]);
     if (tursoService.isConfigured()) tursoService.saveCashSession(closed).catch(console.warn);
     persistSession(null);
     setClosingBs('');
@@ -465,8 +443,6 @@ export const CashRegisterView: React.FC = () => {
   };
 
   const buildCashReport = (kind: 'X' | 'Z'): CashReportData | null => {
-    const stored = terminalId ? readJson<CashReportData | null>(`omni_last_cash_report_v3:${terminalId}`, null) : null;
-    if (!session && kind === 'Z' && stored?.kind === 'Z') return stored;
     const base = session || (kind === 'Z' ? lastClosed : null);
     if (!base) {
       alert(`No hay una sesión de caja abierta para generar el Reporte ${kind}.`);
@@ -501,7 +477,8 @@ export const CashRegisterView: React.FC = () => {
   const printReport = (kind: 'X' | 'Z') => {
     const report = buildCashReport(kind);
     if (!report) return;
-    localStorage.setItem(`omni_last_cash_report_v3:${terminalId}`, JSON.stringify(report));
+    // No persistimos X/Z: al cerrar el modal o recargar, desaparecen hasta
+    // que el usuario vuelva a pulsar el botón correspondiente.
     setCashReportPreview(report);
   };
 
