@@ -134,7 +134,7 @@ export const CustomerDashboard: React.FC = () => {
     setDebtPaymentMixed(false);
     setDebtPaymentSplitAmounts({});
     setDebtPaymentSplitRefs({});
-    setDebtPaymentAmount(debt.balanceUSD.toFixed(2));
+    setDebtPaymentAmount((debt.balanceUSD * settings.bcvRate).toFixed(2));
     setDebtPaymentReference('');
     setDebtPaymentSenderName('');
     setDebtPaymentSenderEmail('');
@@ -148,7 +148,9 @@ export const CustomerDashboard: React.FC = () => {
 
   const submitDebtPayment = async () => {
     if (!selectedDebt) return;
-    const amount = Number(debtPaymentAmount);
+    const enteredAmount = Number(debtPaymentAmount);
+    const isBsPaymentMethod = !debtPaymentMixed && ['pago_movil', 'transferencia_bs'].includes(debtPaymentMethod);
+    const amount = isBsPaymentMethod ? enteredAmount / (settings.bcvRate || 1) : enteredAmount;
     const mixedSplits = onlinePaymentMethods
       .map((method) => ({
         method,
@@ -998,9 +1000,99 @@ export const CustomerDashboard: React.FC = () => {
                   </select>
                 </label>
                 {!debtPaymentMixed ? (
-                  <label className="text-xs font-bold text-slate-700">Monto USD
-                    <input type="number" min="0.01" max={selectedDebt.balanceUSD} step="0.01" value={debtPaymentAmount} onChange={(e) => setDebtPaymentAmount(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono" />
-                    <span className="text-[10px] text-slate-400">Equivalente: {(Number(debtPaymentAmount || 0) * settings.bcvRate).toFixed(2)} Bs</span>
+                  <label className="text-xs font-bold text-slate-700">{['pago_movil','transferencia_bs'].includes(debtPaymentMethod) ? 'Monto Bs.' : 'Monto USD'}
+                    <input
+                      type="number"
+                      min="0.01"
+                      max={['pago_movil','transferencia_bs'].includes(debtPaymentMethod) ? selectedDebt.balanceUSD * settings.bcvRate : selectedDebt.balanceUSD}
+                      step="0.01"
+                      value={debtPaymentAmount}
+                      onChange={(e) => setDebtPaymentAmount(e.target.value)}
+                      className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono"
+                    />
+                    <span className="text-[10px] text-slate-400">
+                      {['pago_movil','transferencia_bs'].includes(debtPaymentMethod)
+                        ? 'Equivalente: 
+                ) : (
+                  <div className="text-xs text-slate-700">
+                    <div className="font-bold">Pago Mixto Online</div>
+                    <div className="text-[10px] text-slate-500 mt-1">Distribuye el saldo entre dos o tres métodos. Solo se permiten los métodos online disponibles.</div>
+                  </div>
+                )}
+              </div>
+              {debtPaymentMixed && (
+                <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/60 p-3">
+                  {onlinePaymentMethods.map((method) => (
+                    <div key={method} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className="text-xs font-bold text-slate-700">
+                        {formatPaymentMethod(method)} · Monto USD
+                        <input
+                          type="number"
+                          min="0"
+                          max={selectedDebt.balanceUSD}
+                          step="0.01"
+                          value={debtPaymentSplitAmounts[method] || ''}
+                          onChange={(e) => setDebtPaymentSplitAmounts((prev) => ({ ...prev, [method]: e.target.value }))}
+                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white font-mono"
+                        />
+                      </label>
+                      <label className="text-xs font-bold text-slate-700">
+                        Referencia
+                        <input
+                          value={debtPaymentSplitRefs[method] || ''}
+                          onChange={(e) => setDebtPaymentSplitRefs((prev) => ({ ...prev, [method]: e.target.value }))}
+                          placeholder="Referencia de la operación"
+                          className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-white"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {['pago_movil','transferencia_bs','zelle'].includes(debtPaymentMethod) && !debtPaymentMixed && (
+                <label className="block text-xs font-bold text-slate-700">Número de referencia
+                  <input value={debtPaymentReference} onChange={(e) => setDebtPaymentReference(e.target.value)} placeholder="Referencia de la operación" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" />
+                </label>
+              )}
+              {debtPaymentMethod === 'transferencia_bs' && !debtPaymentMixed && (
+                <label className="block text-xs font-bold text-slate-700"><span className="flex items-center gap-1.5"><Building2 className="w-4 h-4" /> Banco emisor</span>
+                  <input value={debtPaymentSenderBank} onChange={(e) => setDebtPaymentSenderBank(e.target.value)} placeholder="Banco desde el cual se realizó la transferencia" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" />
+                </label>
+              )}
+              {debtPaymentMethod === 'zelle' && !debtPaymentMixed && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="text-xs font-bold text-slate-700">Correo del remitente<input type="email" value={debtPaymentSenderEmail} onChange={(e) => setDebtPaymentSenderEmail(e.target.value)} placeholder="correo desde el que enviaste" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
+                  <label className="text-xs font-bold text-slate-700">Titular del envío<input value={debtPaymentSenderName} onChange={(e) => setDebtPaymentSenderName(e.target.value)} placeholder="Nombre del titular" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
+                </div>
+              )}
+              <label className="text-xs font-bold text-slate-700">Teléfono del remitente (opcional)<input value={debtPaymentSenderPhone} onChange={(e) => setDebtPaymentSenderPhone(e.target.value)} placeholder="Teléfono" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5" /></label>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                <strong>¿Deseas pagar en efectivo?</strong> Informa a la administración para coordinar el retiro del dinero. El pago en efectivo no se reporta desde este portal: el administrador lo registrará posteriormente en CxC como <strong>Efectivo Bs.</strong> o <strong>Efectivo USD</strong>.
+              </div>
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800"><strong>Importante:</strong> reportar el pago no liquida automáticamente la deuda. La administración recibirá la notificación, revisará el pago en CxC y solo al aprobarlo se aplicará a la factura y se registrarán los procesos financieros correspondientes.</div>
+              <div className="flex justify-end gap-2">
+                <button onClick={closeDebtPayment} disabled={debtPaymentSubmitting} className="px-4 py-2.5 rounded-xl border border-slate-200 font-bold text-sm">Cancelar</button>
+                <button onClick={submitDebtPayment} disabled={debtPaymentSubmitting} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-sm">{debtPaymentSubmitting ? 'Enviando...' : 'Reportar pago'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 mt-auto">
+        <p className="font-semibold text-slate-700">DISTRIBUIDORA LA GRAN BODEGA M&S</p>
+        <p className="text-[11px] text-slate-400 mt-0.5">Portal de Clientes • RIF: {settings.companyRif}</p>
+      </footer>
+
+    </div>
+  );
+};
+ + ((Number(debtPaymentAmount || 0) / (settings.bcvRate || 1))).toFixed(2) + ' USD'
+                        : 'Equivalente: ' + (Number(debtPaymentAmount || 0) * settings.bcvRate).toFixed(2) + ' Bs'}
+                    </span>
                   </label>
                 ) : (
                   <div className="text-xs text-slate-700">
