@@ -84,6 +84,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       terminalIdentity.clear();
     }
 
+    sessionStorage.removeItem('omni_active_customer_id');
     setCurrentUser(matchedUser);
     setIsAdminActive(true);
     setMode('erp');
@@ -93,6 +94,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
   const confirmTerminal = () => {
     if (!pendingUser || !selectedTerminalId) return;
     terminalIdentity.setId(selectedTerminalId);
+    sessionStorage.removeItem('omni_active_customer_id');
     setCurrentUser(pendingUser);
     setIsAdminActive(true);
     setMode('erp');
