@@ -1057,6 +1057,12 @@ class TursoService {
     }
 
     // 4. Products
+    await client.execute('ALTER TABLE products ADD COLUMN reserved_stock REAL DEFAULT 0').catch(() => {});
+    await client.execute('ALTER TABLE orders ADD COLUMN reserved_at TEXT').catch(() => {});
+    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_at TEXT').catch(() => {});
+    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_by TEXT').catch(() => {});
+    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_at TEXT').catch(() => {});
+    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_by TEXT').catch(() => {});
     const products: Product[] = [];
     try {
       const res = await client.execute('SELECT * FROM products ORDER BY name ASC');
@@ -1258,6 +1264,12 @@ class TursoService {
           returnedAt: row.returned_at ? String(row.returned_at) : undefined,
           returnedBy: row.returned_by ? String(row.returned_by) : undefined,
           returnReason: row.return_reason ? String(row.return_reason) : undefined,
+          approvedAt: row.approved_at ? String(row.approved_at) : undefined,
+          posRegisteredAt: row.pos_registered_at ? String(row.pos_registered_at) : undefined,
+          posRegisteredBy: row.pos_registered_by ? String(row.pos_registered_by) : undefined,
+          terminalId: row.terminal_id ? String(row.terminal_id) : undefined,
+          documentSeries: row.document_series ? String(row.document_series) : undefined,
+          documentSequence: row.document_sequence != null ? Number(row.document_sequence) : undefined,
         });
       }
     } catch (e) {
