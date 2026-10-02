@@ -10,11 +10,12 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { addToCart, settings, triggerPushNotification, setPresentationModalProduct, lastStockUpdateEvent } = useApp();
+  const availableStock = Math.max(0, Number(product.stock || 0) - Number(product.reservedStock || 0));
   const [qty, setQty] = useState(1);
   const [addedAnimation, setAddedAnimation] = useState(false);
 
   // Auto-clamp qty if stock dropped
-  const safeQty = Math.max(1, Math.min(product.stock > 0 ? product.stock : 1, qty));
+  const safeQty = Math.max(1, Math.min(availableStock > 0 ? availableStock : 1, qty));
 
   const isRecentlyUpdated = Boolean(
     lastStockUpdateEvent &&
@@ -33,8 +34,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     : product.priceUSD;
 
   const effectivePriceBs = effectivePriceUSD * settings.bcvRate;
-  const isLowStock = product.stock > 0 && product.stock <= product.minStock;
-  const isOutOfStock = product.stock <= 0;
+  const isLowStock = availableStock > 0 && availableStock <= product.minStock;
+  const isOutOfStock = availableStock <= 0;
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -108,7 +109,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             {!isOutOfStock && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             )}
-            {isOutOfStock ? 'Agotado' : `Stock: ${product.stock}`}
+            {isOutOfStock ? 'Agotado' : `Disponible: ${availableStock}`}
           </span>
         </div>
 
@@ -236,9 +237,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setQty((q) => Math.min(product.stock, q + 1));
+                  setQty((q) => Math.min(availableStock, q + 1));
                 }}
-                disabled={isOutOfStock || qty >= product.stock}
+                disabled={isOutOfStock || qty >= availableStock}
                 className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 cursor-pointer"
               >
                 <Plus className="w-3 h-3" />
