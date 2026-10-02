@@ -65,7 +65,6 @@ export const CustomerDashboard: React.FC = () => {
     setIsNotificationSettingsOpen,
     requestCustomerPushPermission,
     notifications,
-    setIsAdminModalOpen,
     receivables,
     reportCustomerReceivablePayment,
   } = useApp();
