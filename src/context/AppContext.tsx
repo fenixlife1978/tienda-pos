@@ -1034,6 +1034,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // El snapshot de Turso se carga inmediatamente; no se vuelve a crear
         // tablas ni se espera a que termine un bootstrap en cada F5.
         await syncWithTurso(true);
+
+        // La identidad de sesión del cliente vive por pestaña, pero sus datos siempre
+        // se recuperan y validan contra Turso al arrancar. Nunca restauramos la cuenta
+        // desde localStorage/caché.
+        const activeCustomerId = sessionStorage.getItem('omni_active_customer_id');
+        if (activeCustomerId) {
+          try {
+            const cloudState = await tursoService.loadAllData();
+            const cloudCustomer = cloudState.customers.find((c: Customer) => c.id === activeCustomerId);
+            if (cloudCustomer) {
+              setCurrentCustomer(cloudCustomer);
+              currentCustomerRef.current = cloudCustomer;
+              currentCustomerIdRef.current = cloudCustomer.id;
+              sessionStorage.removeItem('tienda_pos_tab_session');
+              sessionStorage.removeItem('tienda_pos_admin_user');
+              sessionStorage.removeItem('omni_erp_active_tab');
+              setIsAdminActive(false);
+              setMode('store');
+            } else {
+              sessionStorage.removeItem('omni_active_customer_id');
+              setCurrentCustomer(null);
+              currentCustomerRef.current = null;
+              currentCustomerIdRef.current = null;
+            }
+          } catch (error) {
+            console.warn('No se pudo validar la sesión del cliente contra Turso:', error);
+            sessionStorage.removeItem('omni_active_customer_id');
+            setCurrentCustomer(null);
+            currentCustomerRef.current = null;
+            currentCustomerIdRef.current = null;
+          }
+        }
         // Antes de habilitar el sincronizador normal, reintentamos las operaciones POS
         // durables que hayan quedado pendientes. Esto evita que una recarga deje una venta
         // registrada solo en memoria/localStorage.
@@ -3228,6 +3260,1706 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await triggerPushNotification({
       title: '💳 Pago recibido por deuda',
       message: currentCustomer.name + ' reportó un pago de 
+
+  // Valida un pago reportado por el cliente y solo entonces lo incorpora al saldo y a los procesos de CxC.
+  const reviewCustomerPaymentReport = async (
+    receivableId: string,
+    paymentId: string,
+    approved: boolean,
+    notes = ''
+  ) => {
+    const target = receivables.find((r) => r.id === receivableId);
+    const pending = target?.paymentHistory?.find((p) => p.id === paymentId && p.reportedByCustomer && p.verificationStatus === 'pendiente');
+    if (!target || !pending) throw new Error('El pago reportado ya no está pendiente o la deuda no existe.');
+
+    if (!approved) {
+      const rejected = {
+        ...target,
+        paymentHistory: (target.paymentHistory || []).map((p) =>
+          p.id === paymentId
+            ? { ...p, verificationStatus: 'rechazado' as const, notes: notes || 'Pago rechazado por administración.' }
+            : p
+        ),
+      };
+      await tursoService.saveReceivable(rejected);
+      setReceivables((prev) => prev.map((r) => r.id === target.id ? rejected : r));
+      triggerPushNotification({
+        title: '❌ Pago por deuda rechazado',
+        message: 'El pago reportado para ' + target.invoiceNumber + ' fue rechazado por administración.' + (notes ? ' Motivo: ' + notes : ''),
+        type: 'credit_alert',
+        targetCustomerId: target.customerId,
+        badge: 'Pago rechazado',
+      });
+      return;
+    }
+
+    const appliedAmount = Math.min(target.balanceUSD, pending.amountUSD);
+    if (appliedAmount <= 0) throw new Error('El saldo de la deuda ya no permite aplicar este pago.');
+
+    const newPaid = target.amountPaidUSD + appliedAmount;
+    const newBalance = Math.max(0, target.totalAmountUSD - newPaid);
+    const isSettled = newBalance <= 0.01;
+    const terminalId = terminalIdentity.getId();
+    let cashSessionId: string | undefined;
+    try {
+      const active = JSON.parse(sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`) || 'null');
+      if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
+    } catch {}
+
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
+    const approvedRecord: ReceivablePaymentRecord = {
+      ...pending,
+      date: pending.date,
+      verificationStatus: 'aprobado',
+      registeredBy: currentUser.name,
+      balanceAfterUSD: newBalance,
+      isFullSettlement: isSettled,
+      terminalId,
+      cashSessionId,
+      receiptNumber,
+      notes: notes || pending.notes || 'Pago reportado por cliente y aprobado por administración.',
+    };
+
+    const updated = {
+      ...target,
+      amountPaidUSD: newPaid,
+      balanceUSD: newBalance,
+      status: isSettled ? 'pagado' as const : target.status,
+      paymentHistory: (target.paymentHistory || []).map((p) => p.id === paymentId ? approvedRecord : p),
+    };
+    await tursoService.approveCustomerReceivablePayment(updated, paymentId, currentUser.name);
+    setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
+
+    setCustomers((prev) => prev.map((customer) =>
+      customer.id === target.customerId
+        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - appliedAmount) }
+        : customer
+    ));
+    if (isSettled) {
+      setInvoices((prev) => prev.map((inv) =>
+        inv.invoiceNumber === target.invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv
+      ));
+    }
+
+    triggerPushNotification({
+      title: isSettled ? '🎉 Pago de deuda aprobado' : '💵 Abono de deuda aprobado',
+      message: 'El pago reportado para ' + target.invoiceNumber + ' por $' + appliedAmount.toFixed(2) +
+        ' USD fue aprobado y registrado en CxC. Recibo ' + receiptNumber + '.',
+      type: 'credit_alert',
+      targetCustomerId: target.customerId,
+      badge: isSettled ? 'Deuda liquidada' : 'Abono aplicado',
+    });
+  };
+
+  // Accounts Receivable payment registration (Cobro a Clientes)
+  const registerReceivablePayment = (
+    receivableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      paymentSplits?: ReceivablePaymentSplit[];
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+      sourceReportId?: string;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const notes = details?.notes || '';
+    const terminalId = terminalIdentity.getId();
+    let cashSessionId: string | undefined;
+    try {
+      const active = JSON.parse(sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`) || 'null');
+      if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
+    } catch {}
+
+    const suppliedSplits = details?.paymentSplits?.filter(s => Number(s.amountUSD) > 0 || Number(s.amountBs) > 0) || [];
+    const splits: ReceivablePaymentSplit[] = suppliedSplits.length
+      ? suppliedSplits.map(s => ({ ...s, amountUSD: Number((s.amountUSD || 0).toFixed(6)), amountBs: Number((s.amountBs || 0).toFixed(2)), currency: s.currency }))
+      : [{
+          id: 'cxc-split-' + Date.now(),
+          method: method as Exclude<PaymentMethod,'mixto'>,
+          amountUSD: Number(amountUSD.toFixed(6)),
+          amountBs: Number((amountUSD * rate).toFixed(2)),
+          currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(method) ? 'Bs' : 'USD',
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+
+    const normalizedAmountUSD = Number(splits.reduce((sum, s) => sum + (s.currency === 'USD' ? s.amountUSD : (s.amountBs / rate)), 0).toFixed(6));
+    if (!Number.isFinite(normalizedAmountUSD) || normalizedAmountUSD <= 0) return;
+
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
+    let customerId = '';
+    let invoiceNumber = '';
+    let isSettled = false;
+
+    setReceivables(prev => prev.map(rec => {
+      if (rec.id !== receivableId) return rec;
+      customerId = rec.customerId;
+      invoiceNumber = rec.invoiceNumber;
+      const actualAmountToPay = Math.min(rec.balanceUSD, normalizedAmountUSD);
+      const newPaid = rec.amountPaidUSD + actualAmountToPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      isSettled = newBalance <= 0.01;
+      const factor = normalizedAmountUSD > 0 ? actualAmountToPay / normalizedAmountUSD : 0;
+      const appliedSplits = splits.map(s => ({ ...s, amountUSD: Number((s.amountUSD * factor).toFixed(6)), amountBs: Number((s.amountBs * factor).toFixed(2)) }));
+      const paymentRecord: ReceivablePaymentRecord = {
+        id: 'pay-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        date: new Date().toISOString(),
+        amountUSD: actualAmountToPay,
+        amountBs: Number((actualAmountToPay * rate).toFixed(2)),
+        bcvRate: rate,
+        paymentMethod: appliedSplits.length > 1 ? 'mixto' : appliedSplits[0].method,
+        paymentSplits: appliedSplits,
+        reference: ref,
+        notes: notes || (isSettled ? 'Liquidación total de factura' : 'Abono a factura'),
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+        terminalId,
+        cashSessionId,
+        receiptNumber,
+      };
+      const updatedRec = { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+      void tursoService.saveReceivable(updatedRec).catch((error) => console.error('Error saving CxC payment to Turso:', error));
+      return updatedRec;
+    }));
+
+    if (customerId) {
+      setCustomers(custs => custs.map(c => c.id === customerId ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - Math.min(c.currentDebtUSD, normalizedAmountUSD)) } : c));
+    }
+    if (invoiceNumber && isSettled) setInvoices(prev => prev.map(inv => inv.invoiceNumber === invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv));
+    triggerPushNotification({
+      title: isSettled ? '🎉 Factura Liquidada en CxC' : '💵 Abono Registrado en CxC',
+      message: (isSettled ? 'Factura ' + invoiceNumber + ' liquidada' : 'Abono a factura ' + invoiceNumber) + ' por $' + normalizedAmountUSD.toFixed(2) + ' USD. Recibo ' + receiptNumber + '.',
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: isSettled ? 'Factura Pagada' : 'Abono CxC',
+    });
+  };
+
+  // Liquidate a specific invoice completely in one action
+  const liquidateCustomerInvoice = (
+    receivableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const targetRec = receivables.find((r) => r.id === receivableId);
+    if (!targetRec || targetRec.balanceUSD <= 0) return;
+    registerReceivablePayment(receivableId, targetRec.balanceUSD, {
+      ...details,
+      notes: details?.notes || 'Cancelación / Liquidación completa de factura',
+    });
+  };
+
+  // Global FIFO waterfall distribution across all pending customer invoices
+  const registerGlobalCustomerPayment = (
+    customerId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const customNotes = details?.notes || 'Abono Global Distribuido (FIFO)';
+
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    // FIFO real: la aplicación se calcula sobre la cola cronológica y luego
+    // se proyecta por ID. Nunca dependemos del orden físico del array.
+    const customerPendingRecs = receivables
+      .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001 && !r.isVoided)
+      .sort((a, b) => {
+        const byDate = new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime();
+        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+      });
+
+    let remainingPayment = amountUSD;
+    let liquidatedCount = 0;
+    let fullyPaidTotal = 0;
+    let partialAbono = 0;
+    let appliedTotal = 0;
+    const settledInvoiceNumbers = new Set<string>();
+    const allocations = new Map<string, number>();
+
+    for (const rec of customerPendingRecs) {
+      if (remainingPayment <= 0.0001) break;
+
+      const toPay = Math.min(rec.balanceUSD, remainingPayment);
+      if (toPay <= 0.0001) continue;
+
+      allocations.set(rec.id, toPay);
+      remainingPayment -= toPay;
+      appliedTotal += toPay;
+
+      const newBalance = Math.max(0, rec.balanceUSD - toPay);
+      const isSettled = newBalance <= 0.01;
+
+      if (isSettled) {
+        liquidatedCount++;
+        fullyPaidTotal += toPay;
+        settledInvoiceNumbers.add(rec.invoiceNumber);
+      } else {
+        partialAbono += toPay;
+      }
+    }
+
+    if (appliedTotal <= 0.0001) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    const paymentDate = new Date().toISOString();
+    const updatedReceivables = receivables.map((rec) => {
+      const toPay = allocations.get(rec.id);
+      if (!toPay) return rec;
+
+      const newPaid = rec.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
+
+      const record: ReceivablePaymentRecord = {
+        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${rec.id}`,
+        date: paymentDate,
+        amountUSD: toPay,
+        amountBs: toPay * rate,
+        bcvRate: rate,
+        paymentMethod: method,
+        reference: ref,
+        notes: isSettled
+          ? `${customNotes} - Factura ${rec.invoiceNumber} liquidada totalmente`
+          : `${customNotes} - Abono parcial a factura ${rec.invoiceNumber}`,
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+      };
+
+      return {
+        ...rec,
+        amountPaidUSD: newPaid,
+        balanceUSD: newBalance,
+        status: isSettled ? 'pagado' : rec.status,
+        paymentHistory: [record, ...(rec.paymentHistory || [])],
+      };
+    });
+
+    setReceivables(updatedReceivables);
+    for (const rec of updatedReceivables) {
+      if (allocations.has(rec.id)) void tursoService.saveReceivable(rec).catch((error) => console.error('Error saving global CxC payment to Turso:', error));
+    }
+
+    // Solo descuenta lo realmente aplicado. Si el pago supera toda la deuda,
+    // el sobrante queda sin aplicar y no reduce la deuda por debajo de cero.
+    setCustomers((custs) =>
+      custs.map((c) =>
+        c.id === customerId
+          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - appliedTotal) }
+          : c
+      )
+    );
+
+    if (settledInvoiceNumbers.size > 0) {
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          settledInvoiceNumbers.has(inv.invoiceNumber)
+            ? { ...inv, paymentStatus: 'pagado' }
+            : inv
+        )
+      );
+    }
+
+    const customerObj = customers.find((c) => c.id === customerId);
+    const custName = customerObj ? customerObj.name : 'Cliente';
+    const remainder = Math.max(0, remainingPayment);
+
+    triggerPushNotification({
+      title: '💳 Abono Global Distribuido (CxC)',
+      message: `Pago de $${amountUSD.toFixed(2)} para ${custName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: 'Pago Global CxC',
+    });
+
+    return {
+      liquidatedInvoicesCount: liquidatedCount,
+      partialAbonoUSD: partialAbono,
+      fullyPaidTotalUSD: fullyPaidTotal,
+    };
+  };
+  // Liquidate all debt for a customer
+  const liquidateCustomerTotalDebt = (
+    customerId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const custPendingRecs = receivables.filter((r) => r.customerId === customerId && r.balanceUSD > 0.001);
+    const totalDebt = custPendingRecs.reduce((sum, r) => sum + r.balanceUSD, 0);
+    if (totalDebt <= 0) return;
+    registerGlobalCustomerPayment(customerId, totalDebt, {
+      ...details,
+      notes: details?.notes || 'Liquidación TOTAL de deuda del cliente',
+    });
+  };
+
+  // Accounts Payable payment registration (Pago a Proveedores individual)
+  const registerPayablePayment = (
+    payableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const ref = details?.reference || '';
+    const customNotes = details?.notes || 'Abono / Pago a Proveedor';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0 || normalizedTotal + 0.0001 < amountUSD) return;
+
+    let supplierName = '';
+    let invoiceNumber = '';
+    let isSettled = false;
+
+    setPayables((prev) =>
+      prev.map((pay) => {
+        if (pay.id !== payableId) return pay;
+        supplierName = pay.supplierName;
+        invoiceNumber = pay.invoiceNumber;
+        const appliedAmount = Math.min(amountUSD, pay.balanceUSD);
+        const newPaid = pay.amountPaidUSD + appliedAmount;
+        const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+        isSettled = newBalance <= 0.01;
+
+        const record: PayablePaymentRecord = {
+          id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          date: new Date().toISOString(),
+          amountUSD: appliedAmount,
+          amountBs: appliedAmount * rate,
+          bcvRate: rate,
+          paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+          paymentSplits: normalizedSplits,
+          reference: ref,
+          notes: customNotes,
+          registeredBy: currentUser.name,
+          balanceAfterUSD: newBalance,
+          isFullSettlement: isSettled,
+        };
+        const updatedPay = {
+          ...pay,
+          amountPaidUSD: newPaid,
+          balanceUSD: newBalance,
+          status: isSettled ? 'pagado' : pay.status,
+          paymentHistory: [record, ...(pay.paymentHistory || [])],
+        };
+        void tursoService.savePayable(updatedPay).catch((error) => console.error('Error saving CxP payment to Turso:', error));
+        return updatedPay;
+      })
+    );
+
+    triggerPushNotification({
+      title: isSettled ? '🎉 Compra a Proveedor Liquidada (CxP)' : '💵 Pago Registrado a Proveedor (CxP)',
+      message: `${isSettled ? `Factura de compra ${invoiceNumber} (${supplierName}) liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).` : `Abono de $${amountUSD.toFixed(2)} USD pagado a ${supplierName} (Factura ${invoiceNumber}).`}`,
+      type: 'credit_alert',
+      badge: isSettled ? 'CxP Liquidada' : 'Pago CxP',
+    });
+  };
+  // Liquidate a specific payable purchase invoice completely in one action
+  const liquidateSupplierInvoice = (
+    payableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const targetPay = payables.find((p) => p.id === payableId);
+    if (!targetPay || targetPay.balanceUSD <= 0.001) return;
+    registerPayablePayment(payableId, targetPay.balanceUSD, {
+      ...details,
+      notes: details?.notes || 'Liquidación completa de factura por pagar',
+    });
+  };
+
+  // Global FIFO waterfall distribution across all pending supplier purchase invoices
+  const registerGlobalSupplierPayment = (
+    supplierId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const ref = details?.reference || '';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (normalizedTotal + 0.0001 < amountUSD) return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    const customNotes = details?.notes || 'Pago Global Distribuido a Proveedor (FIFO)';
+
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    // FIFO real: proveedor -> factura más antigua -> factura siguiente -> ... 
+    const supplierPendingPays = payables
+      .filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001)
+      .sort((a, b) => {
+        const byDate = new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime();
+        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+      });
+
+    let remainingPayment = amountUSD;
+    let liquidatedCount = 0;
+    let fullyPaidTotal = 0;
+    let partialAbono = 0;
+    let appliedTotal = 0;
+    const allocations = new Map<string, number>();
+
+    for (const pay of supplierPendingPays) {
+      if (remainingPayment <= 0.0001) break;
+
+      const toPay = Math.min(pay.balanceUSD, remainingPayment);
+      if (toPay <= 0.0001) continue;
+
+      allocations.set(pay.id, toPay);
+      remainingPayment -= toPay;
+      appliedTotal += toPay;
+
+      const newBalance = Math.max(0, pay.balanceUSD - toPay);
+      const isSettled = newBalance <= 0.01;
+
+      if (isSettled) {
+        liquidatedCount++;
+        fullyPaidTotal += toPay;
+      } else {
+        partialAbono += toPay;
+      }
+    }
+
+    if (appliedTotal <= 0.0001) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    const paymentDate = new Date().toISOString();
+    const updatedPayables = payables.map((pay) => {
+      const toPay = allocations.get(pay.id);
+      if (!toPay) return pay;
+
+      const newPaid = pay.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
+
+      const record: PayablePaymentRecord = {
+        id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${pay.id}`,
+        date: paymentDate,
+        amountUSD: toPay,
+        amountBs: toPay * rate,
+        bcvRate: rate,
+        paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+        paymentSplits: normalizedSplits,
+        reference: ref,
+        notes: isSettled
+          ? `${customNotes} - Factura ${pay.invoiceNumber} liquidada totalmente`
+          : `${customNotes} - Abono parcial a factura ${pay.invoiceNumber}`,
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+      };
+
+      return {
+        ...pay,
+        amountPaidUSD: newPaid,
+        balanceUSD: newBalance,
+        status: isSettled ? 'pagado' : pay.status,
+        paymentHistory: [record, ...(pay.paymentHistory || [])],
+      };
+    });
+
+    setPayables(updatedPayables);
+    for (const pay of updatedPayables) {
+      if (allocations.has(pay.id)) void tursoService.savePayable(pay).catch((error) => console.error('Error saving global CxP payment to Turso:', error));
+    }
+
+    const supObj = suppliers.find((s) => s.id === supplierId);
+    const supName = supObj ? supObj.name : 'Proveedor';
+    const remainder = Math.max(0, remainingPayment);
+
+    triggerPushNotification({
+      title: '💳 Pago Global Distribuido (CxP)',
+      message: `Pago de $${amountUSD.toFixed(2)} para ${supName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
+      type: 'credit_alert',
+      badge: 'Pago Global CxP',
+    });
+
+    return {
+      liquidatedInvoicesCount: liquidatedCount,
+      partialAbonoUSD: partialAbono,
+      fullyPaidTotalUSD: fullyPaidTotal,
+    };
+  };
+
+  // Liquidate all pending debt with a specific supplier
+  const liquidateSupplierTotalDebt = (supplierId: string, details?: { paymentMethod?: PaymentMethod; reference?: string; notes?: string; bcvRate?: number }) => {
+    const supPending = payables.filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001);
+    const totalDebt = supPending.reduce((sum, p) => sum + p.balanceUSD, 0);
+    if (totalDebt <= 0) return;
+    registerGlobalSupplierPayment(supplierId, totalDebt, { ...details, notes: details?.notes || 'Liquidación TOTAL de compras con el proveedor' });
+  };
+
+  const updateSupplierCredit = (supplierId: string, creditDays: number, creditLimitUSD?: number, notes?: string) => {
+    setSuppliers((prev) => prev.map((s) => {
+      if (s.id !== supplierId) return s;
+      const updated = { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD };
+      void tursoService.saveSupplier(updated).catch((error) => console.error('Error saving supplier credit to Turso:', error));
+      return updated;
+    }));
+    triggerPushNotification({ title: 'Condiciones de Proveedor Actualizadas', message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`, type: 'credit_alert', badge: 'Condiciones CxP' });
+  };
+
+  const addPayableInvoice = (payable: Omit<PayableItem, 'id'>) => {
+    const newPayable: PayableItem = { ...payable, id: `pay-${Date.now()}`, paymentHistory: payable.paymentHistory || [] };
+    setPayables((prev) => [newPayable, ...prev]);
+    void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving payable to Turso:', error));
+  };
+
+  const addSupplier = async (supplier: Omit<Supplier, 'id'>): Promise<Supplier> => {
+    const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
+
+    // Turso es la fuente de verdad: primero confirmamos la escritura y solo
+    // después publicamos el proveedor en el estado local. Así un proveedor no
+    // puede aparecer como creado si la escritura cloud falló.
+    await tursoService.saveSupplier(newSup);
+    setSuppliers((prev) => [newSup, ...prev.filter((s) => s.id !== newSup.id)]);
+    // No hacemos un reload inmediato aquí: una lectura de Turso ya iniciada
+    // podría traer un snapshot anterior y volver a ocultar el proveedor recién guardado.
+    // El evento activity_changes hará que el siguiente ciclo descargue el snapshot nuevo.
+    return newSup;
+  };
+
+  const deleteSupplier = (supplierId: string): { success: boolean; message: string } => {
+    const target = suppliers.find((s) => s.id === supplierId);
+    if (!target) return { success: false, message: 'Proveedor no encontrado.' };
+    const linkedProducts = products.some((p) => (p.suppliersInfo || []).some((x) => x.supplierId === supplierId));
+    if (linkedProducts) return { success: false, message: 'No se puede eliminar: el proveedor está vinculado a uno o más productos.' };
+    const usedInPurchases = purchaseEntries.some((p) => p.supplierId === supplierId);
+    if (usedInPurchases) return { success: false, message: 'No se puede eliminar: el proveedor tiene entradas de compra históricas. Puede editar sus datos.' };
+    setSuppliers((prev) => prev.filter((s) => s.id !== supplierId));
+    void tursoService.deleteSupplier(supplierId).then(() => syncWithTurso(true)).catch((error) => console.error('Error eliminando proveedor de Turso:', error));
+    return { success: true, message: 'Proveedor eliminado.' };
+  };
+
+  const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
+    const entryId = `ent-${Date.now()}`;
+    const seq = purchaseEntries.length + 1;
+    const entryNumber = `ENT-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
+    const nowIso = new Date().toISOString();
+    const newEntry: PurchaseEntry = { ...entryData, id: entryId, entryNumber, createdAt: nowIso };
+    const updatedProducts = products.map((prod) => {
+      const match = entryData.items.find((it) => it.productId === prod.id);
+      if (!match) return prod;
+      return { ...prod, stock: Math.max(0, (prod.stock || 0) + match.quantity), lastCostUSD: prod.costUSD > 0 ? prod.costUSD : match.currentBaseCostUSD, costUSD: match.currentBaseCostUSD, realCostUSD: match.realCostUSD };
+    });
+    setProducts(updatedProducts);
+    broadcastStockUpdate(updatedProducts, { productIds: entryData.items.map((it) => it.productId), source: 'adjustment', summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario` });
+    for (const item of entryData.items) offlineSyncService.enqueueInventoryMovement({ productId: item.productId, quantityDelta: item.quantity, movementType: 'purchase' });
+    if (navigator.onLine && tursoService.isConfigured()) offlineSyncService.flush().catch((error) => console.warn('Entrada de inventario en cola:', error));
+    if (entryData.balanceUSD > 0.001) {
+      const initialHistory: PayablePaymentRecord[] = [];
+      if (entryData.amountPaidUSD > 0) initialHistory.push({
+        id: `pay-rec-${Date.now()}`, date: nowIso, amountUSD: entryData.amountPaidUSD, amountBs: entryData.amountPaidBs, bcvRate: entryData.bcvRate,
+        paymentMethod: 'transferencia_usd', reference: 'PAGO-INICIAL-ENTRADA', notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
+        registeredBy: currentUser.name || 'Admin', balanceAfterUSD: entryData.balanceUSD, isFullSettlement: false,
+      });
+      const newPayable: PayableItem = {
+        id: `pay-${Date.now()}`, supplierId: entryData.supplierId, supplierName: entryData.supplierName,
+        invoiceNumber: entryData.invoiceNumber || entryNumber, description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
+        totalAmountUSD: entryData.totalInvoiceUSD, amountPaidUSD: entryData.amountPaidUSD, balanceUSD: entryData.balanceUSD,
+        issuedDate: entryData.date, dueDate: entryData.creditDueDate || entryData.date, creditDays: entryData.creditDays || 15,
+        status: entryData.balanceUSD <= 0.01 ? 'pagado' : 'al_dia',
+        items: entryData.items.map((it) => ({
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPriceUSD: it.realCostUSD,
+          subtotalUSD: it.subtotalUSD,
+        })),
+        paymentHistory: initialHistory,
+      };
+      setPayables((prev) => [newPayable, ...prev]);
+      void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving purchase payable to Turso:', error));
+    }
+    setPurchaseEntries((prev) => [newEntry, ...prev]);
+    void tursoService.savePurchaseEntry(newEntry).catch((error) => console.error('Error saving purchase entry to Turso:', error));
+    triggerPushNotification({ title: `Entrada ${entryNumber} Registrada con Éxito`, message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`, type: 'inventory_alert', badge: 'Entrada por Compra', sound: true });
+    return { success: true, purchaseEntry: newEntry };
+  };
+
+  const updateSupplier = async (supplier: Supplier): Promise<void> => {
+    await tursoService.saveSupplier(supplier);
+    setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
+  };
+
+  const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
+    const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
+    setUsers((prev) => [...prev, newUser]);
+    tursoService.saveUser(newUser)
+      .then(() => {
+        syncWithTurso(true).catch(() => {});
+      })
+      .catch((error) => console.error('Error saving user to Turso:', error));
+    triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
+  };
+
+  const updateUser = (user: User) => {
+    setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
+    if (currentUser.id === user.id) setCurrentUser(user);
+    tursoService.saveUser(user)
+      .then(() => syncWithTurso(true))
+      .catch((error) => console.error('Error updating user in Turso:', error));
+  };
+
+  const deleteUser = (userId: string): { success: boolean; message: string } => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return { success: false, message: 'Usuario no encontrado' };
+    if (target.role === 'admin') {
+      const activeAdmins = users.filter((u) => u.role === 'admin' && u.active);
+      if (activeAdmins.length <= 1) return { success: false, message: 'No se puede eliminar el único Administrador.' };
+    }
+    if (currentUser.id === userId) {
+      const remainingAdmin = users.find((u) => u.id !== userId && u.role === 'admin' && u.active);
+      if (remainingAdmin) setCurrentUser(remainingAdmin);
+    }
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    tursoService.deleteUser(userId)
+      .then(() => syncWithTurso(true))
+      .catch((error) => console.error('Error deleting user from Turso:', error));
+    triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
+    return { success: true, message: 'Usuario eliminado exitosamente' };
+  };
+
+  const resetSystemToFactory = async () => {
+    // El reinicio es destructivo y primero limpia Turso. Solo después
+    // limpiamos el navegador para impedir que un snapshot local vuelva a aparecer.
+    await tursoService.resetDatabase();
+
+    offlineSyncService.clearPendingSnapshots();
+
+    // Eliminar cualquier dato persistido de esta aplicación, incluso claves
+    // agregadas por módulos nuevos en el futuro.
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('omni_')) {
+        localStorage.removeItem(key);
+      }
+    }
+
+    setUsers([INITIAL_GENERIC_ADMIN]);
+    setCurrentUser(INITIAL_GENERIC_ADMIN);
+    setSettings(EMPTY_SYSTEM_SETTINGS);
+    setCategories([]);
+    setUnits([]);
+    setCustomers([]);
+    setProducts([]);
+    setCart([]);
+    setOrders([]);
+    setInvoices([]);
+    setReceivables([]);
+    setPayables([]);
+    setSuppliers([]);
+    setPurchaseEntries([]);
+    setNotifications([]);
+    setCurrentCustomer(null);
+    setIsAdminActive(false);
+    setMode('store');
+    setActivePushToasts([]);
+    seenNotificationIdsRef.current.clear();
+    isInitialSyncDoneRef.current = false;
+    cloudChangeTokenRef.current = 0;
+
+    setTursoState({
+      isConnected: true,
+      isSyncing: false,
+      statusText: 'Sistema reiniciado: solo queda el administrador semilla',
+      lastSyncTime: new Date().toISOString(),
+      errorMessage: null,
+      tablesCreated: ['schema_ready'],
+      totalRecordsInCloud: 0,
+    });
+  };
+
+
+  const updateSettings = (newSettings: Partial<SystemSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...newSettings };
+      void tursoService.saveSettings(next).catch((error) => console.error('Error saving settings to Turso:', error));
+      return next;
+    });
+  };
+  const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    seenNotificationIdsRef.current.clear();
+    // La limpieza administrativa es global: se elimina de Turso para que
+    // desaparezca también en las demás pestañas/dispositivos de la cuenta.
+    void tursoService.clearSellerNotifications().catch(async (error) => {
+      console.error('Error limpiando notificaciones administrativas en Turso:', error);
+      try {
+        const data = await tursoService.loadAllData();
+        setNotifications(data.notifications);
+      } catch (reloadError) {
+        console.error('No se pudieron restaurar las notificaciones tras el error:', reloadError);
+      }
+    });
+  };
+
+  return productionTursoMisconfigured ? (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6 text-center">
+        <div className="text-4xl mb-3">🔴</div>
+        <h1 className="text-lg font-extrabold text-slate-900">Base de datos no configurada</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Esta versión de producción requiere Turso. Configure TURSO_DATABASE_URL y TURSO_AUTH_TOKEN en Vercel y vuelva a cargar la aplicación.
+        </p>
+      </div>
+    </div>
+  ) : (
+    <AppContext.Provider value={{
+      mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
+      cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
+      addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, registerOnlineOrderInPos, cancelOnlineOrder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
+      updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
+      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
+      registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
+      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
+      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, requestCustomerPushPermission, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
+      storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
+      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
+      isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
+      isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, customerInvoiceModalMode, setCustomerInvoiceModalMode, lastSuccessfulOrder, setLastSuccessfulOrder,
+      automatedReminders, runManualReminderScan, lastStockUpdateEvent, broadcastStockUpdate, tursoState, bootstrapTursoSchema, syncWithTurso,
+    }}>
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) throw new Error('useApp must be used within an AppProvider');
+  return context;
+}; + normalizedAmount.toFixed(2) + ' USD para ' + target.invoiceNumber + '. ' +
+        (details.paymentMethod === 'mixto'
+          ? 'Método: Pago Mixto Online.'
+          : 'Método: ' + formatPaymentMethod(details.paymentMethod) + '.') +
+        ' Revisa CxC y aprueba o rechaza el pago.',
+      type: 'credit_alert',
+      targetRole: 'seller',
+      targetCustomerId: currentCustomer.id,
+      badge: 'Pago por deuda recibido',
+    });
+  };
+
+  // Valida un pago reportado por el cliente y solo entonces lo incorpora al saldo y a los procesos de CxC.
+  const reviewCustomerPaymentReport = async (
+    receivableId: string,
+    paymentId: string,
+    approved: boolean,
+    notes = ''
+  ) => {
+    const target = receivables.find((r) => r.id === receivableId);
+    const pending = target?.paymentHistory?.find((p) => p.id === paymentId && p.reportedByCustomer && p.verificationStatus === 'pendiente');
+    if (!target || !pending) throw new Error('El pago reportado ya no está pendiente o la deuda no existe.');
+
+    if (!approved) {
+      const rejected = {
+        ...target,
+        paymentHistory: (target.paymentHistory || []).map((p) =>
+          p.id === paymentId
+            ? { ...p, verificationStatus: 'rechazado' as const, notes: notes || 'Pago rechazado por administración.' }
+            : p
+        ),
+      };
+      await tursoService.saveReceivable(rejected);
+      setReceivables((prev) => prev.map((r) => r.id === target.id ? rejected : r));
+      triggerPushNotification({
+        title: '❌ Pago por deuda rechazado',
+        message: 'El pago reportado para ' + target.invoiceNumber + ' fue rechazado por administración.' + (notes ? ' Motivo: ' + notes : ''),
+        type: 'credit_alert',
+        targetCustomerId: target.customerId,
+        badge: 'Pago rechazado',
+      });
+      return;
+    }
+
+    const appliedAmount = Math.min(target.balanceUSD, pending.amountUSD);
+    if (appliedAmount <= 0) throw new Error('El saldo de la deuda ya no permite aplicar este pago.');
+
+    const newPaid = target.amountPaidUSD + appliedAmount;
+    const newBalance = Math.max(0, target.totalAmountUSD - newPaid);
+    const isSettled = newBalance <= 0.01;
+    const terminalId = terminalIdentity.getId();
+    let cashSessionId: string | undefined;
+    try {
+      const active = JSON.parse(sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`) || 'null');
+      if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
+    } catch {}
+
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
+    const approvedRecord: ReceivablePaymentRecord = {
+      ...pending,
+      date: pending.date,
+      verificationStatus: 'aprobado',
+      registeredBy: currentUser.name,
+      balanceAfterUSD: newBalance,
+      isFullSettlement: isSettled,
+      terminalId,
+      cashSessionId,
+      receiptNumber,
+      notes: notes || pending.notes || 'Pago reportado por cliente y aprobado por administración.',
+    };
+
+    const updated = {
+      ...target,
+      amountPaidUSD: newPaid,
+      balanceUSD: newBalance,
+      status: isSettled ? 'pagado' as const : target.status,
+      paymentHistory: (target.paymentHistory || []).map((p) => p.id === paymentId ? approvedRecord : p),
+    };
+    await tursoService.approveCustomerReceivablePayment(updated, paymentId, currentUser.name);
+    setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
+
+    setCustomers((prev) => prev.map((customer) =>
+      customer.id === target.customerId
+        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - appliedAmount) }
+        : customer
+    ));
+    if (isSettled) {
+      setInvoices((prev) => prev.map((inv) =>
+        inv.invoiceNumber === target.invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv
+      ));
+    }
+
+    triggerPushNotification({
+      title: isSettled ? '🎉 Pago de deuda aprobado' : '💵 Abono de deuda aprobado',
+      message: 'El pago reportado para ' + target.invoiceNumber + ' por $' + appliedAmount.toFixed(2) +
+        ' USD fue aprobado y registrado en CxC. Recibo ' + receiptNumber + '.',
+      type: 'credit_alert',
+      targetCustomerId: target.customerId,
+      badge: isSettled ? 'Deuda liquidada' : 'Abono aplicado',
+    });
+  };
+
+  // Accounts Receivable payment registration (Cobro a Clientes)
+  const registerReceivablePayment = (
+    receivableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      paymentSplits?: ReceivablePaymentSplit[];
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+      sourceReportId?: string;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const notes = details?.notes || '';
+    const terminalId = terminalIdentity.getId();
+    let cashSessionId: string | undefined;
+    try {
+      const active = JSON.parse(sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`) || 'null');
+      if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
+    } catch {}
+
+    const suppliedSplits = details?.paymentSplits?.filter(s => Number(s.amountUSD) > 0 || Number(s.amountBs) > 0) || [];
+    const splits: ReceivablePaymentSplit[] = suppliedSplits.length
+      ? suppliedSplits.map(s => ({ ...s, amountUSD: Number((s.amountUSD || 0).toFixed(6)), amountBs: Number((s.amountBs || 0).toFixed(2)), currency: s.currency }))
+      : [{
+          id: 'cxc-split-' + Date.now(),
+          method: method as Exclude<PaymentMethod,'mixto'>,
+          amountUSD: Number(amountUSD.toFixed(6)),
+          amountBs: Number((amountUSD * rate).toFixed(2)),
+          currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(method) ? 'Bs' : 'USD',
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+
+    const normalizedAmountUSD = Number(splits.reduce((sum, s) => sum + (s.currency === 'USD' ? s.amountUSD : (s.amountBs / rate)), 0).toFixed(6));
+    if (!Number.isFinite(normalizedAmountUSD) || normalizedAmountUSD <= 0) return;
+
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
+    let customerId = '';
+    let invoiceNumber = '';
+    let isSettled = false;
+
+    setReceivables(prev => prev.map(rec => {
+      if (rec.id !== receivableId) return rec;
+      customerId = rec.customerId;
+      invoiceNumber = rec.invoiceNumber;
+      const actualAmountToPay = Math.min(rec.balanceUSD, normalizedAmountUSD);
+      const newPaid = rec.amountPaidUSD + actualAmountToPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      isSettled = newBalance <= 0.01;
+      const factor = normalizedAmountUSD > 0 ? actualAmountToPay / normalizedAmountUSD : 0;
+      const appliedSplits = splits.map(s => ({ ...s, amountUSD: Number((s.amountUSD * factor).toFixed(6)), amountBs: Number((s.amountBs * factor).toFixed(2)) }));
+      const paymentRecord: ReceivablePaymentRecord = {
+        id: 'pay-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        date: new Date().toISOString(),
+        amountUSD: actualAmountToPay,
+        amountBs: Number((actualAmountToPay * rate).toFixed(2)),
+        bcvRate: rate,
+        paymentMethod: appliedSplits.length > 1 ? 'mixto' : appliedSplits[0].method,
+        paymentSplits: appliedSplits,
+        reference: ref,
+        notes: notes || (isSettled ? 'Liquidación total de factura' : 'Abono a factura'),
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+        terminalId,
+        cashSessionId,
+        receiptNumber,
+      };
+      const updatedRec = { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
+      void tursoService.saveReceivable(updatedRec).catch((error) => console.error('Error saving CxC payment to Turso:', error));
+      return updatedRec;
+    }));
+
+    if (customerId) {
+      setCustomers(custs => custs.map(c => c.id === customerId ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - Math.min(c.currentDebtUSD, normalizedAmountUSD)) } : c));
+    }
+    if (invoiceNumber && isSettled) setInvoices(prev => prev.map(inv => inv.invoiceNumber === invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv));
+    triggerPushNotification({
+      title: isSettled ? '🎉 Factura Liquidada en CxC' : '💵 Abono Registrado en CxC',
+      message: (isSettled ? 'Factura ' + invoiceNumber + ' liquidada' : 'Abono a factura ' + invoiceNumber) + ' por $' + normalizedAmountUSD.toFixed(2) + ' USD. Recibo ' + receiptNumber + '.',
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: isSettled ? 'Factura Pagada' : 'Abono CxC',
+    });
+  };
+
+  // Liquidate a specific invoice completely in one action
+  const liquidateCustomerInvoice = (
+    receivableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const targetRec = receivables.find((r) => r.id === receivableId);
+    if (!targetRec || targetRec.balanceUSD <= 0) return;
+    registerReceivablePayment(receivableId, targetRec.balanceUSD, {
+      ...details,
+      notes: details?.notes || 'Cancelación / Liquidación completa de factura',
+    });
+  };
+
+  // Global FIFO waterfall distribution across all pending customer invoices
+  const registerGlobalCustomerPayment = (
+    customerId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const method = details?.paymentMethod || 'transferencia_usd';
+    const ref = details?.reference || '';
+    const customNotes = details?.notes || 'Abono Global Distribuido (FIFO)';
+
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    // FIFO real: la aplicación se calcula sobre la cola cronológica y luego
+    // se proyecta por ID. Nunca dependemos del orden físico del array.
+    const customerPendingRecs = receivables
+      .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001 && !r.isVoided)
+      .sort((a, b) => {
+        const byDate = new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime();
+        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+      });
+
+    let remainingPayment = amountUSD;
+    let liquidatedCount = 0;
+    let fullyPaidTotal = 0;
+    let partialAbono = 0;
+    let appliedTotal = 0;
+    const settledInvoiceNumbers = new Set<string>();
+    const allocations = new Map<string, number>();
+
+    for (const rec of customerPendingRecs) {
+      if (remainingPayment <= 0.0001) break;
+
+      const toPay = Math.min(rec.balanceUSD, remainingPayment);
+      if (toPay <= 0.0001) continue;
+
+      allocations.set(rec.id, toPay);
+      remainingPayment -= toPay;
+      appliedTotal += toPay;
+
+      const newBalance = Math.max(0, rec.balanceUSD - toPay);
+      const isSettled = newBalance <= 0.01;
+
+      if (isSettled) {
+        liquidatedCount++;
+        fullyPaidTotal += toPay;
+        settledInvoiceNumbers.add(rec.invoiceNumber);
+      } else {
+        partialAbono += toPay;
+      }
+    }
+
+    if (appliedTotal <= 0.0001) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    const paymentDate = new Date().toISOString();
+    const updatedReceivables = receivables.map((rec) => {
+      const toPay = allocations.get(rec.id);
+      if (!toPay) return rec;
+
+      const newPaid = rec.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
+
+      const record: ReceivablePaymentRecord = {
+        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${rec.id}`,
+        date: paymentDate,
+        amountUSD: toPay,
+        amountBs: toPay * rate,
+        bcvRate: rate,
+        paymentMethod: method,
+        reference: ref,
+        notes: isSettled
+          ? `${customNotes} - Factura ${rec.invoiceNumber} liquidada totalmente`
+          : `${customNotes} - Abono parcial a factura ${rec.invoiceNumber}`,
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+      };
+
+      return {
+        ...rec,
+        amountPaidUSD: newPaid,
+        balanceUSD: newBalance,
+        status: isSettled ? 'pagado' : rec.status,
+        paymentHistory: [record, ...(rec.paymentHistory || [])],
+      };
+    });
+
+    setReceivables(updatedReceivables);
+    for (const rec of updatedReceivables) {
+      if (allocations.has(rec.id)) void tursoService.saveReceivable(rec).catch((error) => console.error('Error saving global CxC payment to Turso:', error));
+    }
+
+    // Solo descuenta lo realmente aplicado. Si el pago supera toda la deuda,
+    // el sobrante queda sin aplicar y no reduce la deuda por debajo de cero.
+    setCustomers((custs) =>
+      custs.map((c) =>
+        c.id === customerId
+          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - appliedTotal) }
+          : c
+      )
+    );
+
+    if (settledInvoiceNumbers.size > 0) {
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          settledInvoiceNumbers.has(inv.invoiceNumber)
+            ? { ...inv, paymentStatus: 'pagado' }
+            : inv
+        )
+      );
+    }
+
+    const customerObj = customers.find((c) => c.id === customerId);
+    const custName = customerObj ? customerObj.name : 'Cliente';
+    const remainder = Math.max(0, remainingPayment);
+
+    triggerPushNotification({
+      title: '💳 Abono Global Distribuido (CxC)',
+      message: `Pago de $${amountUSD.toFixed(2)} para ${custName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
+      type: 'credit_alert',
+      targetCustomerId: customerId,
+      badge: 'Pago Global CxC',
+    });
+
+    return {
+      liquidatedInvoicesCount: liquidatedCount,
+      partialAbonoUSD: partialAbono,
+      fullyPaidTotalUSD: fullyPaidTotal,
+    };
+  };
+  // Liquidate all debt for a customer
+  const liquidateCustomerTotalDebt = (
+    customerId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const custPendingRecs = receivables.filter((r) => r.customerId === customerId && r.balanceUSD > 0.001);
+    const totalDebt = custPendingRecs.reduce((sum, r) => sum + r.balanceUSD, 0);
+    if (totalDebt <= 0) return;
+    registerGlobalCustomerPayment(customerId, totalDebt, {
+      ...details,
+      notes: details?.notes || 'Liquidación TOTAL de deuda del cliente',
+    });
+  };
+
+  // Accounts Payable payment registration (Pago a Proveedores individual)
+  const registerPayablePayment = (
+    payableId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const ref = details?.reference || '';
+    const customNotes = details?.notes || 'Abono / Pago a Proveedor';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0 || normalizedTotal + 0.0001 < amountUSD) return;
+
+    let supplierName = '';
+    let invoiceNumber = '';
+    let isSettled = false;
+
+    setPayables((prev) =>
+      prev.map((pay) => {
+        if (pay.id !== payableId) return pay;
+        supplierName = pay.supplierName;
+        invoiceNumber = pay.invoiceNumber;
+        const appliedAmount = Math.min(amountUSD, pay.balanceUSD);
+        const newPaid = pay.amountPaidUSD + appliedAmount;
+        const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+        isSettled = newBalance <= 0.01;
+
+        const record: PayablePaymentRecord = {
+          id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          date: new Date().toISOString(),
+          amountUSD: appliedAmount,
+          amountBs: appliedAmount * rate,
+          bcvRate: rate,
+          paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+          paymentSplits: normalizedSplits,
+          reference: ref,
+          notes: customNotes,
+          registeredBy: currentUser.name,
+          balanceAfterUSD: newBalance,
+          isFullSettlement: isSettled,
+        };
+        const updatedPay = {
+          ...pay,
+          amountPaidUSD: newPaid,
+          balanceUSD: newBalance,
+          status: isSettled ? 'pagado' : pay.status,
+          paymentHistory: [record, ...(pay.paymentHistory || [])],
+        };
+        void tursoService.savePayable(updatedPay).catch((error) => console.error('Error saving CxP payment to Turso:', error));
+        return updatedPay;
+      })
+    );
+
+    triggerPushNotification({
+      title: isSettled ? '🎉 Compra a Proveedor Liquidada (CxP)' : '💵 Pago Registrado a Proveedor (CxP)',
+      message: `${isSettled ? `Factura de compra ${invoiceNumber} (${supplierName}) liquidada en su totalidad ($${amountUSD.toFixed(2)} USD).` : `Abono de $${amountUSD.toFixed(2)} USD pagado a ${supplierName} (Factura ${invoiceNumber}).`}`,
+      type: 'credit_alert',
+      badge: isSettled ? 'CxP Liquidada' : 'Pago CxP',
+    });
+  };
+  // Liquidate a specific payable purchase invoice completely in one action
+  const liquidateSupplierInvoice = (
+    payableId: string,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const targetPay = payables.find((p) => p.id === payableId);
+    if (!targetPay || targetPay.balanceUSD <= 0.001) return;
+    registerPayablePayment(payableId, targetPay.balanceUSD, {
+      ...details,
+      notes: details?.notes || 'Liquidación completa de factura por pagar',
+    });
+  };
+
+  // Global FIFO waterfall distribution across all pending supplier purchase invoices
+  const registerGlobalSupplierPayment = (
+    supplierId: string,
+    amountUSD: number,
+    details?: {
+      paymentMethod?: PaymentMethod;
+      paymentSplits?: PayablePaymentSplit[];
+      reference?: string;
+      notes?: string;
+      bcvRate?: number;
+    }
+  ) => {
+    const rate = details?.bcvRate || settings.bcvRate;
+    const ref = details?.reference || '';
+    const splits = (details?.paymentSplits || []).filter((s) => Number(s.amountUSD) > 0.0001 || Number(s.amountBs) > 0.0001);
+    const normalizedSplits: PayablePaymentSplit[] = splits.length
+      ? splits.map((s) => ({
+          ...s,
+          amountUSD: Number(s.currency === 'Bs' ? Number(s.amountBs) / rate : s.amountUSD),
+          amountBs: Number(s.currency === 'Bs' ? s.amountBs : Number(s.amountUSD) * rate),
+        }))
+      : [{
+          id: crypto.randomUUID(),
+          method: (details?.paymentMethod || 'transferencia_usd') as Exclude<PaymentMethod, 'mixto'>,
+          currency: (details?.paymentMethod === 'efectivo_bs' || details?.paymentMethod === 'transferencia_bs' || details?.paymentMethod === 'pago_movil' || details?.paymentMethod === 'biopago' || details?.paymentMethod === 'tarjeta') ? 'Bs' : 'USD',
+          amountUSD,
+          amountBs: amountUSD * rate,
+          reference: ref,
+          createdAt: new Date().toISOString(),
+        }];
+    const normalizedTotal = normalizedSplits.reduce((sum, s) => sum + Number(s.amountUSD || 0), 0);
+    if (normalizedTotal + 0.0001 < amountUSD) return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    const customNotes = details?.notes || 'Pago Global Distribuido a Proveedor (FIFO)';
+
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    // FIFO real: proveedor -> factura más antigua -> factura siguiente -> ... 
+    const supplierPendingPays = payables
+      .filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001)
+      .sort((a, b) => {
+        const byDate = new Date(a.issuedDate).getTime() - new Date(b.issuedDate).getTime();
+        return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+      });
+
+    let remainingPayment = amountUSD;
+    let liquidatedCount = 0;
+    let fullyPaidTotal = 0;
+    let partialAbono = 0;
+    let appliedTotal = 0;
+    const allocations = new Map<string, number>();
+
+    for (const pay of supplierPendingPays) {
+      if (remainingPayment <= 0.0001) break;
+
+      const toPay = Math.min(pay.balanceUSD, remainingPayment);
+      if (toPay <= 0.0001) continue;
+
+      allocations.set(pay.id, toPay);
+      remainingPayment -= toPay;
+      appliedTotal += toPay;
+
+      const newBalance = Math.max(0, pay.balanceUSD - toPay);
+      const isSettled = newBalance <= 0.01;
+
+      if (isSettled) {
+        liquidatedCount++;
+        fullyPaidTotal += toPay;
+      } else {
+        partialAbono += toPay;
+      }
+    }
+
+    if (appliedTotal <= 0.0001) {
+      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    }
+
+    const paymentDate = new Date().toISOString();
+    const updatedPayables = payables.map((pay) => {
+      const toPay = allocations.get(pay.id);
+      if (!toPay) return pay;
+
+      const newPaid = pay.amountPaidUSD + toPay;
+      const newBalance = Math.max(0, pay.totalAmountUSD - newPaid);
+      const isSettled = newBalance <= 0.01;
+
+      const record: PayablePaymentRecord = {
+        id: `pay-rec-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${pay.id}`,
+        date: paymentDate,
+        amountUSD: toPay,
+        amountBs: toPay * rate,
+        bcvRate: rate,
+        paymentMethod: normalizedSplits.length > 1 ? 'mixto' : normalizedSplits[0].method,
+        paymentSplits: normalizedSplits,
+        reference: ref,
+        notes: isSettled
+          ? `${customNotes} - Factura ${pay.invoiceNumber} liquidada totalmente`
+          : `${customNotes} - Abono parcial a factura ${pay.invoiceNumber}`,
+        registeredBy: currentUser.name,
+        balanceAfterUSD: newBalance,
+        isFullSettlement: isSettled,
+      };
+
+      return {
+        ...pay,
+        amountPaidUSD: newPaid,
+        balanceUSD: newBalance,
+        status: isSettled ? 'pagado' : pay.status,
+        paymentHistory: [record, ...(pay.paymentHistory || [])],
+      };
+    });
+
+    setPayables(updatedPayables);
+    for (const pay of updatedPayables) {
+      if (allocations.has(pay.id)) void tursoService.savePayable(pay).catch((error) => console.error('Error saving global CxP payment to Turso:', error));
+    }
+
+    const supObj = suppliers.find((s) => s.id === supplierId);
+    const supName = supObj ? supObj.name : 'Proveedor';
+    const remainder = Math.max(0, remainingPayment);
+
+    triggerPushNotification({
+      title: '💳 Pago Global Distribuido (CxP)',
+      message: `Pago de $${amountUSD.toFixed(2)} para ${supName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
+      type: 'credit_alert',
+      badge: 'Pago Global CxP',
+    });
+
+    return {
+      liquidatedInvoicesCount: liquidatedCount,
+      partialAbonoUSD: partialAbono,
+      fullyPaidTotalUSD: fullyPaidTotal,
+    };
+  };
+
+  // Liquidate all pending debt with a specific supplier
+  const liquidateSupplierTotalDebt = (supplierId: string, details?: { paymentMethod?: PaymentMethod; reference?: string; notes?: string; bcvRate?: number }) => {
+    const supPending = payables.filter((p) => p.supplierId === supplierId && p.balanceUSD > 0.001);
+    const totalDebt = supPending.reduce((sum, p) => sum + p.balanceUSD, 0);
+    if (totalDebt <= 0) return;
+    registerGlobalSupplierPayment(supplierId, totalDebt, { ...details, notes: details?.notes || 'Liquidación TOTAL de compras con el proveedor' });
+  };
+
+  const updateSupplierCredit = (supplierId: string, creditDays: number, creditLimitUSD?: number, notes?: string) => {
+    setSuppliers((prev) => prev.map((s) => {
+      if (s.id !== supplierId) return s;
+      const updated = { ...s, creditDays, creditLimitUSD: creditLimitUSD !== undefined ? creditLimitUSD : s.creditLimitUSD };
+      void tursoService.saveSupplier(updated).catch((error) => console.error('Error saving supplier credit to Turso:', error));
+      return updated;
+    }));
+    triggerPushNotification({ title: 'Condiciones de Proveedor Actualizadas', message: `Se actualizaron las condiciones comerciales de crédito (${creditDays} días).`, type: 'credit_alert', badge: 'Condiciones CxP' });
+  };
+
+  const addPayableInvoice = (payable: Omit<PayableItem, 'id'>) => {
+    const newPayable: PayableItem = { ...payable, id: `pay-${Date.now()}`, paymentHistory: payable.paymentHistory || [] };
+    setPayables((prev) => [newPayable, ...prev]);
+    void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving payable to Turso:', error));
+  };
+
+  const addSupplier = async (supplier: Omit<Supplier, 'id'>): Promise<Supplier> => {
+    const newSup: Supplier = { ...supplier, id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` };
+
+    // Turso es la fuente de verdad: primero confirmamos la escritura y solo
+    // después publicamos el proveedor en el estado local. Así un proveedor no
+    // puede aparecer como creado si la escritura cloud falló.
+    await tursoService.saveSupplier(newSup);
+    setSuppliers((prev) => [newSup, ...prev.filter((s) => s.id !== newSup.id)]);
+    // No hacemos un reload inmediato aquí: una lectura de Turso ya iniciada
+    // podría traer un snapshot anterior y volver a ocultar el proveedor recién guardado.
+    // El evento activity_changes hará que el siguiente ciclo descargue el snapshot nuevo.
+    return newSup;
+  };
+
+  const deleteSupplier = (supplierId: string): { success: boolean; message: string } => {
+    const target = suppliers.find((s) => s.id === supplierId);
+    if (!target) return { success: false, message: 'Proveedor no encontrado.' };
+    const linkedProducts = products.some((p) => (p.suppliersInfo || []).some((x) => x.supplierId === supplierId));
+    if (linkedProducts) return { success: false, message: 'No se puede eliminar: el proveedor está vinculado a uno o más productos.' };
+    const usedInPurchases = purchaseEntries.some((p) => p.supplierId === supplierId);
+    if (usedInPurchases) return { success: false, message: 'No se puede eliminar: el proveedor tiene entradas de compra históricas. Puede editar sus datos.' };
+    setSuppliers((prev) => prev.filter((s) => s.id !== supplierId));
+    void tursoService.deleteSupplier(supplierId).then(() => syncWithTurso(true)).catch((error) => console.error('Error eliminando proveedor de Turso:', error));
+    return { success: true, message: 'Proveedor eliminado.' };
+  };
+
+  const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
+    const entryId = `ent-${Date.now()}`;
+    const seq = purchaseEntries.length + 1;
+    const entryNumber = `ENT-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
+    const nowIso = new Date().toISOString();
+    const newEntry: PurchaseEntry = { ...entryData, id: entryId, entryNumber, createdAt: nowIso };
+    const updatedProducts = products.map((prod) => {
+      const match = entryData.items.find((it) => it.productId === prod.id);
+      if (!match) return prod;
+      return { ...prod, stock: Math.max(0, (prod.stock || 0) + match.quantity), lastCostUSD: prod.costUSD > 0 ? prod.costUSD : match.currentBaseCostUSD, costUSD: match.currentBaseCostUSD, realCostUSD: match.realCostUSD };
+    });
+    setProducts(updatedProducts);
+    broadcastStockUpdate(updatedProducts, { productIds: entryData.items.map((it) => it.productId), source: 'adjustment', summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario` });
+    for (const item of entryData.items) offlineSyncService.enqueueInventoryMovement({ productId: item.productId, quantityDelta: item.quantity, movementType: 'purchase' });
+    if (navigator.onLine && tursoService.isConfigured()) offlineSyncService.flush().catch((error) => console.warn('Entrada de inventario en cola:', error));
+    if (entryData.balanceUSD > 0.001) {
+      const initialHistory: PayablePaymentRecord[] = [];
+      if (entryData.amountPaidUSD > 0) initialHistory.push({
+        id: `pay-rec-${Date.now()}`, date: nowIso, amountUSD: entryData.amountPaidUSD, amountBs: entryData.amountPaidBs, bcvRate: entryData.bcvRate,
+        paymentMethod: 'transferencia_usd', reference: 'PAGO-INICIAL-ENTRADA', notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
+        registeredBy: currentUser.name || 'Admin', balanceAfterUSD: entryData.balanceUSD, isFullSettlement: false,
+      });
+      const newPayable: PayableItem = {
+        id: `pay-${Date.now()}`, supplierId: entryData.supplierId, supplierName: entryData.supplierName,
+        invoiceNumber: entryData.invoiceNumber || entryNumber, description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
+        totalAmountUSD: entryData.totalInvoiceUSD, amountPaidUSD: entryData.amountPaidUSD, balanceUSD: entryData.balanceUSD,
+        issuedDate: entryData.date, dueDate: entryData.creditDueDate || entryData.date, creditDays: entryData.creditDays || 15,
+        status: entryData.balanceUSD <= 0.01 ? 'pagado' : 'al_dia',
+        items: entryData.items.map((it) => ({
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPriceUSD: it.realCostUSD,
+          subtotalUSD: it.subtotalUSD,
+        })),
+        paymentHistory: initialHistory,
+      };
+      setPayables((prev) => [newPayable, ...prev]);
+      void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving purchase payable to Turso:', error));
+    }
+    setPurchaseEntries((prev) => [newEntry, ...prev]);
+    void tursoService.savePurchaseEntry(newEntry).catch((error) => console.error('Error saving purchase entry to Turso:', error));
+    triggerPushNotification({ title: `Entrada ${entryNumber} Registrada con Éxito`, message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`, type: 'inventory_alert', badge: 'Entrada por Compra', sound: true });
+    return { success: true, purchaseEntry: newEntry };
+  };
+
+  const updateSupplier = async (supplier: Supplier): Promise<void> => {
+    await tursoService.saveSupplier(supplier);
+    setSuppliers((prev) => prev.map((s) => s.id === supplier.id ? supplier : s));
+  };
+
+  const addUser = (user: Omit<User, 'id' | 'createdAt'>) => {
+    const newUser: User = { ...user, id: `usr-${Date.now()}`, createdAt: new Date().toISOString().split('T')[0], active: user.active ?? true, password: user.password || 'admin123', isInitialGeneric: false };
+    setUsers((prev) => [...prev, newUser]);
+    tursoService.saveUser(newUser)
+      .then(() => {
+        syncWithTurso(true).catch(() => {});
+      })
+      .catch((error) => console.error('Error saving user to Turso:', error));
+    triggerPushNotification({ title: 'Colaborador Registrado', message: `Se ha creado el usuario ${newUser.name} con rol ${newUser.role.toUpperCase()}.`, type: 'inventory_alert', badge: 'Usuarios ERP' });
+  };
+
+  const updateUser = (user: User) => {
+    setUsers((prev) => prev.map((u) => u.id === user.id ? user : u));
+    if (currentUser.id === user.id) setCurrentUser(user);
+    tursoService.saveUser(user)
+      .then(() => syncWithTurso(true))
+      .catch((error) => console.error('Error updating user in Turso:', error));
+  };
+
+  const deleteUser = (userId: string): { success: boolean; message: string } => {
+    const target = users.find((u) => u.id === userId);
+    if (!target) return { success: false, message: 'Usuario no encontrado' };
+    if (target.role === 'admin') {
+      const activeAdmins = users.filter((u) => u.role === 'admin' && u.active);
+      if (activeAdmins.length <= 1) return { success: false, message: 'No se puede eliminar el único Administrador.' };
+    }
+    if (currentUser.id === userId) {
+      const remainingAdmin = users.find((u) => u.id !== userId && u.role === 'admin' && u.active);
+      if (remainingAdmin) setCurrentUser(remainingAdmin);
+    }
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    tursoService.deleteUser(userId)
+      .then(() => syncWithTurso(true))
+      .catch((error) => console.error('Error deleting user from Turso:', error));
+    triggerPushNotification({ title: 'Usuario Eliminado', message: `El usuario "${target.name}" ha sido eliminado del sistema.`, type: 'inventory_alert', badge: 'Control ERP' });
+    return { success: true, message: 'Usuario eliminado exitosamente' };
+  };
+
+  const resetSystemToFactory = async () => {
+    // El reinicio es destructivo y primero limpia Turso. Solo después
+    // limpiamos el navegador para impedir que un snapshot local vuelva a aparecer.
+    await tursoService.resetDatabase();
+
+    offlineSyncService.clearPendingSnapshots();
+
+    // Eliminar cualquier dato persistido de esta aplicación, incluso claves
+    // agregadas por módulos nuevos en el futuro.
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('omni_')) {
+        localStorage.removeItem(key);
+      }
+    }
+
+    setUsers([INITIAL_GENERIC_ADMIN]);
+    setCurrentUser(INITIAL_GENERIC_ADMIN);
+    setSettings(EMPTY_SYSTEM_SETTINGS);
+    setCategories([]);
+    setUnits([]);
+    setCustomers([]);
+    setProducts([]);
+    setCart([]);
+    setOrders([]);
+    setInvoices([]);
+    setReceivables([]);
+    setPayables([]);
+    setSuppliers([]);
+    setPurchaseEntries([]);
+    setNotifications([]);
+    setCurrentCustomer(null);
+    setIsAdminActive(false);
+    setMode('store');
+    setActivePushToasts([]);
+    seenNotificationIdsRef.current.clear();
+    isInitialSyncDoneRef.current = false;
+    cloudChangeTokenRef.current = 0;
+
+    setTursoState({
+      isConnected: true,
+      isSyncing: false,
+      statusText: 'Sistema reiniciado: solo queda el administrador semilla',
+      lastSyncTime: new Date().toISOString(),
+      errorMessage: null,
+      tablesCreated: ['schema_ready'],
+      totalRecordsInCloud: 0,
+    });
+  };
+
+
+  const updateSettings = (newSettings: Partial<SystemSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...newSettings };
+      void tursoService.saveSettings(next).catch((error) => console.error('Error saving settings to Turso:', error));
+      return next;
+    });
+  };
+  const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    seenNotificationIdsRef.current.clear();
+    // La limpieza administrativa es global: se elimina de Turso para que
+    // desaparezca también en las demás pestañas/dispositivos de la cuenta.
+    void tursoService.clearSellerNotifications().catch(async (error) => {
+      console.error('Error limpiando notificaciones administrativas en Turso:', error);
+      try {
+        const data = await tursoService.loadAllData();
+        setNotifications(data.notifications);
+      } catch (reloadError) {
+        console.error('No se pudieron restaurar las notificaciones tras el error:', reloadError);
+      }
+    });
+  };
+
+  return productionTursoMisconfigured ? (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="max-w-lg w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6 text-center">
+        <div className="text-4xl mb-3">🔴</div>
+        <h1 className="text-lg font-extrabold text-slate-900">Base de datos no configurada</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Esta versión de producción requiere Turso. Configure TURSO_DATABASE_URL y TURSO_AUTH_TOKEN en Vercel y vuelva a cargar la aplicación.
+        </p>
+      </div>
+    </div>
+  ) : (
+    <AppContext.Provider value={{
+      mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
+      cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
+      addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, registerOnlineOrderInPos, cancelOnlineOrder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
+      updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
+      approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
+      registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
+      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
+      activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, requestCustomerPushPermission, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
+      storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
+      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
+      isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
+      isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, customerInvoiceModalMode, setCustomerInvoiceModalMode, lastSuccessfulOrder, setLastSuccessfulOrder,
+      automatedReminders, runManualReminderScan, lastStockUpdateEvent, broadcastStockUpdate, tursoState, bootstrapTursoSchema, syncWithTurso,
+    }}>
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) throw new Error('useApp must be used within an AppProvider');
+  return context;
+}; + normalizedAmount.toFixed(2) + ' USD. Queda pendiente de aprobación administrativa.',
+      type: 'credit_alert',
+      targetRole: 'seller',
+      badge: 'Pago reportado por cliente',
+    });
   };
 
   // Valida un pago reportado por el cliente y solo entonces lo incorpora al saldo y a los procesos de CxC.
