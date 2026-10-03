@@ -7,6 +7,12 @@ export interface CashReportLine {
   amount: number;
 }
 
+export interface CashTaxLine {
+  rate: number;
+  amountUSD: number;
+  amountBs: number;
+}
+
 export interface CashReportData {
   kind: 'X' | 'Z';
   terminalId: string;
@@ -18,6 +24,9 @@ export interface CashReportData {
   openingBs: number;
   openingUSD: number;
   salesUSD: number;
+  taxableBaseUSD?: number;
+  taxUSD?: number;
+  taxByRate?: CashTaxLine[];
   salesByMethod: CashReportLine[];
   cxcByMethod: CashReportLine[];
   cxcCashSalesBs: number;
@@ -101,6 +110,22 @@ export const CashReportPreview: React.FC<{
             <div className="flex justify-between"><span>Ventas USD</span><b>{formatUSD(data.salesUSD)}</b></div>
             <div className="flex justify-between"><span>Ventas Bs</span><b>{formatBs(salesBs)}</b></div>
             <div className="flex justify-between"><span>Ventas USD por cobro</span><b>{formatUSD(salesUsd)}</b></div>
+
+            {(data.kind === 'Z' || (data.taxUSD || 0) > 0) && (
+              <>
+                <div className="border-t border-dashed border-black my-2" />
+                <div className="font-black">DESGLOSE DE IMPUESTOS</div>
+                <div className="flex justify-between"><span>Base imponible</span><b>{formatUSD(data.taxableBaseUSD || 0)}</b></div>
+                {(data.taxByRate || []).length === 0 ? (
+                  <div className="flex justify-between"><span>IVA</span><b>{formatUSD(data.taxUSD || 0)}</b></div>
+                ) : (data.taxByRate || []).map((tax) => (
+                  <div key={tax.rate} className="flex justify-between">
+                    <span>IVA {tax.rate}%</span><b>{formatUSD(tax.amountUSD)}</b>
+                  </div>
+                ))}
+                <div className="flex justify-between font-black"><span>IMPUESTO TOTAL</span><b>{formatUSD(data.taxUSD || 0)}</b></div>
+              </>
+            )}
 
             <div className="border-t border-dashed border-black my-2" />
             <div className="font-black">MEDIOS DE PAGO</div>

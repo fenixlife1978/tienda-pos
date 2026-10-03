@@ -458,6 +458,70 @@ export const CashRegisterView: React.FC = () => {
     [session, cashSalesBs, cxcCashSalesBs, movementCashBs, refundCash.bs]
   );
 
+  const calculateOrderTaxBreakdown = (order: any) => {
+    const sign = order.isReturned || order.isVoided ? -1 : 1;
+    let baseUSD = 0;
+    let taxUSD = 0;
+    const byRate = new Map<number, number>();
+    const items = Array.isArray(order.items) ? order.items : [];
+    let hasItemTaxData = false;
+
+    for (const item of items) {
+      const subtotal = Number(item.subtotalUSD || 0);
+      const hasTaxField = item.taxUSD !== undefined || item.ivaRate !== undefined;
+      if (hasTaxField) hasItemTaxData = true;
+      const rate = Number(item.ivaRate ?? (item.taxUSD !== undefined && Number(item.taxUSD) > 0 ? settings.ivaPercentage : 0));
+      const itemTax = Number(item.taxUSD ?? (rate > 0 ? subtotal * (rate / 100) : 0));
+      if (rate > 0 && Number.isFinite(subtotal)) baseUSD += subtotal;
+      if (Number.isFinite(itemTax) && itemTax > 0) {
+        byRate.set(rate, (byRate.get(rate) || 0) + itemTax);
+        taxUSD += itemTax;
+      }
+    }
+
+    if (!hasItemTaxData && Number(order.taxUSD || 0) > 0) {
+      taxUSD = Number(order.taxUSD || 0);
+      const rate = Number(settings.ivaPercentage || 0);
+      baseUSD = rate > 0 ? taxUSD / (rate / 100) : 0;
+      if (taxUSD > 0) byRate.set(rate, taxUSD);
+    }
+
+    return {
+      baseUSD: baseUSD * sign,
+      taxUSD: taxUSD * sign,
+      byRate: Array.from(byRate.entries()).map(([rate, amountUSD]) => ({
+        rate,
+        amountUSD: amountUSD * sign,
+      })),
+    };
+  };
+
+  const taxSummary = useMemo(() => {
+    let taxableBaseUSD = 0;
+    let taxUSD = 0;
+    const map = new Map<number, number>();
+    for (const order of sessionAllOrders) {
+      const detail = calculateOrderTaxBreakdown(order);
+      taxableBaseUSD += detail.baseUSD;
+      taxUSD += detail.taxUSD;
+      for (const line of detail.byRate) {
+        map.set(line.rate, (map.get(line.rate) || 0) + line.amountUSD);
+      }
+    }
+    return {
+      taxableBaseUSD: Number(taxableBaseUSD.toFixed(2)),
+      taxUSD: Number(taxUSD.toFixed(2)),
+      taxByRate: Array.from(map.entries())
+        .filter(([, amount]) => Math.abs(amount) >= 0.005)
+        .sort((a, b) => a[0] - b[0])
+        .map(([rate, amountUSD]) => ({
+          rate,
+          amountUSD: Number(amountUSD.toFixed(2)),
+          amountBs: Number((amountUSD * (settings.bcvRate || 0)).toFixed(2)),
+        })),
+    };
+  }, [sessionAllOrders, settings.ivaPercentage, settings.bcvRate]);
+
   const totalSalesUSD = posOrders.reduce((sum, order) => sum + order.totalUSD, 0);
   const printerMode = settings.printerMode || 'thermal';
 
@@ -567,6 +631,9 @@ export const CashRegisterView: React.FC = () => {
       openingBs: closed.openingBs,
       openingUSD: closed.openingUSD,
       salesUSD: totalSalesUSD,
+      taxableBaseUSD: taxSummary.taxableBaseUSD,
+      taxUSD: taxSummary.taxUSD,
+      taxByRate: taxSummary.taxByRate,
       salesByMethod,
       cxcByMethod,
       cxcCashSalesBs,
@@ -609,6 +676,9 @@ export const CashRegisterView: React.FC = () => {
         openingBs: base.openingBs || 0,
         openingUSD: base.openingUSD || 0,
         salesUSD: totalSalesUSD,
+        taxableBaseUSD: taxSummary.taxableBaseUSD,
+        taxUSD: taxSummary.taxUSD,
+        taxByRate: taxSummary.taxByRate,
         salesByMethod,
         cxcByMethod,
         cxcCashSalesBs,
@@ -687,6 +757,26 @@ export const CashRegisterView: React.FC = () => {
       .filter(m => m.sessionId === base.id && m.currency === 'USD')
       .reduce((sum, m) => sum + (m.type === 'ingreso' || m.type === 'deposito' ? m.amount : -m.amount), 0);
 
+    let reportTaxableBaseUSD = 0;
+    let reportTaxUSD = 0;
+    const reportTaxMap = new Map<number, number>();
+    for (const order of reportOrders) {
+      const detail = calculateOrderTaxBreakdown(order);
+      reportTaxableBaseUSD += detail.baseUSD;
+      reportTaxUSD += detail.taxUSD;
+      for (const line of detail.byRate) {
+        reportTaxMap.set(line.rate, (reportTaxMap.get(line.rate) || 0) + line.amountUSD);
+      }
+    }
+    const reportTaxByRate = Array.from(reportTaxMap.entries())
+      .filter(([, amount]) => Math.abs(amount) >= 0.005)
+      .sort((a, b) => a[0] - b[0])
+      .map(([rate, amountUSD]) => ({
+        rate,
+        amountUSD: Number(amountUSD.toFixed(2)),
+        amountBs: Number((amountUSD * (settings.bcvRate || 0)).toFixed(2)),
+      }));
+
     return {
       kind: 'Z',
       terminalId: base.terminalId,
@@ -698,6 +788,9 @@ export const CashRegisterView: React.FC = () => {
       openingBs: base.openingBs || 0,
       openingUSD: base.openingUSD || 0,
       salesUSD: reportOrders.reduce((sum, order) => sum + Number(order.totalUSD || 0), 0),
+      taxableBaseUSD: Number(reportTaxableBaseUSD.toFixed(2)),
+      taxUSD: Number(reportTaxUSD.toFixed(2)),
+      taxByRate: reportTaxByRate,
       salesByMethod: Object.values(reportSalesByMethod).sort((a, b) => a.method.localeCompare(b.method)),
       cxcByMethod: Object.values(reportCxcByMethod).sort((a, b) => a.method.localeCompare(b.method)),
       cxcCashSalesBs: Number(reportCxcCashBs.toFixed(2)),
@@ -1028,3 +1121,4 @@ export const CashRegisterView: React.FC = () => {
     </div>
   );
 };
+
