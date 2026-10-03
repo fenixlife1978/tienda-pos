@@ -863,13 +863,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // primero consultamos solamente el último ID de activity_changes.
         const changeState = await tursoService.readCloudSyncVersion(cloudChangeTokenRef.current);
         if (!forceReload && !changeState.changed) {
-          setTursoState((prev) => ({
-            ...prev,
-            isConnected: true,
-            isSyncing: false,
-            statusText: 'Sin cambios nuevos en Turso DB',
-            errorMessage: null,
-          }));
+          // Latido silencioso: no actualizamos estado React en cada consulta sin
+          // cambios. Esto evita renders cada pocos cientos de milisegundos y
+          // deja el navegador libre para aplicar inmediatamente el cambio real.
           return;
         }
   
@@ -1111,6 +1107,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     initTursoOnMount();
   }, []);
 
+  // Al volver a una pestaña visible/focalizada, hacemos una comprobación
+  // inmediata. Esto evita que una pestaña que estuvo en segundo plano tenga que
+  // esperar al siguiente ciclo del temporizador para reflejar pedidos, pagos o
+  // cualquier cambio realizado desde otro dispositivo.
+  useEffect(() => {
+    if (!tursoService.isConfigured()) return;
+
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        syncWithTurso().catch((error) => {
+          console.warn('Immediate Turso sync after visibility/focus failed:', error);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshOnVisibility);
+    window.addEventListener('focus', refreshOnVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
+      window.removeEventListener('focus', refreshOnVisibility);
+    };
+  }, []);
+
   // Automatic recovery: when Internet returns, replay every durable POS sale.
   // No visual/layout changes are made; this only restores cloud persistence.
   useEffect(() => {
@@ -1145,10 +1165,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('Automatic Turso change check failed:', error);
         }
       }
-      if (!cancelled) timer = window.setTimeout(tick, 500);
+      if (!cancelled) {
+        // Sondeo corto para que los cambios entre cliente y administración
+        // aparezcan prácticamente en tiempo real. En una pestaña oculta
+        // reducimos la frecuencia para no gastar recursos innecesariamente.
+        const delay = document.hidden ? 1500 : 250;
+        timer = window.setTimeout(tick, delay);
+      }
     };
 
-    timer = window.setTimeout(tick, 1000);
+    timer = window.setTimeout(tick, 250);
     return () => {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
