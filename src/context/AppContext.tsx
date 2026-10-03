@@ -1192,12 +1192,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     badge?: string;
     sound?: boolean;
   }) => {
-    // La notificación se persiste en Turso aunque el emisor sea otra sesión
-    // (por ejemplo, un cliente enviando un pedido o reportando un pago). Solo
-    // la sesión que pertenece al destinatario la muestra en pantalla.
-    // Esto permite que cliente y administración funcionen simultáneamente en
-    // dispositivos/pestañas independientes.
-    if (!isAdminActiveRef.current && !currentCustomerRef.current && !options.targetRole) return;
+    // Las notificaciones NO se infieren a partir de la sesión que ejecuta
+    // la acción. El destinatario debe declararse explícitamente con targetRole.
+    // Esto evita que una acción administrativa se notifique al propio panel o
+    // al cliente que casualmente esté abierto en otra pestaña.
+    //
+    // Eventos permitidos actualmente:
+    // - Cliente -> Administración: targetRole='seller' (pedido/pago reportado).
+    // - Administración -> Cliente: targetRole='client' solo para estados de pedido
+    //   que realmente deban comunicarse al cliente.
+    // Las demás acciones no generan push.
+    if (!options.targetRole) return;
 
     // Suppress push notifications and sound alerts for BCV rate updates
     if (options.type === 'bcv_update') {
@@ -1410,12 +1415,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('No se pudo refrescar la cuenta del cliente desde Turso al iniciar sesión:', error)
         );
       }
-      triggerPushNotification({
-        title: `¡Bienvenido de nuevo, ${found.name}!`,
-        message: 'Has iniciado sesión exitosamente. Tus notificaciones y crédito comercial están activos.',
-        type: 'promotion',
-        badge: 'Sesión Iniciada',
-      });
+      // Iniciar sesión es una acción local del cliente.
+      // No genera ninguna notificación para administración ni para el propio cliente.
       return true;
     }
     return false;
@@ -2788,6 +2789,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               message: notif.message,
               type: notif.type as any,
               targetCustomerId: notif.targetCustomerId,
+              targetRole: 'client',
               badge: notif.badge,
             });
           }
