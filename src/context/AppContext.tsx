@@ -3325,6 +3325,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         title: '❌ Pago por deuda rechazado',
         message: 'El pago reportado para ' + target.invoiceNumber + ' fue rechazado por administración.' + (notes ? ' Motivo: ' + notes : ''),
         type: 'credit_alert',
+        targetRole: 'client',
         targetCustomerId: target.customerId,
         badge: 'Pago rechazado',
       });
@@ -3384,6 +3385,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       message: 'El pago reportado para ' + target.invoiceNumber + ' por $' + appliedAmount.toFixed(2) +
         ' USD fue aprobado y registrado en CxC. Recibo ' + receiptNumber + '.',
       type: 'credit_alert',
+      targetRole: 'client',
       targetCustomerId: target.customerId,
       badge: isSettled ? 'Deuda liquidada' : 'Abono aplicado',
     });
