@@ -325,6 +325,8 @@ interface AppContextType {
   setIsAdminModalOpen: (open: boolean) => void;
   isNotificationSettingsOpen: boolean;
   setIsNotificationSettingsOpen: (open: boolean) => void;
+  isCustomerNotificationsOpen: boolean;
+  setIsCustomerNotificationsOpen: (open: boolean) => void;
   isSellerAlertsModalOpen: boolean;
   setIsSellerAlertsModalOpen: (open: boolean) => void;
   isBusinessSettingsModalOpen: boolean;
@@ -561,6 +563,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [isCustomerNotificationsOpen, setIsCustomerNotificationsOpen] = useState(false);
   const [isSellerAlertsModalOpen, setIsSellerAlertsModalOpen] = useState(false);
   const [isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen] = useState(false);
   const [isBcvPanelOpen, setIsBcvPanelOpen] = useState(false);
