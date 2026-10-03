@@ -1041,13 +1041,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             }
           }
+          }
         }
         isInitialSyncDoneRef.current = true;
   
-        if (cloudData.settings) {
-          setSettings(cloudData.settings);
-        } else {
-          setSettings(EMPTY_SYSTEM_SETTINGS);
+        if (!tablesToLoad || tablesToLoad.has('system_settings')) {
+          if (cloudData.settings) {
+            setSettings(cloudData.settings);
+          } else {
+            setSettings(EMPTY_SYSTEM_SETTINGS);
+          }
         }
   
         // Guardamos exactamente el cursor que devolvió el servidor. Si otra
