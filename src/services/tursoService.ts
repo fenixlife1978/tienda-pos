@@ -1521,8 +1521,7 @@ class TursoService {
     };
   }
 
-  // Token monotónico de cambios centralizados. El navegador solo descarga
-  // el estado completo cuando este token cambia.
+  // Token monotónico de cambios centralizados.
   public async getCloudChangeToken(): Promise<number> {
     const client = this.getClient();
     if (!client) throw new Error('Cliente Turso no configurado');
