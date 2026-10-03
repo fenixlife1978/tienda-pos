@@ -63,6 +63,7 @@ export const CustomerDashboard: React.FC = () => {
     customerPortalTab,
     setCustomerPortalTab,
     setIsNotificationSettingsOpen,
+    setIsCustomerNotificationsOpen,
     requestCustomerPushPermission,
     notifications,
     receivables,
@@ -391,16 +392,27 @@ export const CustomerDashboard: React.FC = () => {
                 <span className="font-mono font-bold">BCV: {settings.bcvRate.toFixed(2)} Bs</span>
               </div>
 
-              {/* Push Notifications button */}
+              {/* Campana: bandeja de notificaciones enviadas por administración */}
               <button
-                onClick={() => setIsNotificationSettingsOpen(true)}
+                onClick={() => setIsCustomerNotificationsOpen(true)}
                 className="relative p-2.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                title="Ajustes de Notificaciones Push"
+                title="Notificaciones"
+                aria-label="Abrir notificaciones"
               >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white"></span>
+                  <span className="absolute top-1.5 right-1.5 min-w-2.5 h-2.5 px-1 bg-rose-500 rounded-full ring-2 ring-white"></span>
                 )}
+              </button>
+
+              {/* Configuración separada de preferencias de notificaciones */}
+              <button
+                onClick={() => setIsNotificationSettingsOpen(true)}
+                className="p-2.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                title="Preferencias de Notificaciones"
+                aria-label="Abrir preferencias de notificaciones"
+              >
+                <SlidersHorizontal className="w-5 h-5" />
               </button>
 
               {/* Cart Button */}
