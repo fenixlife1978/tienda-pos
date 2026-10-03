@@ -11,6 +11,7 @@ import { InvoiceModal } from './components/common/InvoiceModal';
 import { CustomerAuthModal } from './components/store/CustomerAuthModal';
 import { AdminLoginModal } from './components/common/AdminLoginModal';
 import { NotificationSettingsModal } from './components/store/NotificationSettingsModal';
+import { CustomerNotificationsModal } from './components/store/CustomerNotificationsModal';
 import { NotificationManagerModal } from './components/erp/NotificationManagerModal';
 import { PushNotificationToastContainer } from './components/common/PushNotificationToast';
 import { BcvControlPanelModal } from './components/common/BcvControlPanelModal';
@@ -78,6 +79,8 @@ const MainLayout: React.FC = () => {
     setIsAdminModalOpen,
     isNotificationSettingsOpen,
     setIsNotificationSettingsOpen,
+    isCustomerNotificationsOpen,
+    setIsCustomerNotificationsOpen,
     isSellerAlertsModalOpen,
     setIsSellerAlertsModalOpen,
     isBusinessSettingsModalOpen,
@@ -157,6 +160,12 @@ const MainLayout: React.FC = () => {
       <AdminLoginModal
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}
+      />
+
+      {/* Customer Notification Inbox: messages sent by administration */}
+      <CustomerNotificationsModal
+        isOpen={isCustomerNotificationsOpen}
+        onClose={() => setIsCustomerNotificationsOpen(false)}
       />
 
       {/* Customer Push Notification Preferences Modal */}
