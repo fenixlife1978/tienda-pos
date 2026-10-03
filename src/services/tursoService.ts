@@ -1447,7 +1447,7 @@ class TursoService {
         }
 // 12. BCV History from table
     if (shouldLoad('system_settings')) {
-(merge if available)
+    // Merge BCV history from the dedicated table when settings are loaded.
     try {
       const bcvRes = await client.execute('SELECT * FROM bcv_history ORDER BY date DESC LIMIT 500');
       if (bcvRes.rows.length > 0 && settings) {
