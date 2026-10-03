@@ -879,42 +879,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await productWriteInFlightRef.current;
         }
 
-        // Una lectura completa puede haber comenzado antes de una escritura
-        // de producto. Ese snapshot puede ser legítimamente anterior al cambio
-        // recién confirmado en Turso; jamás debe volver a pintar ese estado viejo.
-        const productGenerationAtReadStart = productWriteGenerationRef.current;
-        const cloudData = await tursoService.loadAllData();
-  
-        // Turso es la fuente de verdad cuando está configurado. Incluso una
-        // tabla vacía debe reemplazar el snapshot local para impedir que datos
-        // antiguos/demo de localStorage reaparezcan en una base nueva o limpia.
-        if (productGenerationAtReadStart === productWriteGenerationRef.current) {
-          setProducts(cloudData.products);
+        // Ahora descargamos únicamente las tablas afectadas por activity_changes.
+        // Una operación de negocio puede escribir varias tablas; agregamos las
+        // dependencias relacionadas para que pedido/venta/CxC/inventario queden
+        // consistentes en el mismo ciclo.
+        const tablesToLoad = forceReload
+          ? undefined
+          : new Set(
+              changeState.changes.flatMap((change) => {
+                switch (change.tableName) {
+                  case 'inventory_movements':
+                    return ['products'];
+                  case 'orders':
+                    return ['orders', 'invoices', 'accounts_receivable', 'products'];
+                  case 'invoices':
+                    return ['invoices', 'orders', 'accounts_receivable'];
+                  case 'accounts_receivable':
+                    return ['accounts_receivable', 'customers', 'invoices'];
+                  case 'customers':
+                    return ['customers'];
+                  case 'products':
+                    return ['products'];
+                  case 'system_notifications':
+                    return ['system_notifications'];
+                  case 'accounts_payable':
+                    return ['accounts_payable'];
+                  case 'purchase_entries':
+                    return ['purchase_entries', 'accounts_payable'];
+                  case 'suppliers':
+                    return ['suppliers'];
+                  case 'categories':
+                    return ['categories'];
+                  case 'units':
+                    return ['units'];
+                  case 'system_settings':
+                  case 'bcv_history':
+                    return ['system_settings'];
+                  case 'system_users':
+                    return ['system_users'];
+                  default:
+                    return [];
+                }
+              })
+            );
+        if (!forceReload && (!tablesToLoad || tablesToLoad.size === 0)) {
+          cloudChangeTokenRef.current = changeState.latestId;
+          return;
         }
-        setCategories(cloudData.categories);
-        setUnits(cloudData.units);
-        setCustomers(cloudData.customers);
-        // El portal cliente mantiene currentCustomer en memoria. Al recibir
-        // cambios desde Turso debemos reconciliarlo con el registro cloud;
-        // de lo contrario el cliente puede seguir mostrando el estado anterior
-        // aunque customers[] ya esté actualizado.
-        const activeCustomerId = currentCustomerIdRef.current;
-        if (activeCustomerId) {
-          const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
-          if (syncedCustomer) {
-            setCurrentCustomer(syncedCustomer);
-            currentCustomerRef.current = syncedCustomer;
-            sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(syncedCustomer));
+
+        const productGenerationAtReadStart = productWriteGenerationRef.current;
+        const cloudData = await tursoService.loadAllData(tablesToLoad);
+
+        if (!tablesToLoad || tablesToLoad.has('products')) {
+          if (productGenerationAtReadStart === productWriteGenerationRef.current) {
+            setProducts(cloudData.products);
           }
         }
-        setSuppliers(cloudData.suppliers);
-        setOrders(cloudData.orders);
-        setInvoices(cloudData.invoices);
-        setReceivables(cloudData.receivables);
-        setPayables(cloudData.payables);
-        setPurchaseEntries(cloudData.purchaseEntries);
-        setUsers(cloudData.users);
-        if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
+        if (!tablesToLoad || tablesToLoad.has('categories')) setCategories(cloudData.categories);
+        if (!tablesToLoad || tablesToLoad.has('units')) setUnits(cloudData.units);
+        if (!tablesToLoad || tablesToLoad.has('customers')) {
+          setCustomers(cloudData.customers);
+          const activeCustomerId = currentCustomerIdRef.current;
+          if (activeCustomerId) {
+            const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
+            if (syncedCustomer) {
+              setCurrentCustomer(syncedCustomer);
+              currentCustomerRef.current = syncedCustomer;
+              sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(syncedCustomer));
+            }
+          }
+        }
+        if (!tablesToLoad || tablesToLoad.has('suppliers')) setSuppliers(cloudData.suppliers);
+        if (!tablesToLoad || tablesToLoad.has('orders')) setOrders(cloudData.orders);
+        if (!tablesToLoad || tablesToLoad.has('invoices')) setInvoices(cloudData.invoices);
+        if (!tablesToLoad || tablesToLoad.has('accounts_receivable')) setReceivables(cloudData.receivables);
+        if (!tablesToLoad || tablesToLoad.has('accounts_payable')) setPayables(cloudData.payables);
+        if (!tablesToLoad || tablesToLoad.has('purchase_entries')) setPurchaseEntries(cloudData.purchaseEntries);
+        if (!tablesToLoad || tablesToLoad.has('system_users')) setUsers(cloudData.users);
+        if (!tablesToLoad || tablesToLoad.has('system_notifications')) {
+          if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
           const notificationsClearedAt = localStorage.getItem('omni_notifications_cleared_at');
           const clearedAtMs = notificationsClearedAt ? new Date(notificationsClearedAt).getTime() : 0;
           const activeCustomerForNotifications = currentCustomerIdRef.current;
@@ -998,13 +1041,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             }
           }
+          }
         }
         isInitialSyncDoneRef.current = true;
   
-        if (cloudData.settings) {
-          setSettings(cloudData.settings);
-        } else {
-          setSettings(EMPTY_SYSTEM_SETTINGS);
+        if (!tablesToLoad || tablesToLoad.has('system_settings')) {
+          if (cloudData.settings) {
+            setSettings(cloudData.settings);
+          } else {
+            setSettings(EMPTY_SYSTEM_SETTINGS);
+          }
         }
   
         // Guardamos exactamente el cursor que devolvió el servidor. Si otra
