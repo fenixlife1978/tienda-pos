@@ -998,7 +998,7 @@ class TursoService {
 
   // --- CRUD METHODS FOR ENTITIES ---
 
-  public async loadAllData(): Promise<{
+  public async loadAllData(tables?: Set<string>): Promise<{
     settings: SystemSettings | null;
     categories: ProductCategory[];
     units: ProductUnit[];
@@ -1014,11 +1014,14 @@ class TursoService {
     notifications: AppNotification[];
   }> {
     const client = this.getClient();
+    const loadAll = !tables || tables.size === 0;
+    const shouldLoad = (table: string) => loadAll || tables!.has(table);
     if (!client) {
       throw new Error('Cliente Turso no configurado');
     }
 
     // 1. Settings
+    if (shouldLoad('system_settings')) {
     let settings: SystemSettings | null = null;
     try {
       const res = await client.execute("SELECT data FROM system_settings WHERE key = 'main'");
@@ -1029,8 +1032,10 @@ class TursoService {
       console.warn('Error fetching settings from Turso:', e);
     }
 
-    // 2. Categories
-    const categories: ProductCategory[] = [];
+        }
+// 2. Categories
+    if (shouldLoad('categories')) {
+    let categories: ProductCategory[] = [];
     try {
       const res = await client.execute('SELECT * FROM categories ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1044,8 +1049,10 @@ class TursoService {
       console.warn('Error fetching categories from Turso:', e);
     }
 
-    // 3. Units
-    const units: ProductUnit[] = [];
+        }
+// 3. Units
+    if (shouldLoad('units')) {
+    let units: ProductUnit[] = [];
     try {
       const res = await client.execute('SELECT * FROM units ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1060,14 +1067,16 @@ class TursoService {
       console.warn('Error fetching units from Turso:', e);
     }
 
-    // 4. Products
+        }
+// 4. Products
+    if (shouldLoad('products')) {
     await client.execute('ALTER TABLE products ADD COLUMN reserved_stock REAL DEFAULT 0').catch(() => {});
     await client.execute('ALTER TABLE orders ADD COLUMN reserved_at TEXT').catch(() => {});
     await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_at TEXT').catch(() => {});
     await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_by TEXT').catch(() => {});
     await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_at TEXT').catch(() => {});
     await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_by TEXT').catch(() => {});
-    const products: Product[] = [];
+    let products: Product[] = [];
     try {
       const res = await client.execute('SELECT * FROM products ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1133,8 +1142,10 @@ class TursoService {
       for (const product of products) product.reservedStock = 0;
     }
 
-    // 5. Customers
-    const customers: Customer[] = [];
+        }
+// 5. Customers
+    if (shouldLoad('customers')) {
+    let customers: Customer[] = [];
     try {
       const res = await client.execute('SELECT * FROM customers ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1176,8 +1187,10 @@ class TursoService {
       console.warn('Error fetching customers from Turso:', e);
     }
 
-    // 6. Suppliers
-    const suppliers: Supplier[] = [];
+        }
+// 6. Suppliers
+    if (shouldLoad('suppliers')) {
+    let suppliers: Supplier[] = [];
     try {
       const res = await client.execute('SELECT * FROM suppliers ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1198,8 +1211,10 @@ class TursoService {
       console.warn('Error fetching suppliers from Turso:', e);
     }
 
-    // 7. Orders
-    const orders: Order[] = [];
+        }
+// 7. Orders
+    if (shouldLoad('orders')) {
+    let orders: Order[] = [];
     try {
       const res = await client.execute('SELECT * FROM orders ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1251,8 +1266,10 @@ class TursoService {
       console.warn('Error fetching orders from Turso:', e);
     }
 
-    // 8. Invoices
-    const invoices: Invoice[] = [];
+        }
+// 8. Invoices
+    if (shouldLoad('invoices')) {
+    let invoices: Invoice[] = [];
     try {
       const res = await client.execute('SELECT * FROM invoices ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1299,8 +1316,10 @@ class TursoService {
       console.warn('Error fetching invoices from Turso:', e);
     }
 
-    // 9. Accounts Receivable
-    const receivables: ReceivableItem[] = [];
+        }
+// 9. Accounts Receivable
+    if (shouldLoad('accounts_receivable')) {
+    let receivables: ReceivableItem[] = [];
     try {
       const res = await client.execute('SELECT * FROM accounts_receivable ORDER BY due_date ASC');
       for (const row of res.rows) {
@@ -1328,8 +1347,10 @@ class TursoService {
       console.warn('Error fetching receivables from Turso:', e);
     }
 
-    // 10. Accounts Payable
-    const payables: PayableItem[] = [];
+        }
+// 10. Accounts Payable
+    if (shouldLoad('accounts_payable')) {
+    let payables: PayableItem[] = [];
     try {
       const res = await client.execute('SELECT * FROM accounts_payable ORDER BY due_date ASC');
       for (const row of res.rows) {
@@ -1353,8 +1374,10 @@ class TursoService {
       console.warn('Error fetching payables from Turso:', e);
     }
 
-    // 11. Purchase entries
-    const purchaseEntries: PurchaseEntry[] = [];
+        }
+// 11. Purchase entries
+    if (shouldLoad('purchase_entries')) {
+    let purchaseEntries: PurchaseEntry[] = [];
     try {
       const res = await client.execute('SELECT data FROM purchase_entries ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1385,8 +1408,10 @@ class TursoService {
       }
     }
 
-    // 12. Users
-    const users: User[] = [];
+        }
+// 12. Users
+    if (shouldLoad('system_users')) {
+    let users: User[] = [];
     try {
       const res = await client.execute('SELECT * FROM system_users ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1406,7 +1431,10 @@ class TursoService {
       console.warn('Error fetching users from Turso:', e);
     }
 
-    // 12. BCV History from table (merge if available)
+        }
+// 12. BCV History from table
+    if (shouldLoad('system_settings')) {
+(merge if available)
     try {
       const bcvRes = await client.execute('SELECT * FROM bcv_history ORDER BY date DESC LIMIT 500');
       if (bcvRes.rows.length > 0 && settings) {
@@ -1437,8 +1465,10 @@ class TursoService {
       console.warn('Error fetching bcv_history from Turso:', e);
     }
 
-    // 13. Notifications
-    const notifications: AppNotification[] = [];
+        }
+// 13. Notifications
+    if (shouldLoad('system_notifications')) {
+    let notifications: AppNotification[] = [];
     try {
       const res = await client.execute(
         "SELECT * FROM system_notifications WHERE title != 'Sesión Finalizada' ORDER BY created_at DESC LIMIT 200"
@@ -1460,6 +1490,7 @@ class TursoService {
       console.warn('Error fetching notifications from Turso:', e);
     }
 
+    }
     return {
       settings,
       categories,
