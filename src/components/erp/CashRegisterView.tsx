@@ -470,21 +470,19 @@ export const CashRegisterView: React.FC = () => {
       const subtotal = Number(item.subtotalUSD || 0);
       const hasTaxField = item.taxUSD !== undefined || item.ivaRate !== undefined;
       if (hasTaxField) hasItemTaxData = true;
-      const itemTax = Number(item.taxUSD ?? (
-        item.ivaRate !== undefined ? subtotal * (Number(item.ivaRate) / 100) : 0
-      ));
-      if (Number.isFinite(subtotal)) baseUSD += subtotal;
+      const rate = Number(item.ivaRate ?? (item.taxUSD !== undefined && Number(item.taxUSD) > 0 ? settings.ivaPercentage : 0));
+      const itemTax = Number(item.taxUSD ?? (rate > 0 ? subtotal * (rate / 100) : 0));
+      if (rate > 0 && Number.isFinite(subtotal)) baseUSD += subtotal;
       if (Number.isFinite(itemTax) && itemTax > 0) {
-        const rate = Number(item.ivaRate ?? settings.ivaPercentage);
         byRate.set(rate, (byRate.get(rate) || 0) + itemTax);
         taxUSD += itemTax;
       }
     }
 
     if (!hasItemTaxData && Number(order.taxUSD || 0) > 0) {
-      baseUSD = Number(order.subtotalUSD || baseUSD || 0);
       taxUSD = Number(order.taxUSD || 0);
       const rate = Number(settings.ivaPercentage || 0);
+      baseUSD = rate > 0 ? taxUSD / (rate / 100) : 0;
       if (taxUSD > 0) byRate.set(rate, taxUSD);
     }
 
