@@ -1107,6 +1107,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     initTursoOnMount();
   }, []);
 
+  // Al volver a una pestaña visible/focalizada, hacemos una comprobación
+  // inmediata. Esto evita que una pestaña que estuvo en segundo plano tenga que
+  // esperar al siguiente ciclo del temporizador para reflejar pedidos, pagos o
+  // cualquier cambio realizado desde otro dispositivo.
+  useEffect(() => {
+    if (!tursoService.isConfigured()) return;
+
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        syncWithTurso().catch((error) => {
+          console.warn('Immediate Turso sync after visibility/focus failed:', error);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshOnVisibility);
+    window.addEventListener('focus', refreshOnVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
+      window.removeEventListener('focus', refreshOnVisibility);
+    };
+  }, []);
+
   // Automatic recovery: when Internet returns, replay every durable POS sale.
   // No visual/layout changes are made; this only restores cloud persistence.
   useEffect(() => {
