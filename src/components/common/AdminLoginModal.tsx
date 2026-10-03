@@ -84,7 +84,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       terminalIdentity.clear();
     }
 
+    // La identidad administrativa queda estrictamente ligada a esta pestaña.
+    // Nunca usamos una cookie global del navegador para decidir qué pestaña es ERP.
     sessionStorage.removeItem('omni_active_customer_id');
+    sessionStorage.setItem('tienda_pos_auth_kind', 'admin');
+    sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(matchedUser));
     setCurrentUser(matchedUser);
     setIsAdminActive(true);
     setMode('erp');
@@ -95,6 +99,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     if (!pendingUser || !selectedTerminalId) return;
     terminalIdentity.setId(selectedTerminalId);
     sessionStorage.removeItem('omni_active_customer_id');
+    sessionStorage.setItem('tienda_pos_auth_kind', 'admin');
+    sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(pendingUser));
     setCurrentUser(pendingUser);
     setIsAdminActive(true);
     setMode('erp');
