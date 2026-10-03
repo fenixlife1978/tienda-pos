@@ -1301,50 +1301,100 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     triggerPushNotification({ title, message, type, relatedOrderId });
   };
 
-  // Restauración de sesión administrativa por pestaña.
+  // Restauración de sesión estrictamente por pestaña.
+  // NUNCA permitimos que una pestaña cliente herede una sesión administrativa
+  // por cookies, estado del servidor, localStorage o una pestaña vecina.
   useEffect(() => {
     let cancelled = false;
     const restoreSession = async () => {
-      // Una pestaña que ya tiene una sesión cliente nunca debe revivir una
-      // sesión ERP residual (por ejemplo, al duplicar una pestaña administrativa).
+      const authKind = sessionStorage.getItem('tienda_pos_auth_kind');
       const activeCustomerId = sessionStorage.getItem('omni_active_customer_id');
-      const tabSession = sessionStorage.getItem('tienda_pos_tab_session');
-      if (activeCustomerId) {
+
+      // El cliente tiene prioridad absoluta. Aunque exista una cookie/sesión
+      // administrativa global en el navegador, esta pestaña no puede convertirse
+      // en ERP al recargar.
+      if (authKind === 'client' || activeCustomerId) {
         sessionStorage.removeItem('tienda_pos_tab_session');
         sessionStorage.removeItem('tienda_pos_admin_user');
         sessionStorage.removeItem('omni_erp_active_tab');
+        setIsAdminActive(false);
+        setMode('store');
         return;
       }
-      if (!tabSession) return;
+
+      // Solo una pestaña marcada explícitamente como administrativa puede
+      // restaurar ERP. La identidad administrativa se guarda en sessionStorage,
+      // que pertenece exclusivamente a esta pestaña.
+      const savedAdmin = sessionStorage.getItem('tienda_pos_admin_user');
+      const tabSession = sessionStorage.getItem('tienda_pos_tab_session');
+      if (authKind !== 'admin' && !savedAdmin && !tabSession) return;
+
       try {
-        const response = await fetch('/api/auth/session', {
-          method: 'GET',
-          credentials: 'same-origin',
-          cache: 'no-store',
-          headers: { 'Cache-Control': 'no-cache', 'X-Tienda-Pos-Session': tabSession },
-        });
-        if (!response.ok) {
-          sessionStorage.removeItem('tienda_pos_tab_session');
-          sessionStorage.removeItem('tienda_pos_admin_user');
+        let adminUser: User | null = null;
+
+        if (savedAdmin) {
+          try {
+            adminUser = JSON.parse(savedAdmin) as User;
+          } catch {
+            sessionStorage.removeItem('tienda_pos_admin_user');
+          }
+        }
+
+        // Validar la identidad guardada contra Turso antes de activar ERP.
+        if (adminUser && tursoService.isConfigured()) {
+          const cloudState = await tursoService.loadAllData();
+          const cloudUser = cloudState.users.find(
+            (u: User) => String(u.id) === String(adminUser?.id) && u.active
+          );
+          adminUser = cloudUser || null;
+        }
+
+        // Compatibilidad con sesiones administrativas antiguas que todavía
+        // tengan tabSession, pero sin permitir jamás su uso en una pestaña cliente.
+        if (!adminUser && tabSession) {
+          const response = await fetch('/api/auth/session', {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache', 'X-Tienda-Pos-Session': tabSession },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data?.authenticated && data?.user) adminUser = data.user as User;
+          }
+        }
+
+        // Revalidar una última vez que esta pestaña siga siendo administrativa.
+        if (
+          cancelled ||
+          sessionStorage.getItem('tienda_pos_auth_kind') === 'client' ||
+          sessionStorage.getItem('omni_active_customer_id') ||
+          !adminUser
+        ) {
           return;
         }
-        const data = await response.json();
-        if (cancelled || !data?.authenticated || !data?.user) return;
-        sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
-        const assigned = await tursoService.listUserTerminals(String(data.user.id), true);
+
+        sessionStorage.setItem('tienda_pos_auth_kind', 'admin');
+        sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(adminUser));
+
+        const assigned = await tursoService.listUserTerminals(String(adminUser.id), true);
         const activeTerminal = sessionStorage.getItem('omni_terminal_id_v2');
         if (activeTerminal && !assigned.some((t) => t.id === activeTerminal)) {
           terminalIdentity.clear();
         } else if (!activeTerminal && assigned.length === 1) {
           terminalIdentity.setId(assigned[0].id);
         }
-        setCurrentUser(data.user);
+
+        setCurrentUser(adminUser);
         setIsAdminActive(true);
         setMode('erp');
         const savedTab = sessionStorage.getItem('omni_erp_active_tab');
         if (savedTab) window.dispatchEvent(new CustomEvent('omni-restore-erp-tab', { detail: savedTab }));
       } catch (error) {
-        console.warn('No se pudo restaurar la sesión administrativa:', error);
+        console.warn('No se pudo restaurar la sesión administrativa por pestaña:', error);
+        sessionStorage.removeItem('tienda_pos_admin_user');
+        sessionStorage.removeItem('tienda_pos_tab_session');
+        sessionStorage.removeItem('tienda_pos_auth_kind');
       }
     };
     void restoreSession();
@@ -1368,6 +1418,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sessionStorage.removeItem('tienda_pos_tab_session');
       sessionStorage.removeItem('tienda_pos_admin_user');
       sessionStorage.removeItem('omni_erp_active_tab');
+      sessionStorage.removeItem('tienda_pos_auth_kind');
       terminalIdentity.clear();
       setIsAdminActive(false);
       setMode('store');
@@ -1398,6 +1449,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentCustomer(found);
       currentCustomerRef.current = found;
       sessionStorage.setItem('omni_active_customer_id', found.id);
+      sessionStorage.setItem('tienda_pos_auth_kind', 'client');
       // La sesión de cliente es estrictamente local a esta pestaña.
       sessionStorage.removeItem('tienda_pos_tab_session');
       sessionStorage.removeItem('tienda_pos_admin_user');
@@ -1445,6 +1497,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     setCurrentCustomer(newCustomer);
     sessionStorage.setItem('omni_active_customer_id', newCustomer.id);
+    sessionStorage.setItem('tienda_pos_auth_kind', 'client');
+    sessionStorage.removeItem('tienda_pos_tab_session');
+    sessionStorage.removeItem('tienda_pos_admin_user');
+    sessionStorage.removeItem('omni_erp_active_tab');
     setIsAdminActive(false);
     triggerPushNotification({
       title: `Nuevo Cliente Registrado`,
@@ -1468,6 +1524,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications([]);
     setActivePushToasts([]);
     sessionStorage.removeItem('omni_active_customer_id');
+    sessionStorage.removeItem('tienda_pos_auth_kind');
   };
 
   const updateCustomerPreferences = (preferences: CustomerNotificationPreferences) => {
