@@ -458,6 +458,63 @@ export const CashRegisterView: React.FC = () => {
     [session, cashSalesBs, cxcCashSalesBs, movementCashBs, refundCash.bs]
   );
 
+  const calculateOrderTaxBreakdown = (order: any) => {
+    const sign = order.isReturned || order.isVoided ? -1 : 1;
+    let baseUSD = 0;
+    let taxUSD = 0;
+    const byRate = new Map<number, number>();
+    const items = Array.isArray(order.items) ? order.items : [];
+    let hasItemTaxData = false;
+
+    for (const item of items) {
+      const subtotal = Number(item.subtotalUSD || 0);
+      const hasTaxField = item.taxUSD !== undefined || item.ivaRate !== undefined;
+      if (hasTaxField) hasItemTaxData = true;
+      const itemTax = Number(item.taxUSD ?? (
+        item.ivaRate !== undefined ? subtotal * (Number(item.ivaRate) / 100) : 0
+      ));
+      if (Number.isFinite(subtotal)) baseUSD += subtotal;
+      if (Number.isFinite(itemTax) && itemTax > 0) {
+        const rate = Number(item.ivaRate ?? settings.ivaPercentage);
+        byRate.set(rate, (byRate.get(rate) || 0) + itemTax);
+        taxUSD += itemTax;
+      }
+    }
+
+    if (!hasItemTaxData && Number(order.taxUSD || 0) > 0) {
+      baseUSD = Number(order.subtotalUSD || baseUSD || 0);
+      taxUSD = Number(order.taxUSD || 0);
+      const rate = Number(settings.ivaPercentage || 0);
+      if (taxUSD > 0) byRate.set(rate, taxUSD);
+    }
+
+    return { baseUSD: baseUSD * sign, taxUSD: taxUSD * sign, byRate: Array.from(byRate.entries()).map(([rate, amountUSD]) => ({ rate, amountUSD: amountUSD * sign })) };
+  };
+
+  const taxSummary = useMemo(() => {
+    let taxableBaseUSD = 0;
+    let taxUSD = 0;
+    const map = new Map<number, number>();
+    for (const order of sessionAllOrders) {
+      const detail = calculateOrderTaxBreakdown(order);
+      taxableBaseUSD += detail.baseUSD;
+      taxUSD += detail.taxUSD;
+      for (const line of detail.byRate) map.set(line.rate, (map.get(line.rate) || 0) + line.amountUSD);
+    }
+    return {
+      taxableBaseUSD: Number(taxableBaseUSD.toFixed(2)),
+      taxUSD: Number(taxUSD.toFixed(2)),
+      taxByRate: Array.from(map.entries())
+        .filter(([, amount]) => Math.abs(amount) >= 0.005)
+        .sort((a, b) => a[0] - b[0])
+        .map(([rate, amountUSD]) => ({
+          rate,
+          amountUSD: Number(amountUSD.toFixed(2)),
+          amountBs: Number((amountUSD * (settings.bcvRate || 0)).toFixed(2)),
+        })),
+    };
+  }, [sessionAllOrders, settings.ivaPercentage, settings.bcvRate]);
+
   const totalSalesUSD = posOrders.reduce((sum, order) => sum + order.totalUSD, 0);
   const printerMode = settings.printerMode || 'thermal';
 
@@ -567,6 +624,9 @@ export const CashRegisterView: React.FC = () => {
       openingBs: closed.openingBs,
       openingUSD: closed.openingUSD,
       salesUSD: totalSalesUSD,
+      taxableBaseUSD: taxSummary.taxableBaseUSD,
+      taxUSD: taxSummary.taxUSD,
+      taxByRate: taxSummary.taxByRate,
       salesByMethod,
       cxcByMethod,
       cxcCashSalesBs,
@@ -609,6 +669,9 @@ export const CashRegisterView: React.FC = () => {
         openingBs: base.openingBs || 0,
         openingUSD: base.openingUSD || 0,
         salesUSD: totalSalesUSD,
+        taxableBaseUSD: taxSummary.taxableBaseUSD,
+        taxUSD: taxSummary.taxUSD,
+        taxByRate: taxSummary.taxByRate,
         salesByMethod,
         cxcByMethod,
         cxcCashSalesBs,
@@ -687,6 +750,24 @@ export const CashRegisterView: React.FC = () => {
       .filter(m => m.sessionId === base.id && m.currency === 'USD')
       .reduce((sum, m) => sum + (m.type === 'ingreso' || m.type === 'deposito' ? m.amount : -m.amount), 0);
 
+    let reportTaxableBaseUSD = 0;
+    let reportTaxUSD = 0;
+    const reportTaxMap = new Map<number, number>();
+    for (const order of reportOrders) {
+      const detail = calculateOrderTaxBreakdown(order);
+      reportTaxableBaseUSD += detail.baseUSD;
+      reportTaxUSD += detail.taxUSD;
+      for (const line of detail.byRate) reportTaxMap.set(line.rate, (reportTaxMap.get(line.rate) || 0) + line.amountUSD);
+    }
+    const reportTaxByRate = Array.from(reportTaxMap.entries())
+      .filter(([, amount]) => Math.abs(amount) >= 0.005)
+      .sort((a, b) => a[0] - b[0])
+      .map(([rate, amountUSD]) => ({
+        rate,
+        amountUSD: Number(amountUSD.toFixed(2)),
+        amountBs: Number((amountUSD * (settings.bcvRate || 0)).toFixed(2)),
+      }));
+
     return {
       kind: 'Z',
       terminalId: base.terminalId,
@@ -698,6 +779,9 @@ export const CashRegisterView: React.FC = () => {
       openingBs: base.openingBs || 0,
       openingUSD: base.openingUSD || 0,
       salesUSD: reportOrders.reduce((sum, order) => sum + Number(order.totalUSD || 0), 0),
+      taxableBaseUSD: Number(reportTaxableBaseUSD.toFixed(2)),
+      taxUSD: Number(reportTaxUSD.toFixed(2)),
+      taxByRate: reportTaxByRate,
       salesByMethod: Object.values(reportSalesByMethod).sort((a, b) => a.method.localeCompare(b.method)),
       cxcByMethod: Object.values(reportCxcByMethod).sort((a, b) => a.method.localeCompare(b.method)),
       cxcCashSalesBs: Number(reportCxcCashBs.toFixed(2)),
@@ -798,233 +882,3 @@ export const CashRegisterView: React.FC = () => {
             <div className="flex justify-between"><span>Efectivo USD</span><b>{formatUSD(cashSalesUSD)}</b></div>
             <div className="flex justify-between"><span>Efectivo Bs</span><b>{formatBs(cashSalesBs)}</b></div>
           </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-          <h3 className="font-bold flex items-center gap-2"><ArrowUpFromLine className="w-4 h-4 text-indigo-600" />Movimiento de caja</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <select value={movementType} onChange={(e) => setMovementType(e.target.value as CashMovementType)} className="border border-slate-200 rounded-lg px-2 py-2 text-xs">
-              <option value="ingreso">Ingreso</option>
-              <option value="egreso">Egreso</option>
-              <option value="retiro">Retiro</option>
-              <option value="deposito">Depósito</option>
-            </select>
-            <select value={movementCurrency} onChange={(e) => setMovementCurrency(e.target.value as 'Bs' | 'USD')} className="border border-slate-200 rounded-lg px-2 py-2 text-xs">
-              <option value="Bs">Bs.</option>
-              <option value="USD">USD</option>
-            </select>
-          </div>
-          <input type="number" min="0" step="0.01" placeholder="Monto" value={movementAmount} onChange={(e) => setMovementAmount(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-          <input type="text" placeholder="Motivo / referencia" value={movementReason} onChange={(e) => setMovementReason(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-          <button onClick={addMovement} disabled={!session} className="w-full bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-lg py-2 font-bold transition">
-            Registrar movimiento
-          </button>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
-          <h3 className="font-bold flex items-center gap-2"><Settings2 className="w-4 h-4 text-indigo-600" />Conciliación</h3>
-          <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
-            <div className="flex justify-between"><span>Esperado Bs.</span><b>{formatBs(expectedBs)}</b></div>
-            <div className="flex justify-between"><span>Esperado USD</span><b>{formatUSD(expectedUSD)}</b></div>
-            {session && (
-              <div className="mt-2 pt-2 border-t text-[11px] text-slate-500">
-                El resultado compara el efectivo contado al cierre con ventas en efectivo y movimientos registrados.
-              </div>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => updateSettings({ printerMode: 'thermal', thermalPaperWidth: 80 })} className={`rounded-lg border p-2 text-xs font-bold ${printerMode === 'thermal' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white'}`}>
-              Térmica 80mm
-            </button>
-            <button onClick={() => updateSettings({ printerMode: 'fiscal' })} className={`rounded-lg border p-2 text-xs font-bold ${printerMode === 'fiscal' ? 'bg-amber-50 border-amber-500 text-amber-800' : 'bg-white'}`}>
-              Modo fiscal
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => printReport('X')} disabled={!session} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1 disabled:opacity-40"><Printer className="w-3.5 h-3.5" />Vista previa X</button>
-            <button onClick={openPreZ} disabled={!session} className="flex-1 border rounded-lg py-2 text-xs font-bold flex justify-center gap-1 disabled:opacity-40"><FileText className="w-3.5 h-3.5" />Vista previa Z</button>
-          </div>
-          <div className="text-[10px] text-slate-500">
-            Ambos reportes se preparan en ancho real de 80 mm para impresión térmica.
-          </div>
-        </div>
-      </div>
-
-      {session && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-          <div className="p-4 border-b border-slate-100 flex items-center gap-2">
-            <History className="w-4 h-4 text-indigo-600" />
-            <h3 className="font-bold text-sm">Movimientos de la sesión</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-slate-500 uppercase">
-                <tr><th className="text-left p-3">Fecha</th><th className="text-left p-3">Tipo</th><th className="text-left p-3">Motivo</th><th className="text-right p-3">Monto</th><th className="text-left p-3">Usuario</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {sessionMovements.length === 0 ? (
-                  <tr><td colSpan={5} className="p-5 text-center text-slate-400">Sin movimientos manuales registrados.</td></tr>
-                ) : (
-                  sessionMovements.slice().reverse().map((m) => (
-                    <tr key={m.id}>
-                      <td className="p-3">{new Date(m.createdAt).toLocaleString('es-VE')}</td>
-                      <td className="p-3 font-semibold">{m.type.toUpperCase()}</td>
-                      <td className="p-3">{m.reason}</td>
-                      <td className="p-3 text-right font-mono">{m.currency === 'Bs' ? formatBs(m.amount) : formatUSD(m.amount)}</td>
-                      <td className="p-3">{m.createdBy}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-indigo-600" />
-            <div>
-              <h3 className="font-bold text-sm">Historial de Cortes Z</h3>
-              <p className="text-[11px] text-slate-500">Cortes cerrados conservados en Turso. Cada Z puede reimprimirse en 80 mm.</p>
-            </div>
-          </div>
-          <select
-            value={historyBoxFilter}
-            onChange={(e) => setHistoryBoxFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold bg-white"
-          >
-            <option value="all">Todas las Cajas</option>
-            {Array.from(new Set(history.map((z) => z.terminalId))).sort().map((box) => (
-              <option key={box} value={box}>{box}</option>
-            ))}
-          </select>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-slate-500 uppercase">
-              <tr>
-                <th className="text-left p-3">Fecha Z</th>
-                <th className="text-left p-3">Caja</th>
-                <th className="text-left p-3">Cajero</th>
-                <th className="text-right p-3">Esperado Bs.</th>
-                <th className="text-right p-3">Real Bs.</th>
-                <th className="text-right p-3">DIF. Bs.</th>
-                <th className="text-right p-3">Esperado USD</th>
-                <th className="text-right p-3">Real USD</th>
-                <th className="text-right p-3">DIF. USD</th>
-                <th className="text-center p-3">Resultado</th>
-                <th className="text-center p-3">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {history.filter((z) => historyBoxFilter === 'all' || z.terminalId === historyBoxFilter).length === 0 ? (
-                <tr><td colSpan={11} className="p-6 text-center text-slate-400">No hay Cortes Z para el filtro seleccionado.</td></tr>
-              ) : history
-                .filter((z) => historyBoxFilter === 'all' || z.terminalId === historyBoxFilter)
-                .map((z) => {
-                  const dbs = Number(z.differenceBs || 0);
-                  const dusd = Number(z.differenceUSD || 0);
-                  const hasPositive = dbs > 0.01 || dusd > 0.01;
-                  const hasNegative = dbs < -0.01 || dusd < -0.01;
-                  const reconciled = !hasPositive && !hasNegative;
-                  const result = reconciled ? 'CONCILIADO' : hasPositive && !hasNegative ? 'SOBRANTE' : hasNegative && !hasPositive ? 'FALTANTE' : 'DIFERENCIA MIXTA';
-                  return (
-                    <tr key={z.id}>
-                      <td className="p-3 whitespace-nowrap">{new Date(z.closedAt || z.openedAt).toLocaleString('es-VE')}</td>
-                      <td className="p-3 font-bold">{z.terminalId}</td>
-                      <td className="p-3">{z.closedBy || z.openedBy || '—'}</td>
-                      <td className="p-3 text-right font-mono">{formatBs(z.expectedBs || 0)}</td>
-                      <td className="p-3 text-right font-mono">{formatBs(z.closingBs || 0)}</td>
-                      <td className={`p-3 text-right font-mono ${Math.abs(dbs) < 0.01 ? 'text-slate-500' : dbs > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatBs(dbs)}</td>
-                      <td className="p-3 text-right font-mono">{formatUSD(z.expectedUSD || 0)}</td>
-                      <td className="p-3 text-right font-mono">{formatUSD(z.closingUSD || 0)}</td>
-                      <td className={`p-3 text-right font-mono ${Math.abs(dusd) < 0.01 ? 'text-slate-500' : dusd > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatUSD(dusd)}</td>
-                      <td className="p-3 text-center">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black ${reconciled ? 'bg-emerald-100 text-emerald-800' : hasPositive && !hasNegative ? 'bg-amber-100 text-amber-800' : hasNegative && !hasPositive ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}>
-                          {reconciled ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                          {result}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center">
-                        <button
-                          onClick={() => {
-                            const report = buildCashReport('Z', z);
-                            if (report) setCashReportPreview(report);
-                          }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] font-black hover:bg-slate-50"
-                        >
-                          <Printer className="w-3.5 h-3.5" /> Reimprimir Z
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {preZOpen && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/60 flex items-center justify-center p-3">
-          <div className="bg-white w-full max-w-7xl max-h-[94vh] overflow-hidden rounded-2xl shadow-2xl flex flex-col">
-            <div className="px-5 py-4 border-b flex items-center justify-between">
-              <div><h3 className="font-black text-lg">Arqueo previo al Corte Z</h3><p className="text-xs text-slate-500">Verifique cada medio de pago antes de guardar y ejecutar el cierre.</p></div>
-              <button onClick={() => setPreZOpen(false)} className="px-3 py-2 rounded-lg border text-xs font-bold">Cancelar</button>
-            </div>
-            <div className="p-4 overflow-auto">
-              <table className="min-w-[1250px] w-full text-xs border-collapse">
-                <thead className="bg-slate-100"><tr>
-                  {['Método de pago','Fondo Inicial Bs.','Fondo Inicial USD','Ventas','CxC (cobro)','Dev/Anu.','Mov. Caja (+)','Mov. Caja (-)','Total Monto Sistema','Monto Real','DIF. (+/-)'].map(h=><th key={h} className="p-2 border text-left">{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {arqueoRows.map(row => {
-                    const isBs = row.currency === 'Bs';
-                    const system = row.system;
-                    const raw = String(preZReal[row.method] ?? '');
-                    const real = raw.trim() === '' ? null : Number(raw.replace(',', '.'));
-                    const diff = real === null || !Number.isFinite(real) ? null : Number((real-system).toFixed(2));
-                    return <tr key={row.method}>
-                      <td className="p-2 border font-bold">{formatPaymentMethod(row.method)}</td>
-                      <td className="p-2 border text-right">{formatBs(row.openingBs)}</td>
-                      <td className="p-2 border text-right">{formatUSD(row.openingUSD)}</td>
-                      <td className="p-2 border text-right">{isBs ? formatBs(row.salesBs) : formatUSD(row.salesUSD)}</td>
-                      <td className="p-2 border text-right">{isBs ? formatBs(row.cxcBs) : formatUSD(row.cxcUSD)}</td>
-                      <td className="p-2 border text-right">{isBs ? formatBs(row.devAnuBs) : formatUSD(row.devAnuUSD)}</td>
-                      <td className="p-2 border text-right">{isBs ? formatBs(row.plusBs) : formatUSD(row.plusUSD)}</td>
-                      <td className="p-2 border text-right">{isBs ? formatBs(row.minusBs) : formatUSD(row.minusUSD)}</td>
-                      <td className="p-2 border text-right font-black">{isBs ? formatBs(system) : formatUSD(system)}</td>
-                      <td className="p-1 border"><input type="text" inputMode="decimal" value={raw} onChange={e=>setPreZReal(prev=>({...prev,[row.method]:e.target.value}))} placeholder={isBs ? 'Bs.' : 'USD'} className="w-32 px-2 py-1.5 border rounded-lg text-right" /></td>
-                      <td className={`p-2 border text-right font-black ${diff === null ? 'text-slate-400' : diff > 0.005 ? 'text-emerald-600' : diff < -0.005 ? 'text-rose-600' : 'text-slate-700'}`}>{diff === null ? '—' : (isBs ? formatBs(diff) : formatUSD(diff))}</td>
-                    </tr>;
-                  })}
-                </tbody>
-              </table>
-              {(() => {
-                const d = calculatePreZ();
-                const label = Math.abs(d.bs) < 0.01 && Math.abs(d.usd) < 0.01 ? 'ARQUEO CONCILIADO' : d.bs > 0 || d.usd > 0 ? 'SOBRANTE' : 'FALTANTE';
-                return <div className="mt-4 rounded-xl border p-4 bg-slate-50"><div className="font-black text-sm">{label}</div><div className="text-xs mt-1">Diferencia Bs.: <b>{formatBs(d.bs)}</b> · Diferencia USD: <b>{formatUSD(d.usd)}</b></div>{Math.abs(d.bs)<0.01&&Math.abs(d.usd)<0.01 ? <div className="text-xs text-emerald-700 mt-1">El arqueo previo está conciliado.</div> : <div className="text-xs mt-1">{d.bs>0||d.usd>0 ? 'Sobrante detectado' : 'Faltante detectado'} por los montos indicados.</div>}</div>;
-              })()}
-            </div>
-            <div className="p-4 border-t flex justify-end gap-2">
-              <button onClick={()=>setPreZOpen(false)} className="px-4 py-2 rounded-lg border text-xs font-bold">Cancelar</button>
-              <button onClick={executeZ} className="px-5 py-2 rounded-lg bg-rose-600 text-white text-xs font-black">Guardar y ejecutar Z</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <CashReportPreview
-        data={cashReportPreview}
-        open={!!cashReportPreview}
-        onClose={() => setCashReportPreview(null)}
-        onPrint={() => printElement('cash-report-thermal-preview', { format: 'thermal80', title: `Reporte ${cashReportPreview?.kind || ''} - Caja` })}
-      />
-
-      <div className="text-[10px] text-slate-400">
-        El modo térmico funciona sin impresora fiscal. El modo fiscal queda preparado para una integración de controlador fiscal; no se asume hardware fiscal instalado.
-      </div>
-    </div>
-  );
-};
