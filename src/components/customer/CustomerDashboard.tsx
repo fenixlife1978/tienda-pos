@@ -43,6 +43,7 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   CircleDollarSign,
+  ShieldCheck,
 } from 'lucide-react';
 import { StoreCatalog } from '../store/StoreCatalog';
 import { OffersWall } from '../store/OffersWall';
