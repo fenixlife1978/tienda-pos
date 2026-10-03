@@ -283,6 +283,7 @@ interface AppContextType {
   refreshBcvRate: () => Promise<number>;
   updateSettings: (settings: Partial<SystemSettings>) => void;
   markNotificationAsRead: (id: string) => void;
+  clearCustomerNotifications: () => void;
   clearAllNotifications: () => void;
   // Advanced Push Notifications
   activePushToasts: AppNotification[];
@@ -476,7 +477,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(() => {
     const activeId = sessionStorage.getItem('omni_active_customer_id');
-    if (activeId && !tursoService.isConfigured()) {
+    if (!activeId) return null;
+
+    // En Turso mode recuperamos inmediatamente una copia de sesión por pestaña.
+    // Esto permite pintar el portal cliente sin esperar el primer round-trip a Turso.
+    const cached = sessionStorage.getItem('omni_active_customer_snapshot');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as Customer;
+        if (String(parsed.id) === String(activeId)) return parsed;
+      } catch {}
+    }
+
+    if (!tursoService.isConfigured()) {
       const list = safeLocalStorageJson<Customer[]>('omni_customers', []);
       const found = list.find((c) => c.id === activeId);
       if (found) return found;
@@ -531,10 +544,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const parsed = JSON.parse(saved);
       if (!Array.isArray(parsed)) return [];
+      const hiddenRaw = activeCustomerId
+        ? localStorage.getItem(`omni_customer_notifications_hidden_${activeCustomerId}`)
+        : null;
+      const hidden = new Set<string>(hiddenRaw ? JSON.parse(hiddenRaw) : []);
       return parsed.filter((n: AppNotification) => {
         if (n?.title === 'Sesión Finalizada') return false;
         if (activeCustomerId) {
-          return (n.targetRole === 'client' || n.targetRole === 'all') &&
+          return !hidden.has(n.id) &&
+            !n.read &&
+            (n.targetRole === 'client' || n.targetRole === 'all') &&
             (!n.targetCustomerId || n.targetCustomerId === activeCustomerId);
         }
         return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
@@ -4065,7 +4084,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
   };
-  const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  const markNotificationAsRead = (id: string) => {
+    if (currentCustomerRef.current) {
+      const customerId = currentCustomerRef.current.id;
+      const key = `omni_customer_notifications_hidden_${customerId}`;
+      let hidden: string[] = [];
+      try {
+        hidden = JSON.parse(localStorage.getItem(key) || '[]');
+      } catch {}
+      if (!hidden.includes(id)) hidden.push(id);
+      localStorage.setItem(key, JSON.stringify(hidden.slice(-500)));
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      return;
+    }
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  };
+
+  const clearCustomerNotifications = () => {
+    const customerId = currentCustomerRef.current?.id;
+    if (!customerId) return;
+    const key = `omni_customer_notifications_hidden_${customerId}`;
+    let hidden: string[] = [];
+    try {
+      hidden = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {}
+    const ids = notifications
+      .filter((n) => (n.targetRole === 'client' || n.targetRole === 'all') &&
+        (!n.targetCustomerId || n.targetCustomerId === customerId))
+      .map((n) => n.id);
+    localStorage.setItem(key, JSON.stringify(Array.from(new Set([...hidden, ...ids])).slice(-500)));
+    setNotifications((prev) => prev.filter((n) => !ids.includes(n.id)));
+    seenNotificationIdsRef.current.clear();
+  };
+
   const clearAllNotifications = () => {
     setNotifications([]);
     seenNotificationIdsRef.current.clear();
@@ -4100,7 +4151,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
       approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
-      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
+      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearCustomerNotifications, clearAllNotifications,
       activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, requestCustomerPushPermission, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
       storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
       isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isCustomerNotificationsOpen, setIsCustomerNotificationsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
