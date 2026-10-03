@@ -429,16 +429,16 @@ export const InventoryView: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-4">
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => {
                             setBarcodeSelectedProduct(p);
                             setIsBarcodeModalOpen(true);
                           }}
-                          className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 transition cursor-pointer"
+                          className="p-2 rounded-lg text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 transition cursor-pointer min-w-10 min-h-10 flex items-center justify-center"
                           title="Imprimir etiquetas de código de barras para este producto"
                         >
-                          <Barcode className="w-4 h-4" />
+                          <Barcode className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => {
@@ -446,26 +446,26 @@ export const InventoryView: React.FC = () => {
                             setAdjustQuantity(10);
                             setAdjustType('in');
                           }}
-                          className="p-1.5 rounded text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer"
+                          className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer min-w-10 min-h-10 flex items-center justify-center"
                           title="Ajuste rápido de Stock (Entrada/Salida)"
                         >
-                          <ArrowUpDown className="w-4 h-4" />
+                          <ArrowUpDown className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => handleOpenEdit(p)}
-                          className="p-1.5 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer"
+                          className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer min-w-10 min-h-10 flex items-center justify-center"
                           title="Editar producto"
                         >
-                          <Edit2 className="w-4 h-4" />
+                          <Edit2 className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => {
                             if (confirm(`¿Eliminar ${p.name}?`)) deleteProduct(p.id);
                           }}
-                          className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                          className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer min-w-10 min-h-10 flex items-center justify-center"
                           title="Eliminar producto"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-5 h-5" />
                         </button>
                       </div>
                     </td>
