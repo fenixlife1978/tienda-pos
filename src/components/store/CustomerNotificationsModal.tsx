@@ -8,12 +8,12 @@ interface CustomerNotificationsModalProps {
 }
 
 export const CustomerNotificationsModal: React.FC<CustomerNotificationsModalProps> = ({ isOpen, onClose }) => {
-  const { notifications, markNotificationAsRead } = useApp();
+  const { notifications, markNotificationAsRead, clearCustomerNotifications } = useApp();
 
   if (!isOpen) return null;
 
   const customerNotifications = notifications
-    .filter((n) => n.targetRole === 'client' || n.targetRole === 'all')
+    .filter((n) => !n.read && (n.targetRole === 'client' || n.targetRole === 'all'))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const iconFor = (type: string) => {
@@ -31,10 +31,20 @@ export const CustomerNotificationsModal: React.FC<CustomerNotificationsModalProp
             <div className="p-2 rounded-xl bg-white/10"><Bell className="w-5 h-5" /></div>
             <div>
               <h3 className="font-bold">Notificaciones</h3>
-              <p className="text-xs text-slate-300">Mensajes enviados por administración</p>
+              <p className="text-xs text-slate-300">Mensajes no leídos enviados por administración</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10" aria-label="Cerrar">
+          <div className="flex items-center gap-1">
+            {customerNotifications.length > 0 && (
+              <button
+                type="button"
+                onClick={clearCustomerNotifications}
+                className="px-3 py-2 rounded-lg text-xs font-bold hover:bg-white/10"
+              >
+                LIMPIAR
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10" aria-label="Cerrar">
             <X className="w-5 h-5" />
           </button>
         </div>
