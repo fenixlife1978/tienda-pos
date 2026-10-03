@@ -4103,7 +4103,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
       activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, requestCustomerPushPermission, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
       storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
-      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
+      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isCustomerNotificationsOpen, setIsCustomerNotificationsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
       isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
       isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, customerInvoiceModalMode, setCustomerInvoiceModalMode, lastSuccessfulOrder, setLastSuccessfulOrder,
       automatedReminders, runManualReminderScan, lastStockUpdateEvent, broadcastStockUpdate, tursoState, bootstrapTursoSchema, syncWithTurso,
