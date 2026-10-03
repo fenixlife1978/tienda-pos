@@ -43,6 +43,7 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   CircleDollarSign,
+  ShieldCheck,
 } from 'lucide-react';
 import { StoreCatalog } from '../store/StoreCatalog';
 import { OffersWall } from '../store/OffersWall';
@@ -63,6 +64,7 @@ export const CustomerDashboard: React.FC = () => {
     customerPortalTab,
     setCustomerPortalTab,
     setIsNotificationSettingsOpen,
+    setIsCustomerNotificationsOpen,
     requestCustomerPushPermission,
     notifications,
     receivables,
@@ -334,9 +336,12 @@ export const CustomerDashboard: React.FC = () => {
   const customerBalanceCurrentDebtUSD = runningDebtUSD;
 
   // Credit calculation
-  const creditAvailableUSD = Math.max(0, currentCustomer.creditLimitUSD - currentCustomer.currentDebtUSD);
-  const creditUsagePercent = currentCustomer.creditLimitUSD > 0
-    ? Math.min(100, Math.round((currentCustomer.currentDebtUSD / currentCustomer.creditLimitUSD) * 100))
+  // La línea de crédito debe reflejar la deuda financiera vigente confirmada en CxC.
+  // No dependemos de currentCustomer.currentDebtUSD porque el snapshot de sesión puede quedar desactualizado.
+  const approvedCreditDebtUSD = customerDebts.reduce((sum, debt) => sum + Number(debt.balanceUSD || 0), 0);
+  const creditAvailableUSD = Math.max(0, Number(currentCustomer.creditLimitUSD || 0) - approvedCreditDebtUSD);
+  const creditUsagePercent = Number(currentCustomer.creditLimitUSD || 0) > 0
+    ? Math.min(100, Math.round((approvedCreditDebtUSD / Number(currentCustomer.creditLimitUSD || 0)) * 100))
     : 0;
 
   // Unread notifs
@@ -391,16 +396,27 @@ export const CustomerDashboard: React.FC = () => {
                 <span className="font-mono font-bold">BCV: {settings.bcvRate.toFixed(2)} Bs</span>
               </div>
 
-              {/* Push Notifications button */}
+              {/* Campana: bandeja de notificaciones enviadas por administración */}
               <button
-                onClick={() => setIsNotificationSettingsOpen(true)}
+                onClick={() => setIsCustomerNotificationsOpen(true)}
                 className="relative p-2.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                title="Ajustes de Notificaciones Push"
+                title="Notificaciones"
+                aria-label="Abrir notificaciones"
               >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white"></span>
+                  <span className="absolute top-1.5 right-1.5 min-w-2.5 h-2.5 px-1 bg-rose-500 rounded-full ring-2 ring-white"></span>
                 )}
+              </button>
+
+              {/* Configuración separada de preferencias de notificaciones */}
+              <button
+                onClick={() => setIsNotificationSettingsOpen(true)}
+                className="p-2.5 text-slate-600 hover:text-blue-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                title="Preferencias de Notificaciones"
+                aria-label="Abrir preferencias de notificaciones"
+              >
+                <SlidersHorizontal className="w-5 h-5" />
               </button>
 
               {/* Cart Button */}
@@ -1073,7 +1089,7 @@ export const CustomerDashboard: React.FC = () => {
                 <div className="bg-amber-50/70 p-4 rounded-2xl border border-amber-200">
                   <p className="text-xs font-semibold text-amber-800">Saldo Pendiente / Deuda</p>
                   <p className="text-2xl font-black text-amber-700 mt-1 font-mono">
-                    ${currentCustomer.currentDebtUSD.toFixed(2)}
+                    ${approvedCreditDebtUSD.toFixed(2)}
                   </p>
                   <p className="text-[11px] text-amber-600 mt-1">
                     {creditUsagePercent}% del límite utilizado
