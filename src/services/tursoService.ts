@@ -1016,13 +1016,26 @@ class TursoService {
     const client = this.getClient();
     const loadAll = !tables || tables.size === 0;
     const shouldLoad = (table: string) => loadAll || tables!.has(table);
+    let settings: SystemSettings | null = null;
+    let categories: ProductCategory[] = [];
+    let units: ProductUnit[] = [];
+    let products: Product[] = [];
+    let customers: Customer[] = [];
+    let suppliers: Supplier[] = [];
+    let orders: Order[] = [];
+    let invoices: Invoice[] = [];
+    let receivables: ReceivableItem[] = [];
+    let payables: PayableItem[] = [];
+    let purchaseEntries: PurchaseEntry[] = [];
+    let users: User[] = [];
+    let notifications: AppNotification[] = [];
     if (!client) {
       throw new Error('Cliente Turso no configurado');
     }
 
     // 1. Settings
     if (shouldLoad('system_settings')) {
-    let settings: SystemSettings | null = null;
+    
     try {
       const res = await client.execute("SELECT data FROM system_settings WHERE key = 'main'");
       if (res.rows.length > 0 && res.rows[0].data) {
@@ -1035,7 +1048,7 @@ class TursoService {
         }
 // 2. Categories
     if (shouldLoad('categories')) {
-    let categories: ProductCategory[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM categories ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1052,7 +1065,7 @@ class TursoService {
         }
 // 3. Units
     if (shouldLoad('units')) {
-    let units: ProductUnit[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM units ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1076,7 +1089,7 @@ class TursoService {
     await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_by TEXT').catch(() => {});
     await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_at TEXT').catch(() => {});
     await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_by TEXT').catch(() => {});
-    let products: Product[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM products ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1145,7 +1158,7 @@ class TursoService {
         }
 // 5. Customers
     if (shouldLoad('customers')) {
-    let customers: Customer[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM customers ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1190,7 +1203,7 @@ class TursoService {
         }
 // 6. Suppliers
     if (shouldLoad('suppliers')) {
-    let suppliers: Supplier[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM suppliers ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1214,7 +1227,7 @@ class TursoService {
         }
 // 7. Orders
     if (shouldLoad('orders')) {
-    let orders: Order[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM orders ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1269,7 +1282,7 @@ class TursoService {
         }
 // 8. Invoices
     if (shouldLoad('invoices')) {
-    let invoices: Invoice[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM invoices ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1319,7 +1332,7 @@ class TursoService {
         }
 // 9. Accounts Receivable
     if (shouldLoad('accounts_receivable')) {
-    let receivables: ReceivableItem[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM accounts_receivable ORDER BY due_date ASC');
       for (const row of res.rows) {
@@ -1350,7 +1363,7 @@ class TursoService {
         }
 // 10. Accounts Payable
     if (shouldLoad('accounts_payable')) {
-    let payables: PayableItem[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM accounts_payable ORDER BY due_date ASC');
       for (const row of res.rows) {
@@ -1377,7 +1390,7 @@ class TursoService {
         }
 // 11. Purchase entries
     if (shouldLoad('purchase_entries')) {
-    let purchaseEntries: PurchaseEntry[] = [];
+    
     try {
       const res = await client.execute('SELECT data FROM purchase_entries ORDER BY created_at DESC');
       for (const row of res.rows) {
@@ -1411,7 +1424,7 @@ class TursoService {
         }
 // 12. Users
     if (shouldLoad('system_users')) {
-    let users: User[] = [];
+    
     try {
       const res = await client.execute('SELECT * FROM system_users ORDER BY name ASC');
       for (const row of res.rows) {
@@ -1468,7 +1481,7 @@ class TursoService {
         }
 // 13. Notifications
     if (shouldLoad('system_notifications')) {
-    let notifications: AppNotification[] = [];
+    
     try {
       const res = await client.execute(
         "SELECT * FROM system_notifications WHERE title != 'Sesión Finalizada' ORDER BY created_at DESC LIMIT 200"
