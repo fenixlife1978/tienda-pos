@@ -1550,7 +1550,11 @@ class TursoService {
    * Solo consulta el último ID de activity_changes; no depende de contadores
    * de tablas ni de estado/localStorage del navegador.
    */
-  public async readCloudSyncVersion(since = 0): Promise<{ changed: boolean; latestId: number }> {
+  public async readCloudSyncVersion(since = 0): Promise<{
+    changed: boolean;
+    latestId: number;
+    changes: Array<{ id: number; tableName: string; entityId: string | null; operation: string; changedAt: string }>;
+  }> {
     const response = await fetch('/api/sync?since=' + encodeURIComponent(String(Math.max(0, since))), {
       method: 'GET',
       credentials: 'same-origin',
@@ -1564,6 +1568,15 @@ class TursoService {
     return {
       changed: Boolean(data.changed),
       latestId: Number(data.latest_id || 0),
+      changes: Array.isArray(data.changes)
+        ? data.changes.map((change: any) => ({
+            id: Number(change.id || 0),
+            tableName: String(change.table_name || ''),
+            entityId: change.entity_id == null ? null : String(change.entity_id),
+            operation: String(change.operation || 'update'),
+            changedAt: String(change.changed_at || ''),
+          }))
+        : [],
     };
   }
 
