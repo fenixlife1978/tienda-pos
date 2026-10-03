@@ -335,9 +335,12 @@ export const CustomerDashboard: React.FC = () => {
   const customerBalanceCurrentDebtUSD = runningDebtUSD;
 
   // Credit calculation
-  const creditAvailableUSD = Math.max(0, currentCustomer.creditLimitUSD - currentCustomer.currentDebtUSD);
-  const creditUsagePercent = currentCustomer.creditLimitUSD > 0
-    ? Math.min(100, Math.round((currentCustomer.currentDebtUSD / currentCustomer.creditLimitUSD) * 100))
+  // La línea de crédito debe reflejar la deuda financiera vigente confirmada en CxC.
+  // No dependemos de currentCustomer.currentDebtUSD porque el snapshot de sesión puede quedar desactualizado.
+  const approvedCreditDebtUSD = customerDebts.reduce((sum, debt) => sum + Number(debt.balanceUSD || 0), 0);
+  const creditAvailableUSD = Math.max(0, Number(currentCustomer.creditLimitUSD || 0) - approvedCreditDebtUSD);
+  const creditUsagePercent = Number(currentCustomer.creditLimitUSD || 0) > 0
+    ? Math.min(100, Math.round((approvedCreditDebtUSD / Number(currentCustomer.creditLimitUSD || 0)) * 100))
     : 0;
 
   // Unread notifs
@@ -1085,7 +1088,7 @@ export const CustomerDashboard: React.FC = () => {
                 <div className="bg-amber-50/70 p-4 rounded-2xl border border-amber-200">
                   <p className="text-xs font-semibold text-amber-800">Saldo Pendiente / Deuda</p>
                   <p className="text-2xl font-black text-amber-700 mt-1 font-mono">
-                    ${currentCustomer.currentDebtUSD.toFixed(2)}
+                    ${approvedCreditDebtUSD.toFixed(2)}
                   </p>
                   <p className="text-[11px] text-amber-600 mt-1">
                     {creditUsagePercent}% del límite utilizado
