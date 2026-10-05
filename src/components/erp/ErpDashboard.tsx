@@ -58,6 +58,15 @@ export const ErpDashboard: React.FC = () => {
   ).length;
   const lowStockCount = products.filter((p) => p.stock <= p.minStock).length;
   const overdueReceivablesCount = receivables.filter((r) => r.status === 'vencido').length;
+  // Solo cuentan pagos enviados por clientes que siguen pendientes de aprobación.
+  const pendingCustomerPaymentsCount = receivables.reduce(
+    (count, receivable) =>
+      count +
+      (receivable.paymentHistory || []).filter(
+        (payment) => payment.reportedByCustomer && payment.verificationStatus === 'pendiente'
+      ).length,
+    0
+  );
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-slate-100/60 pb-16">
@@ -71,6 +80,7 @@ export const ErpDashboard: React.FC = () => {
         pendingRequestsCount={pendingRequestsCount}
         lowStockCount={lowStockCount}
         overdueReceivablesCount={overdueReceivablesCount}
+        pendingCustomerPaymentsCount={pendingCustomerPaymentsCount}
       />
 
       {/* Render Active Module */}

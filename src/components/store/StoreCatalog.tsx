@@ -30,6 +30,7 @@ export const StoreCatalog: React.FC = () => {
     lastStockUpdateEvent,
     addToCart,
     triggerPushNotification,
+    receivables,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,8 +65,17 @@ export const StoreCatalog: React.FC = () => {
     });
   }, [products, searchQuery, selectedCategory, onlyOffers]);
 
+  // Mantener la tarjeta principal del catálogo sincronizada con CxC.
+  // El snapshot del cliente puede conservar un currentDebtUSD antiguo; el saldo
+  // financiero vigente se toma de las cuentas por cobrar confirmadas.
+  const approvedCreditDebtUSD = currentCustomer
+    ? receivables
+        .filter((r) => r.customerId === currentCustomer.id && Number(r.balanceUSD || 0) > 0.001 && !r.isVoided)
+        .reduce((sum, r) => sum + Number(r.balanceUSD || 0), 0)
+    : 0;
+
   const creditAvailableUSD = currentCustomer
-    ? Math.max(0, currentCustomer.creditLimitUSD - currentCustomer.currentDebtUSD)
+    ? Math.max(0, Number(currentCustomer.creditLimitUSD || 0) - approvedCreditDebtUSD)
     : 0;
 
   return (

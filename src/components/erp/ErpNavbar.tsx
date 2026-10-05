@@ -50,6 +50,7 @@ interface ErpNavbarProps {
   pendingRequestsCount: number;
   lowStockCount: number;
   overdueReceivablesCount: number;
+  pendingCustomerPaymentsCount: number;
 }
 
 export const ErpNavbar: React.FC<ErpNavbarProps> = ({
@@ -59,6 +60,7 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
   pendingRequestsCount,
   lowStockCount,
   overdueReceivablesCount,
+  pendingCustomerPaymentsCount,
 }) => {
   const {
     setIsSellerAlertsModalOpen,
@@ -154,8 +156,8 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       id: 'cxc' as ErpTab,
       label: 'Cuentas por Cobrar (CxC)',
       icon: HandCoins,
-      badge: overdueReceivablesCount > 0 ? overdueReceivablesCount : null,
-      badgeColor: 'bg-rose-600 text-white',
+      badge: pendingCustomerPaymentsCount > 0 ? pendingCustomerPaymentsCount : null,
+      badgeColor: 'bg-amber-500 text-white animate-pulse',
     },
     {
       id: 'cxp' as ErpTab,

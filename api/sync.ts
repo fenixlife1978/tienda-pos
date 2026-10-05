@@ -30,11 +30,28 @@ export default async function handler(req: any, res: any) {
     const since = Math.max(0, Number(req.query?.since || 0));
     const result = await client.execute('SELECT COALESCE(MAX(id), 0) AS latest_id FROM activity_changes');
     const latestId = Number(result.rows[0]?.latest_id || 0);
+    const changesResult = since < latestId
+      ? await client.execute({
+          sql: `SELECT id, table_name, entity_id, operation, changed_at
+                FROM activity_changes
+                WHERE id > ?
+                ORDER BY id ASC
+                LIMIT 500`,
+          args: [since],
+        })
+      : { rows: [] as any[] };
 
     return res.status(200).json({
       ok: true,
       changed: latestId > since,
       latest_id: latestId,
+      changes: changesResult.rows.map((row: any) => ({
+        id: Number(row.id),
+        table_name: String(row.table_name),
+        entity_id: row.entity_id == null ? null : String(row.entity_id),
+        operation: String(row.operation),
+        changed_at: String(row.changed_at),
+      })),
       server_time: new Date().toISOString(),
     });
   } catch (error: any) {

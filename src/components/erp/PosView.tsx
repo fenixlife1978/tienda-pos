@@ -34,6 +34,9 @@ import {
   Sparkles,
   Camera,
   Calculator,
+  RotateCcw,
+  Ban,
+  ReceiptText,
 } from 'lucide-react';
 import { formatUSD, formatBs, formatPlainNumber } from '../../utils/formatUtils';
 import { playNotificationSound } from '../../utils/notificationSound';
@@ -57,8 +60,11 @@ export const PosView: React.FC = () => {
   const {
     products,
     customers,
+    orders,
     settings,
     createOrder,
+    processSaleReturn,
+    voidSale,
     setSelectedInvoiceForModal,
     openPresentationModal,
   } = useApp();
@@ -90,6 +96,11 @@ export const PosView: React.FC = () => {
   const [customCreditDays, setCustomCreditDays] = useState<number>(15);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPaymentCalculator, setShowPaymentCalculator] = useState(false);
+  const [showSaleAdjustments, setShowSaleAdjustments] = useState(false);
+  const [adjustmentType, setAdjustmentType] = useState<'return' | 'void'>('return');
+  const [adjustmentSearch, setAdjustmentSearch] = useState('');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [adjustmentOrderId, setAdjustmentOrderId] = useState<string | null>(null);
 
   // Barcode Scanner state & visual feedback
   const [scanFeedback, setScanFeedback] = useState<{
@@ -116,6 +127,46 @@ export const PosView: React.FC = () => {
   };
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || customers[0];
+
+  const adjustmentOrders = useMemo(() => {
+    const query = adjustmentSearch.trim().toLowerCase();
+    return orders
+      .filter((order) =>
+        (order.channel === 'pos' || !!order.posRegisteredAt) &&
+        !order.isVoided &&
+        !order.isReturned &&
+        (!query ||
+          order.orderNumber.toLowerCase().includes(query) ||
+          String(order.invoiceNumber || '').toLowerCase().includes(query) ||
+          String(order.customerName || '').toLowerCase().includes(query))
+      )
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 100);
+  }, [orders, adjustmentSearch]);
+
+  const executeSaleAdjustment = () => {
+    if (!adjustmentOrderId) return;
+    const reason = adjustmentReason.trim();
+    if (!reason) {
+      alert(`Debe indicar el motivo de la ${adjustmentType === 'return' ? 'devolución' : 'anulación'}.`);
+      return;
+    }
+
+    const result =
+      adjustmentType === 'return'
+        ? processSaleReturn(adjustmentOrderId, reason)
+        : voidSale(adjustmentOrderId, reason);
+
+    if (!result.success) {
+      alert(result.message);
+      return;
+    }
+
+    setShowSaleAdjustments(false);
+    setAdjustmentOrderId(null);
+    setAdjustmentReason('');
+    alert(result.message);
+  };
 
   // Turso puede refrescar la lista de clientes mientras el POS está abierto.
   // Si el cliente seleccionado deja de existir en ese snapshot, reconciliamos
@@ -643,6 +694,21 @@ export const PosView: React.FC = () => {
 
                 <button
                   type="button"
+                  onClick={() => {
+                    setShowSaleAdjustments(true);
+                    setAdjustmentOrderId(null);
+                    setAdjustmentReason('');
+                    setAdjustmentSearch('');
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-black text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                  title="Registrar devolución o anulación de una venta"
+                >
+                  <ReceiptText className="w-3.5 h-3.5" />
+                  <span>DEV./ANU.</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setIsScannerTestOpen(true)}
                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
                   title="Simular o probar lectura de códigos de barras"
@@ -1084,6 +1150,97 @@ export const PosView: React.FC = () => {
         </div>
 
       </div>
+
+      {showSaleAdjustments && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl border border-slate-200">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-rose-50 text-rose-700"><ReceiptText className="w-5 h-5" /></div>
+                <div>
+                  <h3 className="font-black text-slate-900">Devoluciones y Anulaciones</h3>
+                  <p className="text-[11px] text-slate-500">Seleccione una venta y ejecute la operación real sobre inventario, factura y caja.</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setShowSaleAdjustments(false)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => { setAdjustmentType('return'); setAdjustmentOrderId(null); }} className={`rounded-xl border px-3 py-2.5 text-xs font-black flex items-center justify-center gap-2 ${adjustmentType === 'return' ? 'bg-amber-50 border-amber-400 text-amber-900' : 'bg-white border-slate-200 text-slate-600'}`}>
+                  <RotateCcw className="w-4 h-4" /> DEVOLUCIÓN
+                </button>
+                <button type="button" onClick={() => { setAdjustmentType('void'); setAdjustmentOrderId(null); }} className={`rounded-xl border px-3 py-2.5 text-xs font-black flex items-center justify-center gap-2 ${adjustmentType === 'void' ? 'bg-rose-50 border-rose-400 text-rose-900' : 'bg-white border-slate-200 text-slate-600'}`}>
+                  <Ban className="w-4 h-4" /> ANULACIÓN
+                </button>
+              </div>
+
+              <input
+                value={adjustmentSearch}
+                onChange={(e) => setAdjustmentSearch(e.target.value)}
+                placeholder="Buscar por pedido, factura o cliente..."
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500"
+              />
+
+              <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+                {adjustmentOrders.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-400">No hay ventas disponibles para esta operación.</div>
+                ) : adjustmentOrders.map((order) => (
+                  <button
+                    key={order.id}
+                    type="button"
+                    onClick={() => setAdjustmentOrderId(order.id)}
+                    className={`w-full text-left p-3 hover:bg-slate-50 transition ${adjustmentOrderId === order.id ? 'bg-indigo-50 ring-1 ring-inset ring-indigo-300' : ''}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-black text-xs text-slate-800">{order.orderNumber}</div>
+                        <div className="text-[10px] text-slate-500 truncate">{order.invoiceNumber || 'Sin factura'} · {order.customerName || 'Consumidor final'}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-mono font-black text-xs text-indigo-700">{formatUSD(order.totalUSD)}</div>
+                        <div className="text-[10px] text-slate-400">{new Date(order.createdAt).toLocaleString('es-VE')}</div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {adjustmentOrderId && (() => {
+                const selectedOrder = orders.find((order) => order.id === adjustmentOrderId);
+                if (!selectedOrder) return null;
+                return (
+                  <div className="space-y-3 p-4 rounded-xl border border-slate-200 bg-slate-50">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-black text-slate-800">{selectedOrder.orderNumber}</div>
+                        <div className="text-[11px] text-slate-500">{selectedOrder.customerName || 'Consumidor final'} · {formatUSD(selectedOrder.totalUSD)}</div>
+                      </div>
+                      <span className={`text-[10px] font-black px-2 py-1 rounded-full ${adjustmentType === 'return' ? 'bg-amber-100 text-amber-900' : 'bg-rose-100 text-rose-900'}`}>
+                        {adjustmentType === 'return' ? 'DEVOLUCIÓN' : 'ANULACIÓN'}
+                      </span>
+                    </div>
+                    <textarea
+                      value={adjustmentReason}
+                      onChange={(e) => setAdjustmentReason(e.target.value)}
+                      placeholder={`Motivo de la ${adjustmentType === 'return' ? 'devolución' : 'anulación'}...`}
+                      rows={3}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs resize-none bg-white"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => { setAdjustmentOrderId(null); setAdjustmentReason(''); }} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-white">Cancelar</button>
+                      <button type="button" onClick={executeSaleAdjustment} className={`px-4 py-2 rounded-lg text-white text-xs font-black flex items-center gap-1.5 ${adjustmentType === 'return' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                        {adjustmentType === 'return' ? <RotateCcw className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
+                        Confirmar {adjustmentType === 'return' ? 'Devolución' : 'Anulación'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPaymentCalculator && (
         <PaymentCalculatorModal

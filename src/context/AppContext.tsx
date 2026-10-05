@@ -283,6 +283,7 @@ interface AppContextType {
   refreshBcvRate: () => Promise<number>;
   updateSettings: (settings: Partial<SystemSettings>) => void;
   markNotificationAsRead: (id: string) => void;
+  clearCustomerNotifications: () => void;
   clearAllNotifications: () => void;
   // Advanced Push Notifications
   activePushToasts: AppNotification[];
@@ -325,6 +326,8 @@ interface AppContextType {
   setIsAdminModalOpen: (open: boolean) => void;
   isNotificationSettingsOpen: boolean;
   setIsNotificationSettingsOpen: (open: boolean) => void;
+  isCustomerNotificationsOpen: boolean;
+  setIsCustomerNotificationsOpen: (open: boolean) => void;
   isSellerAlertsModalOpen: boolean;
   setIsSellerAlertsModalOpen: (open: boolean) => void;
   isBusinessSettingsModalOpen: boolean;
@@ -474,7 +477,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(() => {
     const activeId = sessionStorage.getItem('omni_active_customer_id');
-    if (activeId && !tursoService.isConfigured()) {
+    if (!activeId) return null;
+
+    // En Turso mode recuperamos inmediatamente una copia de sesión por pestaña.
+    // Esto permite pintar el portal cliente sin esperar el primer round-trip a Turso.
+    const cached = sessionStorage.getItem('omni_active_customer_snapshot');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as Customer;
+        if (String(parsed.id) === String(activeId)) return parsed;
+      } catch {}
+    }
+
+    if (!tursoService.isConfigured()) {
       const list = safeLocalStorageJson<Customer[]>('omni_customers', []);
       const found = list.find((c) => c.id === activeId);
       if (found) return found;
@@ -529,10 +544,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const parsed = JSON.parse(saved);
       if (!Array.isArray(parsed)) return [];
+      const hiddenRaw = activeCustomerId
+        ? localStorage.getItem(`omni_customer_notifications_hidden_${activeCustomerId}`)
+        : null;
+      const hidden = new Set<string>(hiddenRaw ? JSON.parse(hiddenRaw) : []);
       return parsed.filter((n: AppNotification) => {
         if (n?.title === 'Sesión Finalizada') return false;
         if (activeCustomerId) {
-          return (n.targetRole === 'client' || n.targetRole === 'all') &&
+          return !hidden.has(n.id) &&
+            !n.read &&
+            (n.targetRole === 'client' || n.targetRole === 'all') &&
             (!n.targetCustomerId || n.targetCustomerId === activeCustomerId);
         }
         return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
@@ -561,6 +582,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [isCustomerNotificationsOpen, setIsCustomerNotificationsOpen] = useState(false);
   const [isSellerAlertsModalOpen, setIsSellerAlertsModalOpen] = useState(false);
   const [isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen] = useState(false);
   const [isBcvPanelOpen, setIsBcvPanelOpen] = useState(false);
@@ -841,13 +863,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // primero consultamos solamente el último ID de activity_changes.
         const changeState = await tursoService.readCloudSyncVersion(cloudChangeTokenRef.current);
         if (!forceReload && !changeState.changed) {
-          setTursoState((prev) => ({
-            ...prev,
-            isConnected: true,
-            isSyncing: false,
-            statusText: 'Sin cambios nuevos en Turso DB',
-            errorMessage: null,
-          }));
+          // Latido silencioso: no actualizamos estado React en cada consulta sin
+          // cambios. Esto evita renders cada pocos cientos de milisegundos y
+          // deja el navegador libre para aplicar inmediatamente el cambio real.
           return;
         }
   
@@ -861,49 +879,103 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await productWriteInFlightRef.current;
         }
 
-        // Una lectura completa puede haber comenzado antes de una escritura
-        // de producto. Ese snapshot puede ser legítimamente anterior al cambio
-        // recién confirmado en Turso; jamás debe volver a pintar ese estado viejo.
-        const productGenerationAtReadStart = productWriteGenerationRef.current;
-        const cloudData = await tursoService.loadAllData();
-  
-        // Turso es la fuente de verdad cuando está configurado. Incluso una
-        // tabla vacía debe reemplazar el snapshot local para impedir que datos
-        // antiguos/demo de localStorage reaparezcan en una base nueva o limpia.
-        if (productGenerationAtReadStart === productWriteGenerationRef.current) {
-          setProducts(cloudData.products);
+        // Ahora descargamos únicamente las tablas afectadas por activity_changes.
+        // Una operación de negocio puede escribir varias tablas; agregamos las
+        // dependencias relacionadas para que pedido/venta/CxC/inventario queden
+        // consistentes en el mismo ciclo.
+        const tablesToLoad = forceReload
+          ? undefined
+          : new Set(
+              changeState.changes.flatMap((change) => {
+                switch (change.tableName) {
+                  case 'inventory_movements':
+                    return ['products'];
+                  case 'orders':
+                    return ['orders', 'invoices', 'accounts_receivable', 'products'];
+                  case 'invoices':
+                    return ['invoices', 'orders', 'accounts_receivable'];
+                  case 'accounts_receivable':
+                    return ['accounts_receivable', 'customers', 'invoices'];
+                  case 'customers':
+                    return ['customers'];
+                  case 'products':
+                    return ['products'];
+                  case 'system_notifications':
+                    return ['system_notifications'];
+                  case 'accounts_payable':
+                    return ['accounts_payable'];
+                  case 'purchase_entries':
+                    return ['purchase_entries', 'accounts_payable'];
+                  case 'suppliers':
+                    return ['suppliers'];
+                  case 'categories':
+                    return ['categories'];
+                  case 'units':
+                    return ['units'];
+                  case 'system_settings':
+                  case 'bcv_history':
+                    return ['system_settings'];
+                  case 'system_users':
+                    return ['system_users'];
+                  default:
+                    return [];
+                }
+              })
+            );
+        if (!forceReload && (!tablesToLoad || tablesToLoad.size === 0)) {
+          cloudChangeTokenRef.current = changeState.latestId;
+          return;
         }
-        setCategories(cloudData.categories);
-        setUnits(cloudData.units);
-        setCustomers(cloudData.customers);
-        // El portal cliente mantiene currentCustomer en memoria. Al recibir
-        // cambios desde Turso debemos reconciliarlo con el registro cloud;
-        // de lo contrario el cliente puede seguir mostrando el estado anterior
-        // aunque customers[] ya esté actualizado.
-        const activeCustomerId = currentCustomerIdRef.current;
-        if (activeCustomerId) {
-          const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
-          if (syncedCustomer) {
-            setCurrentCustomer(syncedCustomer);
-            currentCustomerRef.current = syncedCustomer;
+
+        const productGenerationAtReadStart = productWriteGenerationRef.current;
+        const cloudData = await tursoService.loadAllData(tablesToLoad);
+
+        if (!tablesToLoad || tablesToLoad.has('products')) {
+          if (productGenerationAtReadStart === productWriteGenerationRef.current) {
+            setProducts(cloudData.products);
           }
         }
-        setSuppliers(cloudData.suppliers);
-        setOrders(cloudData.orders);
-        setInvoices(cloudData.invoices);
-        setReceivables(cloudData.receivables);
-        setPayables(cloudData.payables);
-        setPurchaseEntries(cloudData.purchaseEntries);
-        setUsers(cloudData.users);
-        if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
+        if (!tablesToLoad || tablesToLoad.has('categories')) setCategories(cloudData.categories);
+        if (!tablesToLoad || tablesToLoad.has('units')) setUnits(cloudData.units);
+        if (!tablesToLoad || tablesToLoad.has('customers')) {
+          setCustomers(cloudData.customers);
+          const activeCustomerId = currentCustomerIdRef.current;
+          if (activeCustomerId) {
+            const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
+            if (syncedCustomer) {
+              setCurrentCustomer(syncedCustomer);
+              currentCustomerRef.current = syncedCustomer;
+              sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(syncedCustomer));
+            }
+          }
+        }
+        if (!tablesToLoad || tablesToLoad.has('suppliers')) setSuppliers(cloudData.suppliers);
+        if (!tablesToLoad || tablesToLoad.has('orders')) setOrders(cloudData.orders);
+        if (!tablesToLoad || tablesToLoad.has('invoices')) setInvoices(cloudData.invoices);
+        if (!tablesToLoad || tablesToLoad.has('accounts_receivable')) setReceivables(cloudData.receivables);
+        if (!tablesToLoad || tablesToLoad.has('accounts_payable')) setPayables(cloudData.payables);
+        if (!tablesToLoad || tablesToLoad.has('purchase_entries')) setPurchaseEntries(cloudData.purchaseEntries);
+        if (!tablesToLoad || tablesToLoad.has('system_users')) setUsers(cloudData.users);
+        if (!tablesToLoad || tablesToLoad.has('system_notifications')) {
+          if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
           const notificationsClearedAt = localStorage.getItem('omni_notifications_cleared_at');
           const clearedAtMs = notificationsClearedAt ? new Date(notificationsClearedAt).getTime() : 0;
+          const activeCustomerForNotifications = currentCustomerIdRef.current;
+          let customerHiddenIds = new Set<string>();
+          if (activeCustomerForNotifications) {
+            try {
+              const raw = localStorage.getItem(`omni_customer_notifications_hidden_${activeCustomerForNotifications}`);
+              customerHiddenIds = new Set<string>(raw ? JSON.parse(raw) : []);
+            } catch {}
+          }
           const incoming = cloudData.notifications.filter((n) => {
             if (n.title === 'Sesión Finalizada') return false;
             if (clearedAtMs && new Date(n.createdAt).getTime() <= clearedAtMs && (isAdminActiveRef.current || mode === 'erp')) return false;
-            if (currentCustomerIdRef.current) {
-              return (n.targetRole === 'client' || n.targetRole === 'all') &&
-                (!n.targetCustomerId || n.targetCustomerId === currentCustomerIdRef.current);
+            if (activeCustomerForNotifications) {
+              return !customerHiddenIds.has(n.id) &&
+                !n.read &&
+                (n.targetRole === 'client' || n.targetRole === 'all') &&
+                (!n.targetCustomerId || n.targetCustomerId === activeCustomerForNotifications);
             }
             if (isAdminActiveRef.current || mode === 'erp') {
               return n.targetRole === 'seller' || n.targetRole === 'all' || !n.targetRole;
@@ -969,13 +1041,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             }
           }
+          }
         }
         isInitialSyncDoneRef.current = true;
   
-        if (cloudData.settings) {
-          setSettings(cloudData.settings);
-        } else {
-          setSettings(EMPTY_SYSTEM_SETTINGS);
+        if (!tablesToLoad || tablesToLoad.has('system_settings')) {
+          if (cloudData.settings) {
+            setSettings(cloudData.settings);
+          } else {
+            setSettings(EMPTY_SYSTEM_SETTINGS);
+          }
         }
   
         // Guardamos exactamente el cursor que devolvió el servidor. Si otra
@@ -1035,36 +1110,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // tablas ni se espera a que termine un bootstrap en cada F5.
         await syncWithTurso(true);
 
-        // La identidad de sesión del cliente vive por pestaña, pero sus datos siempre
-        // se recuperan y validan contra Turso al arrancar. Nunca restauramos la cuenta
-        // desde localStorage/caché.
+        // La sesión cliente ya fue pintada desde sessionStorage. syncWithTurso(true)
+        // arriba reconcilió currentCustomer contra el snapshot cloud, por lo que no
+        // hacemos una segunda carga completa que bloquee innecesariamente el F5.
         const activeCustomerId = sessionStorage.getItem('omni_active_customer_id');
-        if (activeCustomerId) {
-          try {
-            const cloudState = await tursoService.loadAllData();
-            const cloudCustomer = cloudState.customers.find((c: Customer) => c.id === activeCustomerId);
-            if (cloudCustomer) {
-              setCurrentCustomer(cloudCustomer);
-              currentCustomerRef.current = cloudCustomer;
-              currentCustomerIdRef.current = cloudCustomer.id;
-              sessionStorage.removeItem('tienda_pos_tab_session');
-              sessionStorage.removeItem('tienda_pos_admin_user');
-              sessionStorage.removeItem('omni_erp_active_tab');
-              setIsAdminActive(false);
-              setMode('store');
-            } else {
-              sessionStorage.removeItem('omni_active_customer_id');
-              setCurrentCustomer(null);
-              currentCustomerRef.current = null;
-              currentCustomerIdRef.current = null;
-            }
-          } catch (error) {
-            console.warn('No se pudo validar la sesión del cliente contra Turso:', error);
-            sessionStorage.removeItem('omni_active_customer_id');
-            setCurrentCustomer(null);
-            currentCustomerRef.current = null;
-            currentCustomerIdRef.current = null;
-          }
+        if (activeCustomerId && currentCustomerRef.current) {
+          sessionStorage.removeItem('tienda_pos_tab_session');
+          sessionStorage.removeItem('tienda_pos_admin_user');
+          sessionStorage.removeItem('omni_erp_active_tab');
+          setIsAdminActive(false);
+          setMode('store');
+        } else if (activeCustomerId) {
+          // La cuenta ya no existe en Turso: invalidar la sesión de esta pestaña.
+          sessionStorage.removeItem('omni_active_customer_id');
+          sessionStorage.removeItem('omni_active_customer_snapshot');
+          setCurrentCustomer(null);
+          currentCustomerRef.current = null;
+          currentCustomerIdRef.current = null;
         }
         // Antes de habilitar el sincronizador normal, reintentamos las operaciones POS
         // durables que hayan quedado pendientes. Esto evita que una recarga deje una venta
@@ -1089,6 +1151,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
     initTursoOnMount();
+  }, []);
+
+  // Al volver a una pestaña visible/focalizada, hacemos una comprobación
+  // inmediata. Esto evita que una pestaña que estuvo en segundo plano tenga que
+  // esperar al siguiente ciclo del temporizador para reflejar pedidos, pagos o
+  // cualquier cambio realizado desde otro dispositivo.
+  useEffect(() => {
+    if (!tursoService.isConfigured()) return;
+
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        syncWithTurso().catch((error) => {
+          console.warn('Immediate Turso sync after visibility/focus failed:', error);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshOnVisibility);
+    window.addEventListener('focus', refreshOnVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
+      window.removeEventListener('focus', refreshOnVisibility);
+    };
   }, []);
 
   // Automatic recovery: when Internet returns, replay every durable POS sale.
@@ -1125,10 +1211,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('Automatic Turso change check failed:', error);
         }
       }
-      if (!cancelled) timer = window.setTimeout(tick, 500);
+      if (!cancelled) {
+        // Sondeo corto para que los cambios entre cliente y administración
+        // aparezcan prácticamente en tiempo real. En una pestaña oculta
+        // reducimos la frecuencia para no gastar recursos innecesariamente.
+        const delay = document.hidden ? 1500 : 250;
+        timer = window.setTimeout(tick, delay);
+      }
     };
 
-    timer = window.setTimeout(tick, 1000);
+    timer = window.setTimeout(tick, 250);
     return () => {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
@@ -1192,12 +1284,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     badge?: string;
     sound?: boolean;
   }) => {
-    // La notificación se persiste en Turso aunque el emisor sea otra sesión
-    // (por ejemplo, un cliente enviando un pedido o reportando un pago). Solo
-    // la sesión que pertenece al destinatario la muestra en pantalla.
-    // Esto permite que cliente y administración funcionen simultáneamente en
-    // dispositivos/pestañas independientes.
-    if (!isAdminActiveRef.current && !currentCustomerRef.current && !options.targetRole) return;
+    // Las notificaciones NO se infieren a partir de la sesión que ejecuta
+    // la acción. El destinatario debe declararse explícitamente con targetRole.
+    // Esto evita que una acción administrativa se notifique al propio panel o
+    // al cliente que casualmente esté abierto en otra pestaña.
+    //
+    // Eventos permitidos actualmente:
+    // - Cliente -> Administración: targetRole='seller' (pedido/pago reportado).
+    // - Administración -> Cliente: targetRole='client' solo para estados de pedido
+    //   que realmente deban comunicarse al cliente.
+    // Las demás acciones no generan push.
+    if (!options.targetRole) return;
 
     // Suppress push notifications and sound alerts for BCV rate updates
     if (options.type === 'bcv_update') {
@@ -1397,7 +1494,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // No confiamos en el registro local para decidir si la cuenta está verificada.
       setCurrentCustomer(found);
       currentCustomerRef.current = found;
+      currentCustomerIdRef.current = found.id;
       sessionStorage.setItem('omni_active_customer_id', found.id);
+      sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(found));
       // La sesión de cliente es estrictamente local a esta pestaña.
       sessionStorage.removeItem('tienda_pos_tab_session');
       sessionStorage.removeItem('tienda_pos_admin_user');
@@ -1410,12 +1509,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('No se pudo refrescar la cuenta del cliente desde Turso al iniciar sesión:', error)
         );
       }
-      triggerPushNotification({
-        title: `¡Bienvenido de nuevo, ${found.name}!`,
-        message: 'Has iniciado sesión exitosamente. Tus notificaciones y crédito comercial están activos.',
-        type: 'promotion',
-        badge: 'Sesión Iniciada',
-      });
+      // Iniciar sesión es una acción local del cliente.
+      // No genera ninguna notificación para administración ni para el propio cliente.
       return true;
     }
     return false;
@@ -1444,7 +1539,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .catch((error) => console.warn('No se pudo registrar el cliente en Turso:', error));
     }
     setCurrentCustomer(newCustomer);
+    currentCustomerRef.current = newCustomer;
+    currentCustomerIdRef.current = newCustomer.id;
     sessionStorage.setItem('omni_active_customer_id', newCustomer.id);
+    sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(newCustomer));
     setIsAdminActive(false);
     triggerPushNotification({
       title: `Nuevo Cliente Registrado`,
@@ -1468,6 +1566,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications([]);
     setActivePushToasts([]);
     sessionStorage.removeItem('omni_active_customer_id');
+    sessionStorage.removeItem('omni_active_customer_snapshot');
   };
 
   const updateCustomerPreferences = (preferences: CustomerNotificationPreferences) => {
@@ -2788,6 +2887,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               message: notif.message,
               type: notif.type as any,
               targetCustomerId: notif.targetCustomerId,
+              targetRole: 'client',
               badge: notif.badge,
             });
           }
@@ -3297,6 +3397,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         title: '❌ Pago por deuda rechazado',
         message: 'El pago reportado para ' + target.invoiceNumber + ' fue rechazado por administración.' + (notes ? ' Motivo: ' + notes : ''),
         type: 'credit_alert',
+        targetRole: 'client',
         targetCustomerId: target.customerId,
         badge: 'Pago rechazado',
       });
@@ -3356,6 +3457,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       message: 'El pago reportado para ' + target.invoiceNumber + ' por $' + appliedAmount.toFixed(2) +
         ' USD fue aprobado y registrado en CxC. Recibo ' + receiptNumber + '.',
       type: 'credit_alert',
+      targetRole: 'client',
       targetCustomerId: target.customerId,
       badge: isSettled ? 'Deuda liquidada' : 'Abono aplicado',
     });
@@ -4060,7 +4162,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
   };
-  const markNotificationAsRead = (id: string) => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  const markNotificationAsRead = (id: string) => {
+    if (currentCustomerRef.current) {
+      const customerId = currentCustomerRef.current.id;
+      const key = `omni_customer_notifications_hidden_${customerId}`;
+      let hidden: string[] = [];
+      try {
+        hidden = JSON.parse(localStorage.getItem(key) || '[]');
+      } catch {}
+      if (!hidden.includes(id)) hidden.push(id);
+      localStorage.setItem(key, JSON.stringify(hidden.slice(-500)));
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      return;
+    }
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  };
+
+  const clearCustomerNotifications = () => {
+    const customerId = currentCustomerRef.current?.id;
+    if (!customerId) return;
+    const key = `omni_customer_notifications_hidden_${customerId}`;
+    let hidden: string[] = [];
+    try {
+      hidden = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {}
+    const ids = notifications
+      .filter((n) => (n.targetRole === 'client' || n.targetRole === 'all') &&
+        (!n.targetCustomerId || n.targetCustomerId === customerId))
+      .map((n) => n.id);
+    localStorage.setItem(key, JSON.stringify(Array.from(new Set([...hidden, ...ids])).slice(-500)));
+    setNotifications((prev) => prev.filter((n) => !ids.includes(n.id)));
+    seenNotificationIdsRef.current.clear();
+  };
+
   const clearAllNotifications = () => {
     setNotifications([]);
     seenNotificationIdsRef.current.clear();
@@ -4095,10 +4229,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
       approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
-      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearAllNotifications,
+      addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearCustomerNotifications, clearAllNotifications,
       activePushToasts, dismissPushToast, triggerPushNotification, broadcastPushNotification, requestCustomerPushPermission, loginCustomer, registerCustomer, logoutCustomer, logoutAdmin, updateCustomerPreferences,
       storeTab, setStoreTab, customerPortalTab, setCustomerPortalTab, isAdminActive, setIsAdminActive, authInitialTab, setAuthInitialTab, isAuthModalOpen, setIsAuthModalOpen,
-      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
+      isAdminModalOpen, setIsAdminModalOpen, isNotificationSettingsOpen, setIsNotificationSettingsOpen, isCustomerNotificationsOpen, setIsCustomerNotificationsOpen, isSellerAlertsModalOpen, setIsSellerAlertsModalOpen, isBusinessSettingsModalOpen, setIsBusinessSettingsModalOpen,
       isBcvPanelOpen, setIsBcvPanelOpen, isCategoryUnitModalOpen, setIsCategoryUnitModalOpen, presentationModalProduct, setPresentationModalProduct, presentationCallback, openPresentationModal,
       isCartOpen, setIsCartOpen, isOrdersModalOpen, setIsOrdersModalOpen, selectedInvoiceForModal, setSelectedInvoiceForModal, customerInvoiceModalMode, setCustomerInvoiceModalMode, lastSuccessfulOrder, setLastSuccessfulOrder,
       automatedReminders, runManualReminderScan, lastStockUpdateEvent, broadcastStockUpdate, tursoState, bootstrapTursoSchema, syncWithTurso,
