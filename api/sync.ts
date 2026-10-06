@@ -41,17 +41,23 @@ export default async function handler(req: any, res: any) {
         })
       : { rows: [] as any[] };
 
-    return res.status(200).json({
-      ok: true,
-      changed: latestId > since,
-      latest_id: latestId,
-      changes: changesResult.rows.map((row: any) => ({
+    const changes = changesResult.rows.map((row: any) => ({
         id: Number(row.id),
         table_name: String(row.table_name),
         entity_id: row.entity_id == null ? null : String(row.entity_id),
         operation: String(row.operation),
         changed_at: String(row.changed_at),
-      })),
+      }));
+    const lastReturnedId = changes.length > 0 ? Number(changes[changes.length - 1].id) : since;
+    const hasMore = lastReturnedId < latestId;
+
+    return res.status(200).json({
+      ok: true,
+      changed: latestId > since,
+      latest_id: latestId,
+      last_returned_id: lastReturnedId,
+      has_more: hasMore,
+      changes,
       server_time: new Date().toISOString(),
     });
   } catch (error: any) {
