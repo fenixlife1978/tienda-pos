@@ -924,7 +924,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // El cambio no corresponde a ninguna tabla que el panel necesite cargar.
           // Avanzamos el cursor porque no hay datos de negocio pendientes y
           // dejamos el indicador de sincronización en reposo.
-          cloudChangeTokenRef.current = changeState.latestId;
+          cloudChangeTokenRef.current = changeState.hasMore
+            ? (changeState.changes.length > 0 ? changeState.changes[changeState.changes.length - 1].id : cloudChangeTokenRef.current)
+            : changeState.latestId;
           setTursoState((prev) => ({
             ...prev,
             isSyncing: false,
@@ -1063,7 +1065,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
         // Guardamos exactamente el cursor que devolvió el servidor. Si otra
         // operación ocurre durante la lectura, el siguiente ciclo la detectará.
-        cloudChangeTokenRef.current = changeState.latestId;
+        cloudChangeTokenRef.current = changeState.hasMore
+          ? (changeState.changes.length > 0 ? changeState.changes[changeState.changes.length - 1].id : cloudChangeTokenRef.current)
+          : changeState.latestId;
   
         setTursoState({
           isConnected: true,
