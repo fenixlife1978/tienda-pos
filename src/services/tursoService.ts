@@ -1083,13 +1083,9 @@ class TursoService {
         }
 // 4. Products
     if (shouldLoad('products')) {
-    await client.execute('ALTER TABLE products ADD COLUMN reserved_stock REAL DEFAULT 0').catch(() => {});
-    await client.execute('ALTER TABLE orders ADD COLUMN reserved_at TEXT').catch(() => {});
-    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_at TEXT').catch(() => {});
-    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_by TEXT').catch(() => {});
-    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_at TEXT').catch(() => {});
-    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_by TEXT').catch(() => {});
-    
+    // Las lecturas no deben ejecutar ALTER TABLE. El esquema se garantiza en
+    // bootstrap/migraciones; repetir DDL durante cada sincronización provoca
+    // carreras entre terminales y ruido de errores "duplicate column".
     try {
       const res = await client.execute('SELECT * FROM products ORDER BY name ASC');
       for (const row of res.rows) {
