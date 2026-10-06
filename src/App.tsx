@@ -201,10 +201,56 @@ const MainLayout: React.FC = () => {
   );
 };
 
+class AppRenderBoundary extends React.Component<
+  React.PropsWithChildren,
+  { hasError: boolean; message: string }
+> {
+  state = { hasError: false, message: '' };
+
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    console.error('Global app render error:', error, info);
+  }
+
+  handleReset = () => {
+    try {
+      sessionStorage.removeItem('omni_erp_active_tab');
+    } catch {}
+    window.location.reload();
+  };
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <div className="max-w-xl w-full bg-white border border-rose-200 rounded-2xl shadow-sm p-6">
+          <div className="text-3xl mb-3">⚠️</div>
+          <h1 className="text-lg font-black text-slate-900">Tienda POS encontró un error de ejecución</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            El sistema se detuvo al actualizar los datos. El error quedó visible para poder corregirlo sin dejar la pantalla en blanco.
+          </p>
+          <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-slate-950 text-rose-200 p-3 text-xs whitespace-pre-wrap break-words">{this.state.message}</pre>
+          <button type="button" onClick={this.handleReset} className="mt-4 w-full rounded-xl bg-indigo-600 text-white py-2.5 text-sm font-bold">
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function App() {
   return (
-    <AppProvider>
-      <MainLayout />
-    </AppProvider>
+    <AppRenderBoundary>
+      <AppProvider>
+        <MainLayout />
+      </AppProvider>
+    </AppRenderBoundary>
   );
 }
