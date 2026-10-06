@@ -1584,6 +1584,7 @@ class TursoService {
     changed: boolean;
     latestId: number;
     changes: Array<{ id: number; tableName: string; entityId: string | null; operation: string; changedAt: string }>;
+    hasMore: boolean;
   }> {
     const response = await fetch('/api/sync?since=' + encodeURIComponent(String(Math.max(0, since))), {
       method: 'GET',
@@ -1598,6 +1599,7 @@ class TursoService {
     return {
       changed: Boolean(data.changed),
       latestId: Number(data.latest_id || 0),
+      hasMore: Boolean(data.has_more),
       changes: Array.isArray(data.changes)
         ? data.changes.map((change: any) => ({
             id: Number(change.id || 0),
