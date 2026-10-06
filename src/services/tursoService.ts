@@ -1751,9 +1751,8 @@ class TursoService {
   public async saveOrder(o: Order) {
     const client = this.getClient();
     if (!client) return;
-    await client.execute('ALTER TABLE orders ADD COLUMN reserved_at TEXT').catch(() => {});
-    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_at TEXT').catch(() => {});
-    await client.execute('ALTER TABLE orders ADD COLUMN pos_registered_by TEXT').catch(() => {});
+    // El esquema de Turso se mantiene fuera de las operaciones de escritura.
+    // Nunca ejecutar DDL aquí: una escritura simultánea no puede tumbar el panel.
     if (!client) return;
     await client.execute({
       sql: `
@@ -1815,8 +1814,7 @@ class TursoService {
   public async saveInvoice(inv: Invoice) {
     const client = this.getClient();
     if (!client) return;
-    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_at TEXT').catch(() => {});
-    await client.execute('ALTER TABLE invoices ADD COLUMN pos_registered_by TEXT').catch(() => {});
+    // El esquema de Turso se mantiene fuera de las operaciones de escritura.
     if (!client) return;
     await client.execute({
       sql: `
