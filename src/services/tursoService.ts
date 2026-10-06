@@ -216,13 +216,12 @@ class TursoService {
           'ALTER TABLE cash_sessions ADD COLUMN user_id TEXT',
           'ALTER TABLE accounts_payable ADD COLUMN items_json TEXT'
         ];
-        for (const sql of compatibilityMigrations) {
-          try { await client.execute(sql); } catch {}
-        }
-
+        // En una base ya inicializada NO se ejecutan migraciones DDL durante
+        // cada arranque/sincronización. El esquema es persistente en Turso y
+        // las migraciones deben hacerse de forma controlada, nunca bloqueando
+        // el panel ni compitiendo entre terminales.
         // El marcador de esquema nunca debe considerarse válido si faltan
-        // columnas críticas de orders. Esto evita el fallo histórico "no such
-        // column: approved_at" en bases antiguas que ya tenían omni_schema_meta.
+        // columnas críticas de orders.
         const orderColumns = await client.execute('PRAGMA table_info(orders)');
         const requiredOrderColumns = [
           'approved_at', 'payment_splits', 'estimated_delivery', 'credit_due_date',
