@@ -855,9 +855,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // primero consultamos solamente el último ID de activity_changes.
         const changeState = await tursoService.readCloudSyncVersion(cloudChangeTokenRef.current);
         if (!forceReload && !changeState.changed) {
-          // Latido silencioso: no actualizamos estado React en cada consulta sin
-          // cambios. Esto evita renders cada pocos cientos de milisegundos y
-          // deja el navegador libre para aplicar inmediatamente el cambio real.
+          // No hay nada nuevo que descargar. Importante: el estado de sincronización
+          // debe volver a reposo antes de salir, o puede quedar "Sincronizando"
+          // indefinidamente después de un ciclo sin cambios.
+          setTursoState((prev) => ({
+            ...prev,
+            isSyncing: false,
+            statusText: 'Sincronizado con Turso DB',
+            errorMessage: null,
+          }));
           return;
         }
   
@@ -915,7 +921,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               })
             );
         if (!forceReload && (!tablesToLoad || tablesToLoad.size === 0)) {
+          // El cambio no corresponde a ninguna tabla que el panel necesite cargar.
+          // Avanzamos el cursor porque no hay datos de negocio pendientes y
+          // dejamos el indicador de sincronización en reposo.
           cloudChangeTokenRef.current = changeState.latestId;
+          setTursoState((prev) => ({
+            ...prev,
+            isSyncing: false,
+            statusText: 'Sincronizado con Turso DB',
+            lastSyncTime: new Date().toISOString(),
+            errorMessage: null,
+          }));
           return;
         }
 
