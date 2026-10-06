@@ -25,7 +25,7 @@ export const ErpDashboard: React.FC = () => {
   const cashierAllowedTabs: ErpTab[] = ['caja', 'pos', 'pedidos', 'cxc'];
   const isAllowedForCashier = (tab: ErpTab) => !isCashier || cashierAllowedTabs.includes(tab);
   const [activeTab, setActiveTab] = useState<ErpTab>(() => {
-    const saved = localStorage.getItem('omni_erp_active_tab') as ErpTab | null;
+    const saved = sessionStorage.getItem('omni_erp_active_tab') as ErpTab | null;
     return saved || 'dashboard';
   });
 
@@ -34,7 +34,7 @@ export const ErpDashboard: React.FC = () => {
       setActiveTab('pos');
       return;
     }
-    localStorage.setItem('omni_erp_active_tab', activeTab);
+    sessionStorage.setItem('omni_erp_active_tab', activeTab);
   }, [activeTab, isCashier]);
 
   useEffect(() => {
