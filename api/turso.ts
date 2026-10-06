@@ -189,12 +189,12 @@ export default async function handler(req: any, res: any) {
         ['offer_start_date', 'TEXT'],
         ['offer_end_date', 'TEXT'],
       ];
-      const schema = await client.execute('PRAGMA table_info(products)');
-      const existing = new Set(schema.rows.map((r: any) => String(r.name)));
+      // La creación de columnas debe ser segura ante dos terminales escribiendo
+      // simultáneamente. No hacemos PRAGMA + ALTER manual porque ambas peticiones
+      // pueden observar la columna como ausente y luego una de ellas recibe
+      // "duplicate column". ensureColumn verifica nuevamente después del ALTER.
       for (const [name, type] of offerColumns) {
-        if (!existing.has(name)) {
-          await client.execute(`ALTER TABLE products ADD COLUMN ${name} ${type}`);
-        }
+        await ensureColumn(client, 'products', String(name), String(type));
       }
 
       const tx = await client.transaction('write');
@@ -444,7 +444,7 @@ export default async function handler(req: any, res: any) {
       const terminalId = String(body.terminalId || '').trim();
       if (!terminalId) return res.status(400).json({ error: 'Terminal no indicado' });
       const requested = Array.isArray(body.documentTypes) ? body.documentTypes.map((x:any) => String(x || '').trim()).filter(Boolean) : [];
-      const documentTypes = [...new Set(requested)];
+      const documentTypes: string[] = Array.from(new Set<string>(requested));
       if (!documentTypes.length) return res.status(400).json({ error: 'No se indicaron documentos' });
 
       const tx = await client.transaction('write');
