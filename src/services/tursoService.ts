@@ -1013,6 +1013,11 @@ class TursoService {
     notifications: AppNotification[];
   }> {
     const client = this.getClient();
+    const loadErrors: string[] = [];
+    const recordLoadError = (table: string, error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      loadErrors.push(`${table}: ${message}`);
+    };
     const loadAll = !tables || tables.size === 0;
     const shouldLoad = (table: string) => loadAll || tables!.has(table);
     let settings: SystemSettings | null = null;
@@ -1042,6 +1047,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching settings from Turso:', e);
+      recordLoadError('system_settings', e);
     }
 
         }
@@ -1059,6 +1065,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching categories from Turso:', e);
+      recordLoadError('categories', e);
     }
 
         }
@@ -1077,6 +1084,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching units from Turso:', e);
+      recordLoadError('units', e);
     }
 
         }
@@ -1129,6 +1137,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching products from Turso:', e);
+      recordLoadError('products', e);
     }
 
     // Reservas online: el stock físico permanece intacto; el catálogo muestra
@@ -1193,6 +1202,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching customers from Turso:', e);
+      recordLoadError('customers', e);
     }
 
         }
@@ -1217,6 +1227,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching suppliers from Turso:', e);
+      recordLoadError('suppliers', e);
     }
 
         }
@@ -1272,6 +1283,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching orders from Turso:', e);
+      recordLoadError('orders', e);
     }
 
         }
@@ -1322,6 +1334,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching invoices from Turso:', e);
+      recordLoadError('invoices', e);
     }
 
         }
@@ -1353,6 +1366,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching receivables from Turso:', e);
+      recordLoadError('accounts_receivable', e);
     }
 
         }
@@ -1380,6 +1394,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching payables from Turso:', e);
+      recordLoadError('accounts_payable', e);
     }
 
         }
@@ -1393,6 +1408,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching purchase entries from Turso:', e);
+      recordLoadError('purchase_entries', e);
     }
 
     // Recuperación de renglones de CxP históricos: las entradas de compra
@@ -1437,6 +1453,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching users from Turso:', e);
+      recordLoadError('system_users', e);
     }
 
         }
@@ -1471,6 +1488,7 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching bcv_history from Turso:', e);
+      recordLoadError('bcv_history', e);
     }
 
         }
@@ -1496,9 +1514,14 @@ class TursoService {
       }
     } catch (e) {
       console.warn('Error fetching notifications from Turso:', e);
+      recordLoadError('system_notifications', e);
     }
 
     }
+    if (loadErrors.length > 0) {
+      throw new Error(`No se pudieron cargar datos de Turso (${loadErrors.join(' | ')})`);
+    }
+
     return {
       settings,
       categories,
