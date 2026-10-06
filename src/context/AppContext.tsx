@@ -612,54 +612,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return tursoService.isConfigured() ? [] : safeLocalStorageJson<ProductUnit[]>('omni_units', []);
   });
 
-  // Sync state to localStorage
+  // Turso es la fuente de verdad: no guardamos snapshots completos en localStorage.
+  // Los snapshots antiguos pueden ocupar todo el storage del navegador y provocar
+  // un crash de React con "Storage quota exceeded" durante cualquier sincronización.
   useEffect(() => {
-    localStorage.setItem('omni_categories', JSON.stringify(categories));
-  }, [categories]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_units', JSON.stringify(units));
-  }, [units]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_users', JSON.stringify(users));
-  }, [users]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_settings', JSON.stringify(settings));
-  }, [settings]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_products', JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_customers', JSON.stringify(customers));
-  }, [customers]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_orders', JSON.stringify(orders));
-  }, [orders]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_invoices', JSON.stringify(invoices));
-  }, [invoices]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_receivables', JSON.stringify(receivables));
-  }, [receivables]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_payables', JSON.stringify(payables));
-  }, [payables]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_purchase_entries', JSON.stringify(purchaseEntries));
-  }, [purchaseEntries]);
-
-  useEffect(() => {
-    localStorage.setItem('omni_suppliers', JSON.stringify(suppliers));
-  }, [suppliers]);
+    const keys = [
+      'omni_categories',
+      'omni_units',
+      'omni_users',
+      'omni_settings',
+      'omni_products',
+      'omni_customers',
+      'omni_orders',
+      'omni_invoices',
+      'omni_receivables',
+      'omni_payables',
+      'omni_purchase_entries',
+      'omni_suppliers',
+    ];
+    if (tursoService.isConfigured()) {
+      for (const key of keys) {
+        try { localStorage.removeItem(key); } catch {}
+      }
+      return;
+    }
+    try { localStorage.setItem('omni_categories', JSON.stringify(categories)); } catch {}
+    try { localStorage.setItem('omni_units', JSON.stringify(units)); } catch {}
+    try { localStorage.setItem('omni_users', JSON.stringify(users)); } catch {}
+    try { localStorage.setItem('omni_settings', JSON.stringify(settings)); } catch {}
+    try { localStorage.setItem('omni_products', JSON.stringify(products)); } catch {}
+    try { localStorage.setItem('omni_customers', JSON.stringify(customers)); } catch {}
+    try { localStorage.setItem('omni_orders', JSON.stringify(orders)); } catch {}
+    try { localStorage.setItem('omni_invoices', JSON.stringify(invoices)); } catch {}
+    try { localStorage.setItem('omni_receivables', JSON.stringify(receivables)); } catch {}
+    try { localStorage.setItem('omni_payables', JSON.stringify(payables)); } catch {}
+    try { localStorage.setItem('omni_purchase_entries', JSON.stringify(purchaseEntries)); } catch {}
+    try { localStorage.setItem('omni_suppliers', JSON.stringify(suppliers)); } catch {}
+  }, [
+    categories, units, users, settings, products, customers, orders,
+    invoices, receivables, payables, purchaseEntries, suppliers
+  ]);
 
   // Turso es la fuente de verdad. No usamos snapshots completos de estado para sincronizar
   // entre dispositivos: una instantánea completa de un terminal podría sobrescribir
