@@ -57,6 +57,7 @@ export const Header: React.FC = () => {
     setIsNotificationSettingsOpen,
     setIsSellerAlertsModalOpen,
     logoutCustomer,
+    logoutAdmin,
     setIsBcvPanelOpen,
     setIsCategoryUnitModalOpen,
     tursoState,
@@ -142,8 +143,7 @@ export const Header: React.FC = () => {
                   setMode('erp');
                   return;
                 }
-                setIsAdminActive(false);
-                setMode('store');
+                void logoutAdmin();
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 hover:border-rose-300 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 text-xs font-bold transition shadow-2xs cursor-pointer"
               title={isAdminActive && mode === 'store' ? 'Volver al panel ERP' : 'Cerrar panel ERP y volver a la página principal'}
