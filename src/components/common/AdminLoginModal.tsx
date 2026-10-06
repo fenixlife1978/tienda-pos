@@ -86,6 +86,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
 
     sessionStorage.removeItem('omni_active_customer_id');
     setCurrentUser(matchedUser);
+    sessionStorage.setItem('omni_erp_active_tab', 'dashboard');
+    sessionStorage.setItem('omni_admin_authenticated', '1');
     setIsAdminActive(true);
     setMode('erp');
     onClose();
@@ -96,6 +98,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     terminalIdentity.setId(selectedTerminalId);
     sessionStorage.removeItem('omni_active_customer_id');
     setCurrentUser(pendingUser);
+    sessionStorage.setItem('omni_erp_active_tab', 'dashboard');
+    sessionStorage.setItem('omni_admin_authenticated', '1');
     setIsAdminActive(true);
     setMode('erp');
     setPendingUser(null);
