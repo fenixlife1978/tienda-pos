@@ -16,7 +16,6 @@ import {
   Printer,
   MessageCircle,
 } from 'lucide-react';
-import { InvoiceModal } from '../common/InvoiceModal';
 import { getOrderWhatsAppUrl } from '../../utils/whatsappUtils';
 
 export const CustomerOrdersModal: React.FC = () => {
@@ -223,7 +222,7 @@ export const CustomerOrdersModal: React.FC = () => {
                     <div className="p-4 space-y-2">
                       <div className="divide-y divide-slate-100 text-xs">
                         {order.items.map((item, idx) => (
-                          <div key={idx} className="py-1.5 flex justify-between items-center">
+                          <div key={`${order.id}-${item.productId || item.productName}-${idx}`} className="py-1.5 flex justify-between items-center">
                             <span className="text-slate-800 font-medium">
                               {item.quantity}x {item.productName}
                             </span>
