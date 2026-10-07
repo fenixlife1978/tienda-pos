@@ -799,7 +799,7 @@ export const CustomerDashboard: React.FC = () => {
                       <div className="p-4 space-y-2">
                         <div className="divide-y divide-slate-100 text-xs">
                           {order.items.map((item, idx) => (
-                            <div key={idx} className="py-2 flex items-center justify-between">
+                            <div key={`${order.id}-${item.productId || item.productName}-${idx}`} className="py-2 flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className="w-5 h-5 rounded-full bg-slate-100 font-bold text-slate-600 flex items-center justify-center text-[10px]">
                                   {item.quantity}x
