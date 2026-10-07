@@ -366,7 +366,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   {/* Items list */}
                   <div className="divide-y divide-dashed divide-slate-300 py-1">
                     {invoice.items.map((item, idx) => (
-                      <div key={idx} className="py-1 text-[10.5px]">
+                      <div key={`${invoice.id}-${item.productId || item.productName}-${idx}`} className="py-1 text-[10.5px]">
                         <div className="flex justify-between items-start font-bold">
                           <span className="w-8 shrink-0">{item.quantity} un.</span>
                           <span className="flex-1 px-1 leading-snug">{item.productName}</span>
@@ -580,7 +580,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-xs">
                   {invoice.items.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/60">
+                    <tr key={`${invoice.id}-${item.productId || item.productName}-${idx}`} className="hover:bg-slate-50/60">
                       <td className="py-2.5 px-2 font-medium text-slate-800">{item.productName}</td>
                       <td className="py-2.5 px-2 text-center">{item.quantity}</td>
                       <td className="py-2.5 px-2 text-right font-mono">{formatUSD(item.unitPriceUSD)}</td>
@@ -703,7 +703,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
                 <div className="divide-y divide-dashed divide-slate-300 py-1">
                   {invoice.items.map((item, idx) => (
-                    <div key={idx} className="py-1 text-[10.5px]">
+                    <div key={`${invoice.id}-${item.productId || item.productName}-${idx}`} className="py-1 text-[10.5px]">
                       <div className="flex justify-between items-start font-bold">
                         <span className="w-8 shrink-0">{item.quantity} un.</span>
                         <span className="flex-1 px-1 leading-snug">{item.productName}</span>
@@ -808,7 +808,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   </thead>
                   <tbody>
                     {invoice.items.map((it, idx) => (
-                      <tr key={idx} className="border-b">
+                      <tr key={`${invoice.id}-${it.productId || it.productName}-${idx}`} className="border-b">
                         <td className="py-1.5">{it.productName}</td>
                         <td className="py-1.5 text-center">{it.quantity}</td>
                         <td className="py-1.5 text-right font-mono">{formatUSD(it.unitPriceUSD)}</td>
