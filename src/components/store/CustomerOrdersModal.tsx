@@ -26,7 +26,6 @@ export const CustomerOrdersModal: React.FC = () => {
     currentCustomer,
     invoices,
     reorder,
-    selectedInvoiceForModal,
     setSelectedInvoiceForModal,
     settings,
   } = useApp();
