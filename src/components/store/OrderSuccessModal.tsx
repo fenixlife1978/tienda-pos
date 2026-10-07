@@ -300,7 +300,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 {order.items.map((item, idx) => {
                   const lineBs = item.subtotalUSD * order.bcvRate;
                   return (
-                    <div key={idx} className="py-2 flex items-center justify-between">
+                    <div key={`${order.id}-${item.productId || item.productName}-${idx}`} className="py-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-md bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-[11px] shrink-0">
                           {item.quantity}x
