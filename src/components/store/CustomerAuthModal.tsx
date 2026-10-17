@@ -71,7 +71,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
 
@@ -80,7 +80,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       return;
     }
 
-    const success = loginCustomer(loginIdentifier.trim(), loginPassword);
+    const success = await loginCustomer(loginIdentifier.trim(), loginPassword);
     if (success) {
       onClose();
     } else {
@@ -88,12 +88,12 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
   };
 
-  const handleQuickLogin = (cust: Customer) => {
-    loginCustomer(cust.rif, cust.password || 'demo123');
-    onClose();
+  const handleQuickLogin = async (cust: Customer) => {
+    const success = await loginCustomer(cust.rif, '');
+    if (success) onClose();
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError('');
 
@@ -114,8 +114,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
     // Check if RIF or email already exists
     const exists = customers.some(
-      (c) =>
-        c.rif.toLowerCase() === regRif.trim().toLowerCase() ||
+      (c) => c.rif.toLowerCase() === regRif.trim().toLowerCase() ||
         (regEmail && c.email.toLowerCase() === regEmail.trim().toLowerCase())
     );
 
@@ -124,7 +123,8 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       return;
     }
 
-    const newCustomer = registerCustomer({
+    try {
+      await registerCustomer({
       name: regName.trim(),
       rif: regRif.trim().toUpperCase(),
       email: regEmail.trim(),
@@ -140,7 +140,6 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       creditRequestedDays: regRequestCredit ? regCreditDays : 0,
       currentDebtUSD: 0,
       registeredAt: new Date().toISOString(),
-      password: regPassword,
       notificationPreferences: {
         orderStatus: regPushNotifications,
         promotions: regPushNotifications,
@@ -148,12 +147,13 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         soundEnabled: true,
         channel: 'push',
       },
-    });
+    }, regPassword);
 
-    setRegSuccess(true);
-    setTimeout(() => {
-      onClose();
-    }, 1200);
+      setRegSuccess(true);
+      setTimeout(() => { onClose(); }, 1200);
+    } catch (error: any) {
+      setRegError(error?.message || 'No se pudo registrar la cuenta. Inténtalo nuevamente.');
+    }
   };
 
   return (
