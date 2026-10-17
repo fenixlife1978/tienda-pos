@@ -88,9 +88,8 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
   };
 
-  const handleQuickLogin = async (cust: Customer) => {
-    const success = await loginCustomer(cust.rif, '');
-    if (success) onClose();
+  const handleQuickLogin = async (_cust: Customer) => {
+    setLoginError('Por seguridad, los accesos rápidos están deshabilitados. Ingresa tu contraseña.');
   };
 
   const handleRegister = async (e: React.FormEvent) => {
