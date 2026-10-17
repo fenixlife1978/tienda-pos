@@ -61,6 +61,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   const [regPhone, setRegPhone] = useState('');
   const [regAddress, setRegAddress] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [regPasswordConfirm, setRegPasswordConfirm] = useState('');
   const [regRequestCredit, setRegRequestCredit] = useState(true);
   const [regCreditDays, setRegCreditDays] = useState(15);
   const [regCreditLimit, setRegCreditLimit] = useState(1000);
@@ -96,8 +97,18 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     e.preventDefault();
     setRegError('');
 
-    if (!regName.trim() || !regRif.trim() || !regPhone.trim() || !regAddress.trim()) {
+    if (!regName.trim() || !regRif.trim() || !regPhone.trim() || !regAddress.trim() || !regEmail.trim()) {
       setRegError('Por favor completa todos los campos obligatorios (*).');
+      return;
+    }
+
+    if (regPassword.length < 8) {
+      setRegError('La contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+
+    if (regPassword !== regPasswordConfirm) {
+      setRegError('Las contraseñas no coinciden. Verifica ambas antes de crear la cuenta.');
       return;
     }
 
@@ -129,7 +140,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       creditRequestedDays: regRequestCredit ? regCreditDays : 0,
       currentDebtUSD: 0,
       registeredAt: new Date().toISOString(),
-      password: regPassword || '123456',
+      password: regPassword,
       notificationPreferences: {
         orderStatus: regPushNotifications,
         promotions: regPushNotifications,
@@ -414,6 +425,43 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Account password and confirmation */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Crear Contraseña *</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      placeholder="Mínimo 8 caracteres"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Confirmar Contraseña *</label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      placeholder="Repite la contraseña"
+                      value={regPasswordConfirm}
+                      onChange={(e) => setRegPasswordConfirm(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-500">Usa esta contraseña junto con tu correo electrónico para volver a iniciar sesión.</p>
 
               {/* Commercial Credit Request Section */}
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
