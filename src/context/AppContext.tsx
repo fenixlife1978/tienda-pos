@@ -1488,19 +1488,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Customer Auth & Preferences logic
   const loginCustomer = (identifier: string, password?: string): boolean => {
     const trimmed = identifier.trim().toLowerCase();
+    const normalizedPhone = trimmed.replace(/\D/g, '');
     const found = customers.find(
       (c) =>
-        c.rif.toLowerCase() === trimmed ||
-        c.email.toLowerCase() === trimmed ||
-        c.phone.replace(/\D/g, '') === trimmed.replace(/\D/g, '') ||
-        c.name.toLowerCase().includes(trimmed)
+        c.rif.trim().toLowerCase() === trimmed ||
+        c.email.trim().toLowerCase() === trimmed ||
+        (normalizedPhone.length >= 7 && c.phone.replace(/\D/g, '') === normalizedPhone)
     );
 
+    // Autenticación cerrada por defecto: no permitir acceso si falta la
+    // contraseña, si la cuenta antigua no tiene contraseña guardada o si no coincide.
+    if (!password || !found?.password || found.password !== password) {
+      alert(found ? 'Contraseña incorrecta o cuenta sin contraseña configurada.' : 'No encontramos una cuenta con esos datos.');
+      return false;
+    }
+
     if (found) {
-      if (password && found.password && found.password !== password) {
-        alert('Contraseña incorrecta.');
-        return false;
-      }
       // La cuenta del cliente debe quedar reconciliada contra Turso incluso si
       // el login ocurre mientras el primer snapshot cloud todavía está cargando.
       // No confiamos en el registro local para decidir si la cuenta está verificada.
