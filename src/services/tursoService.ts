@@ -1442,7 +1442,6 @@ class TursoService {
           role: row.role as any,
           avatar: row.avatar ? String(row.avatar) : undefined,
           active: Boolean(row.active),
-          password: row.password ? String(row.password) : undefined,
           isInitialGeneric: Boolean(row.is_initial_generic),
           createdAt: String(row.created_at || new Date().toISOString()),
         });
