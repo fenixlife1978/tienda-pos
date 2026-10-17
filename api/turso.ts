@@ -433,13 +433,12 @@ export default async function handler(req: any, res: any) {
 
     if (body.operation === 'execute') {
       const sql = String(body.sql || '');
-      // La API genérica no debe convertirse en una vía para extraer credenciales.
-      // La autenticación de clientes se realiza exclusivamente en /api/customer-auth.
-      if (/^\\s*SELECT\\b/i.test(sql) && /\\bcustomers\\b/i.test(sql) && /\\b(password|password_hash)\\b/i.test(sql)) {
+      // La API genérica no debe exponer las credenciales de clientes.
+      if (/^\s*SELECT\b/i.test(sql) && /\bcustomers\b/i.test(sql) && /\b(password|password_hash)\b/i.test(sql)) {
         return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
       }
       const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      const rows = /\\bcustomers\\b/i.test(sql) ? result.rows.map((row: any) => {
+      const rows = /\bcustomers\b/i.test(sql) ? result.rows.map((row: any) => {
         const safe = { ...row };
         delete safe.password;
         delete safe.password_hash;
