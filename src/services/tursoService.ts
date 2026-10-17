@@ -265,11 +265,11 @@ class TursoService {
         ];
         try {
           for (const { table, id, oldId } of activityDefinitions) {
-            await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_insert`);
-            await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_update`);
-            await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_delete`);
+            // No eliminar triggers durante el arranque: varios dispositivos pueden
+            // inicializarse a la vez. CREATE IF NOT EXISTS evita carreras DDL y
+            // conserva los triggers ya instalados en la base compartida.
             await client.execute(`
-              CREATE TRIGGER activity_${table}_insert
+              CREATE TRIGGER IF NOT EXISTS activity_${table}_insert
               AFTER INSERT ON ${table}
               BEGIN
                 INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
@@ -277,7 +277,7 @@ class TursoService {
               END;
             `);
             await client.execute(`
-              CREATE TRIGGER activity_${table}_update
+              CREATE TRIGGER IF NOT EXISTS activity_${table}_update
               AFTER UPDATE ON ${table}
               BEGIN
                 INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
@@ -285,7 +285,7 @@ class TursoService {
               END;
             `);
             await client.execute(`
-              CREATE TRIGGER activity_${table}_delete
+              CREATE TRIGGER IF NOT EXISTS activity_${table}_delete
               AFTER DELETE ON ${table}
               BEGIN
                 INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
@@ -900,7 +900,7 @@ class TursoService {
         await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_delete`);
 
         await client.execute(`
-          CREATE TRIGGER activity_${table}_insert
+          CREATE TRIGGER IF NOT EXISTS activity_${table}_insert
           AFTER INSERT ON ${table}
           BEGIN
             INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
@@ -909,7 +909,7 @@ class TursoService {
         `);
 
         await client.execute(`
-          CREATE TRIGGER activity_${table}_update
+          CREATE TRIGGER IF NOT EXISTS activity_${table}_update
           AFTER UPDATE ON ${table}
           BEGIN
             INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
@@ -918,7 +918,7 @@ class TursoService {
         `);
 
         await client.execute(`
-          CREATE TRIGGER activity_${table}_delete
+          CREATE TRIGGER IF NOT EXISTS activity_${table}_delete
           AFTER DELETE ON ${table}
           BEGIN
             INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
