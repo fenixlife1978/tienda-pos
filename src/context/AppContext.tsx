@@ -305,8 +305,8 @@ interface AppContextType {
     badge?: string;
   }) => Promise<void>;
   // Customer Auth & Preferences
-  loginCustomer: (identifier: string, password?: string) => boolean;
-  registerCustomer: (customerData: Omit<Customer, 'id'>) => Customer;
+  loginCustomer: (identifier: string, password?: string) => Promise<boolean>;
+  registerCustomer: (customerData: Omit<Customer, 'id' | 'password'>, password: string) => Promise<Customer>;
   logoutCustomer: () => void;
   logoutAdmin: () => Promise<void>;
   updateCustomerPreferences: (preferences: CustomerNotificationPreferences) => void;
@@ -1486,73 +1486,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Customer Auth & Preferences logic
-  const loginCustomer = (identifier: string, password?: string): boolean => {
-    const trimmed = identifier.trim().toLowerCase();
-    const normalizedPhone = trimmed.replace(/\D/g, '');
-    const found = customers.find(
-      (c) =>
-        c.rif.trim().toLowerCase() === trimmed ||
-        c.email.trim().toLowerCase() === trimmed ||
-        (normalizedPhone.length >= 7 && c.phone.replace(/\D/g, '') === normalizedPhone)
-    );
-
-    // Autenticación cerrada por defecto: no permitir acceso si falta la
-    // contraseña, si la cuenta antigua no tiene contraseña guardada o si no coincide.
-    if (!password || !found?.password || found.password !== password) {
-      alert(found ? 'Contraseña incorrecta o cuenta sin contraseña configurada.' : 'No encontramos una cuenta con esos datos.');
-      return false;
-    }
-
-    if (found) {
-      // La cuenta del cliente debe quedar reconciliada contra Turso incluso si
-      // el login ocurre mientras el primer snapshot cloud todavía está cargando.
-      // No confiamos en el registro local para decidir si la cuenta está verificada.
-      setCurrentCustomer(found);
-      currentCustomerRef.current = found;
-      currentCustomerIdRef.current = found.id;
-      sessionStorage.setItem('omni_active_customer_id', found.id);
-      sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(found));
-      // La sesión de cliente es estrictamente local a esta pestaña.
+  const loginCustomer = async (identifier: string, password?: string): Promise<boolean> => {
+    try {
+      if (!identifier.trim() || !password) throw new Error('Indica tu usuario y contraseña.');
+      const found = await tursoService.authenticateCustomer(identifier.trim(), password);
+      // Nunca guardar ni copiar la contraseña al estado o al almacenamiento del navegador.
+      const safeCustomer = { ...found, password: undefined };
+      setCurrentCustomer(safeCustomer);
+      currentCustomerRef.current = safeCustomer;
+      currentCustomerIdRef.current = safeCustomer.id;
+      sessionStorage.setItem('omni_active_customer_id', safeCustomer.id);
+      sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(safeCustomer));
       sessionStorage.removeItem('tienda_pos_tab_session');
       sessionStorage.removeItem('tienda_pos_admin_user');
       sessionStorage.removeItem('omni_erp_active_tab');
       setIsAdminActive(false);
       setMode('store');
-
       if (tursoService.isConfigured() && navigator.onLine) {
         void syncWithTurso(true).catch((error) =>
           console.warn('No se pudo refrescar la cuenta del cliente desde Turso al iniciar sesión:', error)
         );
       }
-      // Iniciar sesión es una acción local del cliente.
-      // No genera ninguna notificación para administración ni para el propio cliente.
       return true;
+    } catch (error: any) {
+      alert(error?.message || 'No se pudo validar la cuenta del cliente.');
+      return false;
     }
-    return false;
   };
 
-  const registerCustomer = (customerData: Omit<Customer, 'id'>): Customer => {
-    const newCustomer: Customer = {
+  const registerCustomer = async (
+    customerData: Omit<Customer, 'id' | 'password'>,
+    password: string
+  ): Promise<Customer> => {
+    const registered = await tursoService.registerCustomerAccount({
       ...customerData,
-      id: `cust-${Date.now()}`,
       verificationStatus: 'pending',
       isFirstTime: true,
       registeredAt: new Date().toISOString(),
       notificationPreferences: customerData.notificationPreferences || {
-        orderStatus: true,
-        promotions: true,
-        creditAlerts: true,
-        soundEnabled: true,
-        channel: 'push',
+        orderStatus: true, promotions: true, creditAlerts: true, soundEnabled: true, channel: 'push',
       },
-    };
-    setCustomers((prev) => [newCustomer, ...prev]);
-    // Registro de cliente: persistencia inmediata en Turso, sin esperar al siguiente ciclo de sincronización.
-    if (tursoService.isConfigured() && navigator.onLine) {
-      tursoService.saveCustomer(newCustomer)
-        .then(() => syncWithTurso(true))
-        .catch((error) => console.warn('No se pudo registrar el cliente en Turso:', error));
-    }
+    }, password);
+    const newCustomer: Customer = { ...registered, password: undefined };
+    setCustomers((prev) => [newCustomer, ...prev.filter((customer) => customer.id !== newCustomer.id)]);
     setCurrentCustomer(newCustomer);
     currentCustomerRef.current = newCustomer;
     currentCustomerIdRef.current = newCustomer.id;
@@ -1560,7 +1536,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(newCustomer));
     setIsAdminActive(false);
     triggerPushNotification({
-      title: `Nuevo Cliente Registrado`,
+      title: 'Nuevo Cliente Registrado',
       message: `El cliente ${newCustomer.name} (${newCustomer.rif}) se ha registrado desde el portal. Verificación pendiente.`,
       type: 'credit_alert',
       targetRole: 'seller',
