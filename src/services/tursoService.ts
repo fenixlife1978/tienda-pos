@@ -895,9 +895,6 @@ class TursoService {
 
       for (const { table, id, oldId } of activityDefinitions) {
         // El DROP es intencional: corrige triggers antiguos que ya existan en Turso.
-        await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_insert`);
-        await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_update`);
-        await client.execute(`DROP TRIGGER IF EXISTS activity_${table}_delete`);
 
         await client.execute(`
           CREATE TRIGGER IF NOT EXISTS activity_${table}_insert
