@@ -1175,7 +1175,6 @@ class TursoService {
           creditDays: Number(row.credit_days || 15),
           creditLimitUSD: Number(row.credit_limit_usd || 0),
           currentDebtUSD: Number(row.current_debt_usd || 0),
-          password: row.password ? String(row.password) : undefined,
           avatar: row.avatar ? String(row.avatar) : undefined,
           notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
           verificationStatus: (row.verification_status ? String(row.verification_status) : 'pending') as any,
@@ -1705,52 +1704,64 @@ class TursoService {
     }
   }
 
+  public async authenticateCustomer(identifier: string, password: string): Promise<Customer> {
+    const response = await fetch('/api/customer-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      cache: 'no-store', body: JSON.stringify({ operation: 'login', identifier, password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.customer) throw new Error(String(data.error || 'Credenciales incorrectas'));
+    return data.customer as Customer;
+  }
+
+  public async registerCustomerAccount(customer: Omit<Customer, 'id'>, password: string): Promise<Customer> {
+    const response = await fetch('/api/customer-auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      cache: 'no-store', body: JSON.stringify({ operation: 'register', customer, password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.customer) throw new Error(String(data.error || 'No se pudo registrar el cliente'));
+    return data.customer as Customer;
+  }
+
   public async saveCustomer(c: Customer) {
     const client = this.getClient();
     if (!client) return;
+    // Las escrituras de perfil nunca reemplazan ni reciben credenciales.
+    // La contraseña solo puede crearse/verificarse en /api/customer-auth.
     await client.execute({
       sql: `
-        INSERT OR REPLACE INTO customers (
+        INSERT INTO customers (
           id, name, rif, email, phone, address, has_credit, credit_days,
-          credit_limit_usd, current_debt_usd, password, avatar, notification_preferences,
+          credit_limit_usd, current_debt_usd, avatar, notification_preferences,
           verification_status, is_first_time, registered_at, business_type, trade_name,
           contact_person, credit_status, credit_requested_limit_usd, credit_requested_days,
           credit_requested_at, assigned_price_tier, verification_notes, extra_data, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name=excluded.name, rif=excluded.rif, email=excluded.email, phone=excluded.phone,
+          address=excluded.address, has_credit=excluded.has_credit, credit_days=excluded.credit_days,
+          credit_limit_usd=excluded.credit_limit_usd, current_debt_usd=excluded.current_debt_usd,
+          avatar=excluded.avatar, notification_preferences=excluded.notification_preferences,
+          verification_status=excluded.verification_status, is_first_time=excluded.is_first_time,
+          registered_at=excluded.registered_at, business_type=excluded.business_type,
+          trade_name=excluded.trade_name, contact_person=excluded.contact_person,
+          credit_status=excluded.credit_status, credit_requested_limit_usd=excluded.credit_requested_limit_usd,
+          credit_requested_days=excluded.credit_requested_days, credit_requested_at=excluded.credit_requested_at,
+          assigned_price_tier=excluded.assigned_price_tier, verification_notes=excluded.verification_notes,
+          extra_data=excluded.extra_data, created_at=excluded.created_at
       `,
       args: [
-        c.id,
-        c.name,
-        c.rif,
-        c.email,
-        c.phone,
-        c.address,
-        c.hasCredit ? 1 : 0,
-        c.creditDays || 15,
-        c.creditLimitUSD || 0,
-        c.currentDebtUSD || 0,
-        c.password || null,
-        c.avatar || null,
+        c.id, c.name, c.rif, c.email, c.phone, c.address, c.hasCredit ? 1 : 0,
+        c.creditDays || 15, c.creditLimitUSD || 0, c.currentDebtUSD || 0, c.avatar || null,
         c.notificationPreferences ? JSON.stringify(c.notificationPreferences) : null,
-        c.verificationStatus || 'pending',
-        c.isFirstTime !== false ? 1 : 0,
-        c.registeredAt || new Date().toISOString(),
-        c.businessType || null,
-        c.tradeName || null,
-        c.contactPerson || null,
-        c.creditStatus || 'none',
-        c.creditRequestedLimitUSD || 0,
-        c.creditRequestedDays || 0,
-        c.creditRequestedAt || null,
-        c.assignedPriceTier || 'mayorista',
+        c.verificationStatus || 'pending', c.isFirstTime !== false ? 1 : 0,
+        c.registeredAt || new Date().toISOString(), c.businessType || null, c.tradeName || null,
+        c.contactPerson || null, c.creditStatus || 'none', c.creditRequestedLimitUSD || 0,
+        c.creditRequestedDays || 0, c.creditRequestedAt || null, c.assignedPriceTier || 'mayorista',
         c.verificationNotes || null,
-        JSON.stringify({
-          attachedDocRif: c.attachedDocRif,
-          attachedCommercialRef: c.attachedCommercialRef,
-          rejectionReason: c.rejectionReason,
-          verifiedAt: c.verifiedAt,
-          verifiedBy: c.verifiedBy,
-        }),
+        JSON.stringify({ attachedDocRif: c.attachedDocRif, attachedCommercialRef: c.attachedCommercialRef,
+          rejectionReason: c.rejectionReason, verifiedAt: c.verifiedAt, verifiedBy: c.verifiedBy }),
         c.registeredAt || new Date().toISOString(),
       ],
     });
