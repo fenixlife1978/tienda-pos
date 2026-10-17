@@ -439,12 +439,12 @@ export default async function handler(req: any, res: any) {
         return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
       }
       const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      const rows = result.rows.map((row: any) => {
+      const rows = /\\bcustomers\\b/i.test(sql) ? result.rows.map((row: any) => {
         const safe = { ...row };
         delete safe.password;
         delete safe.password_hash;
         return safe;
-      });
+      }) : result.rows;
       return res.status(200).json({
         rows,
         rowsAffected: Number(result.rowsAffected || 0),
