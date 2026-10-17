@@ -432,9 +432,21 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'execute') {
-      const result = await client.execute({ sql: String(body.sql || ''), args: argsOf(body.args) as any });
+      const sql = String(body.sql || '');
+      // La API genérica no debe convertirse en una vía para extraer credenciales.
+      // La autenticación de clientes se realiza exclusivamente en /api/customer-auth.
+      if (/^\\s*SELECT\\b/i.test(sql) && /\\bcustomers\\b/i.test(sql) && /\\b(password|password_hash)\\b/i.test(sql)) {
+        return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
+      }
+      const result = await client.execute({ sql, args: argsOf(body.args) as any });
+      const rows = result.rows.map((row: any) => {
+        const safe = { ...row };
+        delete safe.password;
+        delete safe.password_hash;
+        return safe;
+      });
       return res.status(200).json({
-        rows: result.rows,
+        rows,
         rowsAffected: Number(result.rowsAffected || 0),
         lastInsertRowid: result.lastInsertRowid == null ? null : String(result.lastInsertRowid),
       });
@@ -1231,7 +1243,7 @@ export default async function handler(req: any, res: any) {
         await tx.execute({sql:'INSERT OR REPLACE INTO orders (id,order_number,customer_id,customer_name,customer_rif,customer_phone,customer_address,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,terminal_id,payment_status,order_status,payment_reference,channel,created_at,approved_at,estimated_delivery,credit_due_date,credit_days,notes,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[o.id,o.orderNumber,o.customerId,o.customerName,o.customerRif,o.customerPhone,o.customerAddress,JSON.stringify(o.items),o.subtotalUSD,o.taxUSD,o.totalUSD,o.totalBs,o.bcvRate,o.paymentMethod,o.paymentSplits?JSON.stringify(o.paymentSplits):null,o.cashSessionId||null,o.terminalId||null,effectivePaymentStatus,effectiveOrderStatus,o.paymentReference||null,o.channel,o.createdAt,effectiveApprovedAt,o.estimatedDelivery||null,o.creditDueDate||null,o.creditDays??null,o.notes||null,o.isVoided?1:0,o.voidedAt||null,o.voidedBy||null,o.voidReason||null,o.isReturned?1:0,o.returnedAt||null,o.returnedBy||null,o.returnReason||null]});
         const inv=op.invoice;
         await tx.execute({sql:'INSERT OR REPLACE INTO invoices (id,invoice_number,order_id,customer_id,customer_name,customer_rif,customer_address,customer_phone,items,subtotal_usd,tax_usd,total_usd,total_bs,bcv_rate,payment_method,payment_splits,cash_session_id,terminal_id,payment_status,created_at,due_date,is_credit,credit_days,is_voided,voided_at,voided_by,void_reason,is_returned,returned_at,returned_by,return_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[inv.id,inv.invoiceNumber,inv.orderId,inv.customerId,inv.customerName,inv.customerRif,inv.customerAddress,inv.customerPhone,JSON.stringify(inv.items),inv.subtotalUSD,inv.taxUSD,inv.totalUSD,inv.totalBs,inv.bcvRate,inv.paymentMethod,inv.paymentSplits?JSON.stringify(inv.paymentSplits):null,inv.cashSessionId||null,inv.terminalId||null,inv.paymentStatus,inv.createdAt,inv.dueDate||null,inv.isCredit?1:0,inv.creditDays??null,inv.isVoided?1:0,inv.voidedAt||null,inv.voidedBy||null,inv.voidReason||null,inv.isReturned?1:0,inv.returnedAt||null,inv.returnedBy||null,inv.returnReason||null]});
-        if(op.customer){const x=op.customer;await tx.execute({sql:'INSERT OR REPLACE INTO customers (id,name,rif,email,phone,address,has_credit,credit_days,credit_limit_usd,current_debt_usd,password,avatar,notification_preferences,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[x.id,x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.password||null,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,new Date().toISOString()]});}
+        if(op.customer){const x=op.customer;await tx.execute({sql:`INSERT INTO customers (id,name,rif,email,phone,address,has_credit,credit_days,credit_limit_usd,current_debt_usd,avatar,notification_preferences,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,rif=excluded.rif,email=excluded.email,phone=excluded.phone,address=excluded.address,has_credit=excluded.has_credit,credit_days=excluded.credit_days,credit_limit_usd=excluded.credit_limit_usd,current_debt_usd=excluded.current_debt_usd,avatar=excluded.avatar,notification_preferences=excluded.notification_preferences,created_at=excluded.created_at`,args:[x.id,x.name,x.rif,x.email,x.phone,x.address,x.hasCredit?1:0,x.creditDays||15,x.creditLimitUSD||0,x.currentDebtUSD||0,x.avatar||null,x.notificationPreferences?JSON.stringify(x.notificationPreferences):null,new Date().toISOString()]});}
         // Cada venta POS queda además asentada en ventas_postings y accounting_entries.
         // Son registros idempotentes: un reintento de la misma operación no duplica el asiento.
         await tx.execute(`CREATE TABLE IF NOT EXISTS sales_postings (
