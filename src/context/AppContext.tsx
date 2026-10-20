@@ -152,6 +152,7 @@ interface AppContextType {
   adjustProductStock: (productId: string, delta: number, reason: string) => void;
   addCustomer: (customer: Omit<Customer, 'id'>) => void;
   updateCustomer: (customer: Customer) => void;
+  setCustomerAccountStatus: (customerId: string, status: 'active' | 'suspended' | 'deleted') => Promise<void>;
   updateCustomerCredit: (customerId: string, hasCredit: boolean, creditDays: number, creditLimitUSD: number) => void;
   approveCustomerCreditRequest: (customerId: string, approvedLimitUSD: number, approvedCreditDays: number) => void;
   rejectCustomerCreditRequest: (customerId: string) => void;
@@ -3083,6 +3084,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void tursoService.saveCustomer(customer).catch((error) => console.error('Error updating customer in Turso:', error));
   };
 
+  const setCustomerAccountStatus = async (
+    customerId: string,
+    status: 'active' | 'suspended' | 'deleted'
+  ) => {
+    if (!tursoService.isConfigured()) throw new Error('No hay conexión configurada con Turso. No se cambió la cuenta.');
+    const existing = customers.find((customer) => customer.id === customerId);
+    if (!existing) throw new Error('No se encontró la cuenta del cliente.');
+    const updated: Customer = { ...existing, accountStatus: status };
+    // Persistir primero: no confirmar en la interfaz una acción que no llegó a la base principal.
+    await tursoService.saveCustomer(updated);
+    setCustomers((prev) => prev.map((customer) => customer.id === customerId ? updated : customer));
+    if (currentCustomer?.id === customerId && status !== 'active') {
+      logoutCustomer();
+    }
+  };
+
   const updateCustomerCredit = (
     customerId: string,
     hasCredit: boolean,
@@ -4217,7 +4234,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       mode, setMode, currentUser, setCurrentUser, currentCustomer, setCurrentCustomer, products, categories, addCategory, deleteCategory, updateCategory, units, addUnit, deleteUnit, updateUnit,
       cart, orders, invoices, receivables, payables, purchaseEntries, suppliers, customers, users, settings, notifications,
       addToCart, addToCartWithPresentation, updateCartQuantity, removeFromCart, clearCart, createOrder, reorder, registerOnlineOrderInPos, cancelOnlineOrder, updateOrderStatus, updatePaymentStatus, processSaleReturn, voidSale,
-      updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, updateCustomerCredit,
+      updateBcvRate, fetchAutomaticBcvRate, syncBcvOfficialHistory, addProduct, updateProduct, deleteProduct, adjustProductStock, addCustomer, updateCustomer, setCustomerAccountStatus, updateCustomerCredit,
       approveCustomerCreditRequest, rejectCustomerCreditRequest, approveCustomerVerification, rejectCustomerVerification, registerReceivablePayment, reportCustomerReceivablePayment, reviewCustomerPaymentReport, registerGlobalCustomerPayment, liquidateCustomerInvoice, liquidateCustomerTotalDebt,
       registerPayablePayment, registerGlobalSupplierPayment, liquidateSupplierInvoice, liquidateSupplierTotalDebt, updateSupplierCredit, addPayableInvoice, addSupplier, updateSupplier, deleteSupplier, processPurchaseEntry,
       addUser, updateUser, deleteUser, resetSystemToFactory, refreshBcvRate: fetchAutomaticBcvRate, updateSettings, markNotificationAsRead, clearCustomerNotifications, clearAllNotifications,
