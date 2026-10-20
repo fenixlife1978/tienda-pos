@@ -21,6 +21,7 @@ import {
   ArrowRightLeft,
   MonitorCog,
   ShoppingCart,
+  ShieldCheck,
 } from 'lucide-react';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
@@ -31,6 +32,7 @@ export type ErpTab =
   | 'pos'
   | 'pedidos'
   | 'solicitudes'
+  | 'cuentas_clientes'
   | 'inventario'
   | 'almacenes'
   | 'entradas_compras'
@@ -116,6 +118,12 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
       badgeColor: 'bg-indigo-600 text-white animate-pulse',
     },
     {
+      id: 'cuentas_clientes' as ErpTab,
+      label: 'Cuentas de clientes',
+      icon: ShieldCheck,
+      badge: null,
+    },
+    {
       id: 'inventario' as ErpTab,
       label: 'Control de Inventarios',
       icon: Boxes,
@@ -187,7 +195,9 @@ export const ErpNavbar: React.FC<ErpNavbarProps> = ({
 
   const visibleTabs = isCashier
     ? tabs.filter((tab) => ['caja', 'pos', 'pedidos', 'cxc'].includes(tab.id))
-    : tabs;
+    : currentUser?.role === 'admin'
+      ? tabs
+      : tabs.filter((tab) => tab.id !== 'cuentas_clientes');
 
   return (
     <div className="bg-white border-b border-slate-200">
