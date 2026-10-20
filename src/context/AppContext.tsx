@@ -953,7 +953,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const activeCustomerId = currentCustomerIdRef.current;
           if (activeCustomerId) {
             const syncedCustomer = cloudData.customers.find((c) => c.id === activeCustomerId);
-            if (syncedCustomer) {
+            if (syncedCustomer && (syncedCustomer.accountStatus || 'active') !== 'active') {
+              // El polling cierra sesiones de clientes suspendidos/eliminados incluso en otra pestaña.
+              setCurrentCustomer(null);
+              currentCustomerRef.current = null;
+              currentCustomerIdRef.current = null;
+              sessionStorage.removeItem('omni_active_customer_id');
+              sessionStorage.removeItem('omni_active_customer_snapshot');
+              setMode('store');
+            } else if (syncedCustomer) {
               setCurrentCustomer(syncedCustomer);
               currentCustomerRef.current = syncedCustomer;
               sessionStorage.setItem('omni_active_customer_snapshot', JSON.stringify(syncedCustomer));
