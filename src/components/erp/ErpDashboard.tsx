@@ -5,6 +5,7 @@ import { SalesDashboardView } from './SalesDashboardView';
 import { PosView } from './PosView';
 import { OrdersManagementView } from './OrdersManagementView';
 import { CustomerRequestsManagementView } from './CustomerRequestsManagementView';
+import { CustomerAccountsManagementView } from './CustomerAccountsManagementView';
 import { InventoryView } from './InventoryView';
 import { PurchasesEntryView } from './PurchasesEntryView';
 import { SupplierManagementView } from './SupplierManagementView';
@@ -91,6 +92,7 @@ export const ErpDashboard: React.FC = () => {
         {activeTab === 'pos' && <PosView />}
         {activeTab === 'pedidos' && <OrdersManagementView />}
         {activeTab === 'solicitudes' && !isCashier && <CustomerRequestsManagementView />}
+        {activeTab === 'cuentas_clientes' && currentUser?.role === 'admin' && <CustomerAccountsManagementView />}
         {activeTab === 'inventario' && !isCashier && <InventoryView />}
         {activeTab === 'almacenes' && !isCashier && <InventoryTransfersView />}
         {activeTab === 'entradas_compras' && !isCashier && <PurchasesEntryView />}
