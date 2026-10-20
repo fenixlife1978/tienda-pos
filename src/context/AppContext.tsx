@@ -3101,7 +3101,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!existing) throw new Error('No se encontró la cuenta del cliente.');
     const updated: Customer = { ...existing, accountStatus: status };
     // Persistir primero: no confirmar en la interfaz una acción que no llegó a la base principal.
-    await tursoService.saveCustomer(updated);
+    await tursoService.setCustomerAccountStatus(customerId, status);
     setCustomers((prev) => prev.map((customer) => customer.id === customerId ? updated : customer));
     if (currentCustomer?.id === customerId && status !== 'active') {
       logoutCustomer();
