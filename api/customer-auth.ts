@@ -14,12 +14,18 @@ function db() {
 async function ensurePasswordHashColumn(client: any) {
   const schema = await client.execute('PRAGMA table_info("customers")');
   if (!schema.rows.length) throw new Error('La tabla de clientes no está inicializada');
-  if (!schema.rows.some((row: any) => String(row.name) === 'password_hash')) {
-    try {
-      await client.execute('ALTER TABLE customers ADD COLUMN password_hash TEXT');
-    } catch (error) {
-      const check = await client.execute('PRAGMA table_info("customers")');
-      if (!check.rows.some((row: any) => String(row.name) === 'password_hash')) throw error;
+  for (const [column, sql] of [
+    ['password_hash', 'ALTER TABLE customers ADD COLUMN password_hash TEXT'],
+    ['account_status', "ALTER TABLE customers ADD COLUMN account_status TEXT DEFAULT 'active'"],
+  ]) {
+    const current = await client.execute('PRAGMA table_info("customers")');
+    if (!current.rows.some((row: any) => String(row.name) === column)) {
+      try {
+        await client.execute(sql);
+      } catch (error) {
+        const check = await client.execute('PRAGMA table_info("customers")');
+        if (!check.rows.some((row: any) => String(row.name) === column)) throw error;
+      }
     }
   }
 }
@@ -54,6 +60,7 @@ function publicCustomer(row: any) {
     avatar: row.avatar ? String(row.avatar) : undefined,
     notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
     verificationStatus: String(row.verification_status || 'pending'),
+    accountStatus: String(row.account_status || 'active'),
     isFirstTime: row.is_first_time !== undefined && row.is_first_time !== null ? Boolean(row.is_first_time) : true,
     registeredAt: String(row.registered_at || row.created_at || new Date().toISOString()),
     businessType: row.business_type ? String(row.business_type) : undefined,
@@ -132,6 +139,9 @@ export default async function handler(req: any, res: any) {
     });
     const row: any = result.rows[0];
     if (!row) return res.status(401).json({ error: 'Credenciales incorrectas' });
+    const accountStatus = String(row.account_status || 'active');
+    if (accountStatus === 'suspended') return res.status(403).json({ error: 'Esta cuenta está suspendida. Contacta al administrador.' });
+    if (accountStatus === 'deleted') return res.status(403).json({ error: 'Esta cuenta fue eliminada y no puede iniciar sesión.' });
     let valid = false;
     const storedHash = String(row.password_hash || '');
     const legacyPassword = String(row.password || '');
