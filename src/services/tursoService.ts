@@ -486,6 +486,7 @@ class TursoService {
           avatar TEXT,
           notification_preferences TEXT,
           verification_status TEXT DEFAULT 'pending',
+          account_status TEXT DEFAULT 'active',
           is_first_time INTEGER DEFAULT 1,
           registered_at TEXT,
           business_type TEXT,
@@ -632,6 +633,7 @@ class TursoService {
         "ALTER TABLE invoices ADD COLUMN return_reason TEXT",
 
         "ALTER TABLE customers ADD COLUMN verification_status TEXT DEFAULT 'pending'",
+        "ALTER TABLE customers ADD COLUMN account_status TEXT DEFAULT 'active'",
         "ALTER TABLE customers ADD COLUMN is_first_time INTEGER DEFAULT 1",
         "ALTER TABLE customers ADD COLUMN registered_at TEXT",
         "ALTER TABLE customers ADD COLUMN business_type TEXT",
@@ -1178,6 +1180,7 @@ class TursoService {
           avatar: row.avatar ? String(row.avatar) : undefined,
           notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
           verificationStatus: (row.verification_status ? String(row.verification_status) : 'pending') as any,
+          accountStatus: (row.account_status ? String(row.account_status) : 'active') as any,
           isFirstTime: row.is_first_time !== undefined && row.is_first_time !== null ? Boolean(row.is_first_time) : true,
           registeredAt: String(row.registered_at || row.created_at || new Date().toISOString()),
           businessType: row.business_type ? String(row.business_type) : undefined,
@@ -1733,16 +1736,16 @@ class TursoService {
         INSERT INTO customers (
           id, name, rif, email, phone, address, has_credit, credit_days,
           credit_limit_usd, current_debt_usd, avatar, notification_preferences,
-          verification_status, is_first_time, registered_at, business_type, trade_name,
+          verification_status, account_status, is_first_time, registered_at, business_type, trade_name,
           contact_person, credit_status, credit_requested_limit_usd, credit_requested_days,
           credit_requested_at, assigned_price_tier, verification_notes, extra_data, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name=excluded.name, rif=excluded.rif, email=excluded.email, phone=excluded.phone,
           address=excluded.address, has_credit=excluded.has_credit, credit_days=excluded.credit_days,
           credit_limit_usd=excluded.credit_limit_usd, current_debt_usd=excluded.current_debt_usd,
           avatar=excluded.avatar, notification_preferences=excluded.notification_preferences,
-          verification_status=excluded.verification_status, is_first_time=excluded.is_first_time,
+          verification_status=excluded.verification_status, account_status=excluded.account_status, is_first_time=excluded.is_first_time,
           registered_at=excluded.registered_at, business_type=excluded.business_type,
           trade_name=excluded.trade_name, contact_person=excluded.contact_person,
           credit_status=excluded.credit_status, credit_requested_limit_usd=excluded.credit_requested_limit_usd,
@@ -1754,7 +1757,7 @@ class TursoService {
         c.id, c.name, c.rif, c.email, c.phone, c.address, c.hasCredit ? 1 : 0,
         c.creditDays || 15, c.creditLimitUSD || 0, c.currentDebtUSD || 0, c.avatar || null,
         c.notificationPreferences ? JSON.stringify(c.notificationPreferences) : null,
-        c.verificationStatus || 'pending', c.isFirstTime !== false ? 1 : 0,
+        c.verificationStatus || 'pending', c.accountStatus || 'active', c.isFirstTime !== false ? 1 : 0,
         c.registeredAt || new Date().toISOString(), c.businessType || null, c.tradeName || null,
         c.contactPerson || null, c.creditStatus || 'none', c.creditRequestedLimitUSD || 0,
         c.creditRequestedDays || 0, c.creditRequestedAt || null, c.assignedPriceTier || 'mayorista',
