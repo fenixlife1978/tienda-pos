@@ -38,6 +38,7 @@ export interface CustomerNotificationPreferences {
 }
 
 export interface Customer {
+  accountStatus?: 'active' | 'suspended' | 'deleted';
   id: string;
   name: string;
   rif: string; // Cédula o RIF (e.g. J-40123456-7)
