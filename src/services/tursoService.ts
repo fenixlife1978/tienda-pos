@@ -1726,6 +1726,16 @@ class TursoService {
     return data.customer as Customer;
   }
 
+  public async setCustomerAccountStatus(customerId: string, status: 'active' | 'suspended' | 'deleted'): Promise<void> {
+    const client = this.getClient();
+    if (!client) throw new Error('No hay conexión con Turso.');
+    const result = await client.execute({
+      sql: 'UPDATE customers SET account_status = ? WHERE id = ?',
+      args: [status, customerId],
+    });
+    if (Number(result.rowsAffected || 0) !== 1) throw new Error('No se encontró la cuenta del cliente en Turso.');
+  }
+
   public async saveCustomer(c: Customer) {
     const client = this.getClient();
     if (!client) return;
@@ -1736,16 +1746,16 @@ class TursoService {
         INSERT INTO customers (
           id, name, rif, email, phone, address, has_credit, credit_days,
           credit_limit_usd, current_debt_usd, avatar, notification_preferences,
-          verification_status, account_status, is_first_time, registered_at, business_type, trade_name,
+          verification_status, is_first_time, registered_at, business_type, trade_name,
           contact_person, credit_status, credit_requested_limit_usd, credit_requested_days,
           credit_requested_at, assigned_price_tier, verification_notes, extra_data, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name=excluded.name, rif=excluded.rif, email=excluded.email, phone=excluded.phone,
           address=excluded.address, has_credit=excluded.has_credit, credit_days=excluded.credit_days,
           credit_limit_usd=excluded.credit_limit_usd, current_debt_usd=excluded.current_debt_usd,
           avatar=excluded.avatar, notification_preferences=excluded.notification_preferences,
-          verification_status=excluded.verification_status, account_status=excluded.account_status, is_first_time=excluded.is_first_time,
+          verification_status=excluded.verification_status, is_first_time=excluded.is_first_time,
           registered_at=excluded.registered_at, business_type=excluded.business_type,
           trade_name=excluded.trade_name, contact_person=excluded.contact_person,
           credit_status=excluded.credit_status, credit_requested_limit_usd=excluded.credit_requested_limit_usd,
@@ -1757,7 +1767,7 @@ class TursoService {
         c.id, c.name, c.rif, c.email, c.phone, c.address, c.hasCredit ? 1 : 0,
         c.creditDays || 15, c.creditLimitUSD || 0, c.currentDebtUSD || 0, c.avatar || null,
         c.notificationPreferences ? JSON.stringify(c.notificationPreferences) : null,
-        c.verificationStatus || 'pending', c.accountStatus || 'active', c.isFirstTime !== false ? 1 : 0,
+        c.verificationStatus || 'pending', c.isFirstTime !== false ? 1 : 0,
         c.registeredAt || new Date().toISOString(), c.businessType || null, c.tradeName || null,
         c.contactPerson || null, c.creditStatus || 'none', c.creditRequestedLimitUSD || 0,
         c.creditRequestedDays || 0, c.creditRequestedAt || null, c.assignedPriceTier || 'mayorista',
