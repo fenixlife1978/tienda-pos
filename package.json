@@ -2,7 +2,7 @@
   "name": "distribuidora-lagranbodega",
   "private": true,
   "version": "1.0.0",
-  "description": "Sistema de Pedidos Online, POS Bimoneda y ERP de Distribuidora La Gran Bodega M&S",
+  "description": "Sistema de Pedidos Online, POS Bimoneda y ERP de Distribuidora La Gran Bodega M&S con gestión administrativa de cuentas de clientes",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
