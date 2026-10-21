@@ -1078,12 +1078,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? (changeState.changes.length > 0 ? changeState.changes[changeState.changes.length - 1].id : cloudChangeTokenRef.current)
           : changeState.latestId;
   
+        const loadErrors = Array.isArray(cloudData.loadErrors) ? cloudData.loadErrors : [];
         setTursoState({
           isConnected: true,
           isSyncing: false,
-          statusText: 'Sincronizado con Turso DB',
+          statusText: loadErrors.length
+            ? 'Datos cargados parcialmente; revisar tablas con error'
+            : 'Sincronizado con Turso DB',
           lastSyncTime: new Date().toISOString(),
-          errorMessage: null,
+          errorMessage: loadErrors.length ? loadErrors.join(' | ') : null,
           tablesCreated: [
             'products', 'categories', 'units', 'customers', 'suppliers',
             'orders', 'invoices', 'accounts_receivable', 'accounts_payable', 'purchase_entries',
