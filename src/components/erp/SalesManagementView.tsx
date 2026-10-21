@@ -285,7 +285,7 @@ export const SalesManagementView: React.FC = () => {
                   <React.Fragment key={sale.id}>
                     <tr className={`hover:bg-slate-50 ${sale.isVoided || sale.isReturned ? 'opacity-60' : ''}`}>
                       <td className="px-2"><button onClick={() => setExpanded(isOpen ? null : sale.id)} className="p-1 rounded hover:bg-slate-200">{isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</button></td>
-                      <td className="px-3 py-3 whitespace-nowrap">{new Date(sale.posRegisteredAt || sale.createdAt).toLocaleString()}</td>
+                      <td className="px-3 py-3 whitespace-nowrap">{new Date(String(sale.posRegisteredAt || sale.createdAt)).toLocaleString()}</td>
                       <td className="px-3 py-3 font-bold">{sale.orderNumber}</td>
                       <td className="px-3 py-3">{sale.customerName || 'Cliente general'}</td>
                       <td className="px-3 py-3"><div className="font-semibold">{sale.terminalId || '—'}</div><div className="text-[10px] text-slate-400">{cashier}</div></td>
