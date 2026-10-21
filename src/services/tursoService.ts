@@ -1010,6 +1010,7 @@ class TursoService {
     purchaseEntries: PurchaseEntry[];
     users: User[];
     notifications: AppNotification[];
+    loadErrors: string[];
   }> {
     const client = this.getClient();
     const loadErrors: string[] = [];
@@ -1516,11 +1517,11 @@ class TursoService {
     }
 
     }
-    if (loadErrors.length > 0) {
-      throw new Error(`No se pudieron cargar datos de Turso (${loadErrors.join(' | ')})`);
-    }
-
+    // Una tabla con error no debe anular los datos válidos de todas las demás.
+    // Devolvemos las entidades que sí se pudieron leer y los errores por separado,
+    // para que la interfaz muestre datos parciales y permita diagnosticar el módulo fallido.
     return {
+      loadErrors,
       settings,
       categories,
       units,
