@@ -112,7 +112,7 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({
           ok: true,
           reset: true,
-          preserved: 'usr-admin-initial',
+          preserved: 'system_users',
           deletedTables: tables,
         });
       } catch (e) {
