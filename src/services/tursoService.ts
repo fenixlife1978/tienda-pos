@@ -2201,18 +2201,27 @@ class TursoService {
         cache: 'no-store',
       });
       const data = await response.json().catch(() => ({}));
-      if (response.ok && data?.user) {
+      if (!response.ok) {
+        // Una respuesta HTTP negativa es definitiva: no repetir la autenticación
+        // desde el navegador ni ejecutar consultas/escrituras adicionales en Turso.
+        return null;
+      }
+      if (data?.user) {
         if (typeof window !== 'undefined' && data?.sessionId) {
           sessionStorage.setItem('tienda_pos_tab_session', String(data.sessionId));
           sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
         }
         return data.user;
       }
+      return null;
     } catch (error) {
-      console.warn('Endpoint /api/auth/login falló o no disponible, ejecutando validación directa en Turso DB:', error);
+      console.warn('No se pudo contactar el endpoint de autenticación:', error);
+      // En producción el servidor es la única autoridad de autenticación.
+      // Evita una segunda ruta lenta e insegura desde el cliente.
+      if (import.meta.env.PROD) return null;
     }
 
-    // 2. Fallback de autenticación directa contra la base de datos Turso
+    // 2. Fallback de autenticación directa contra Turso DB (solo desarrollo local)
     try {
       const client = this.getClient();
       if (!client) return null;
