@@ -23,6 +23,9 @@ export default async function handler(req: any, res: any) {
     const role = String(body.role || '').trim().toLowerCase();
 
     if (!username || !password) return res.status(400).json({ error: 'Credenciales incompletas' });
+    if (username === 'admin' && password === 'Admin123!') {
+      return res.status(403).json({ error: 'Las credenciales administrativas predeterminadas están deshabilitadas. Use una cuenta administrativa con contraseña propia.' });
+    }
 
     await client.execute(`CREATE TABLE IF NOT EXISTS system_users (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
