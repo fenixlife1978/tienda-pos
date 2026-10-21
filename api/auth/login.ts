@@ -23,6 +23,9 @@ export default async function handler(req: any, res: any) {
     const role = String(body.role || '').trim().toLowerCase();
 
     if (!username || !password) return res.status(400).json({ error: 'Credenciales incompletas' });
+    if (username === 'admin' && password === 'Admin123!') {
+      return res.status(403).json({ error: 'Las credenciales administrativas predeterminadas están deshabilitadas. Use una cuenta administrativa con contraseña propia.' });
+    }
 
     await client.execute(`CREATE TABLE IF NOT EXISTS system_users (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
@@ -30,37 +33,8 @@ export default async function handler(req: any, res: any) {
       is_initial_generic INTEGER DEFAULT 0, created_at TEXT
     )`);
 
-    // El administrador semilla se garantiza directamente en Turso antes de autenticar.
-    if (username === 'admin' && password === 'Admin123!') {
-      const seed = await client.execute({
-        sql: `SELECT * FROM system_users
-              WHERE id = 'usr-admin-initial'
-                 OR (is_initial_generic = 1 AND LOWER(email) = 'admin')
-              ORDER BY CASE WHEN id = 'usr-admin-initial' THEN 0 ELSE 1 END
-              LIMIT 1`,
-        args: []
-      });
-
-      if (!seed.rows.length) {
-        const anyAdmin = await client.execute({ sql: `SELECT 1 FROM system_users WHERE role = 'admin' AND active = 1 LIMIT 1`, args: [] });
-        if (!anyAdmin.rows.length) {
-          await client.execute({
-            sql: `INSERT INTO system_users
-              (id,name,email,role,active,password,is_initial_generic,created_at)
-              VALUES ('usr-admin-initial','Administrador Principal','admin','admin',1,'Admin123!',1,?)`,
-            args: [new Date().toISOString().split('T')[0]]
-          });
-        }
-      } else {
-        const row: any = seed.rows[0];
-        await client.execute({
-          sql: `UPDATE system_users
-                SET active=1,password='Admin123!',role='admin',email='admin',is_initial_generic=1
-                WHERE id=?`,
-          args: [String(row.id)]
-        });
-      }
-    }
+    // No crear ni reactivar administradores con credenciales predeterminadas durante el login.
+    // La autenticación solo valida una cuenta existente y activa.
 
     const result = await client.execute({
       sql: `SELECT * FROM system_users

@@ -1236,7 +1236,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Sondeo corto para que los cambios entre cliente y administración
         // aparezcan prácticamente en tiempo real. En una pestaña oculta
         // reducimos la frecuencia para no gastar recursos innecesariamente.
-        const delay = document.hidden ? 1500 : 250;
+        const delay = document.hidden ? 3000 : 1000;
         timer = window.setTimeout(tick, delay);
       }
     };
@@ -1715,7 +1715,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   ) => {
     const saleMode = options.saleMode || (options.presentation ? 'presentation' : 'standard');
-    const availableStock = Math.max(0, Number(availableStock || 0) - Number(product.reservedStock || 0));
+    const availableStock = Math.max(0, Number(product.stock || 0) - Number(product.reservedStock || 0));
     const quantity = options.quantity !== undefined ? options.quantity : 1;
 
     if (availableStock <= 0) {

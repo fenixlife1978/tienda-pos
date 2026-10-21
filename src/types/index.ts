@@ -414,6 +414,10 @@ export interface Invoice {
   approvedAt?: string;
   /** Sesión de caja POS asociada al documento, cuando aplica. */
   cashSessionId?: string;
+  /** Momento en que la venta quedó registrada en el POS. */
+  posRegisteredAt?: string;
+  /** Identificador del cajero que registró la venta en el POS. */
+  posRegisteredBy?: string;
   /** Terminal POS asociada al documento; vacío para pedidos online. */
   terminalId?: string;
   documentSeries?: string;

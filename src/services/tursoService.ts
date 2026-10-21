@@ -1,5 +1,6 @@
 type TursoClient = any;
 import {
+  AppNotification,
   BcvHistoryEntry,
   Customer,
   Invoice,
@@ -2183,7 +2184,7 @@ class TursoService {
 
   public async checkServerHealth(): Promise<boolean> {
     try {
-      await this.request({ operation: 'health' });
+      await this.request('health');
       return true;
     } catch {
       return false;
@@ -2191,7 +2192,9 @@ class TursoService {
   }
 
   public async authenticateUser(username: string, password: string, role: string): Promise<User | null> {
-    // 1. Intentar autenticación mediante endpoint de servidor si está disponible
+    // Una única ruta de autenticación server-side. No se permite fallback a
+    // consultas SQL directas desde el cliente: evita una segunda ronda de red
+    // y garantiza que el rol y la sesión se validen en el servidor.
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -2201,73 +2204,19 @@ class TursoService {
         cache: 'no-store',
       });
       const data = await response.json().catch(() => ({}));
-      if (response.ok && data?.user) {
-        if (typeof window !== 'undefined' && data?.sessionId) {
-          sessionStorage.setItem('tienda_pos_tab_session', String(data.sessionId));
-          sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
+      if (!response.ok || !data?.user) {
+        if (response.status !== 401 && response.status !== 403) {
+          console.warn('No se pudo completar la autenticación server-side:', data?.error || response.status);
         }
-        return data.user;
-      }
-    } catch (error) {
-      console.warn('Endpoint /api/auth/login falló o no disponible, ejecutando validación directa en Turso DB:', error);
-    }
-
-    // 2. Fallback de autenticación directa contra la base de datos Turso
-    try {
-      const client = this.getClient();
-      if (!client) return null;
-
-      const normUser = username.trim().toLowerCase();
-
-      // Garantizar usuario administrador semilla si se intenta ingresar con admin / Admin123!
-      if (normUser === 'admin' && password === 'Admin123!') {
-        const seedCheck = await client.execute({
-          sql: `SELECT * FROM system_users WHERE id = 'usr-admin-initial' OR (is_initial_generic = 1 AND LOWER(email) = 'admin') LIMIT 1`,
-          args: [],
-        });
-        if (!seedCheck.rows.length) {
-          await client.execute({
-            sql: `INSERT INTO system_users (id, name, email, role, active, password, is_initial_generic, created_at) VALUES ('usr-admin-initial', 'Administrador Principal', 'admin', 'admin', 1, 'Admin123!', 1, ?)`,
-            args: [new Date().toISOString().split('T')[0]],
-          });
-        } else {
-          const row: any = seedCheck.rows[0];
-          if (!Number(row.active) || String(row.password || '') !== 'Admin123!') {
-            await client.execute({
-              sql: `UPDATE system_users SET active = 1, password = 'Admin123!', role = 'admin', email = 'admin', is_initial_generic = 1 WHERE id = ?`,
-              args: [String(row.id)],
-            });
-          }
-        }
-      }
-
-      // Buscar usuario activo en Turso DB
-      const res = await client.execute({
-        sql: `SELECT * FROM system_users
-              WHERE active = 1
-                AND (LOWER(email) = ? OR LOWER(name) = ? OR (? IN ('admin','administrador') AND (is_initial_generic = 1 OR role = 'admin')))
-              ORDER BY is_initial_generic DESC, name ASC
-              LIMIT 1`,
-        args: [normUser, normUser, normUser],
-      });
-
-      const row: any = res.rows[0];
-      if (!row || String(row.password || '') !== password) {
         return null;
       }
-
-      return {
-        id: String(row.id),
-        name: String(row.name),
-        email: String(row.email),
-        role: row.role as any,
-        avatar: row.avatar ? String(row.avatar) : undefined,
-        active: Boolean(row.active),
-        isInitialGeneric: Boolean(row.is_initial_generic),
-        createdAt: String(row.created_at || new Date().toISOString()),
-      };
-    } catch (directErr) {
-      console.error('Error en autenticación directa contra Turso DB:', directErr);
+      if (typeof window !== 'undefined' && data?.sessionId) {
+        sessionStorage.setItem('tienda_pos_tab_session', String(data.sessionId));
+        sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
+      }
+      return data.user as User;
+    } catch (error) {
+      console.error('No se pudo conectar con el servicio de autenticación:', error);
       return null;
     }
   }
