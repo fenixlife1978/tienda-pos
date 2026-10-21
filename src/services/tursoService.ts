@@ -242,60 +242,9 @@ class TursoService {
         // Reparar los triggers de actividad en bases existentes. Es crítico que
         // orders/invoices también generen actividad: de lo contrario el pedido puede
         // quedar insertado en Turso pero los demás dispositivos no reciben el cambio.
-        const activityDefinitions = [
-          { table: 'system_settings', id: "'main'", oldId: "'main'" },
-          { table: 'categories', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'units', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'products', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'customers', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'suppliers', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'orders', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'invoices', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'accounts_receivable', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'accounts_payable', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'purchase_entries', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'inventory_movements', id: 'NEW.movement_id', oldId: 'OLD.movement_id' },
-          { table: 'cash_sessions', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'cash_movements', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'system_users', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'bcv_history', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'system_notifications', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'terminals', id: 'NEW.id', oldId: 'OLD.id' },
-          { table: 'terminal_user_assignments', id: "NEW.terminal_id || ':' || NEW.user_id", oldId: "OLD.terminal_id || ':' || OLD.user_id" },
-        ];
-        try {
-          for (const { table, id, oldId } of activityDefinitions) {
-            // No eliminar triggers durante el arranque: varios dispositivos pueden
-            // inicializarse a la vez. CREATE IF NOT EXISTS evita carreras DDL y
-            // conserva los triggers ya instalados en la base compartida.
-            await client.execute(`
-              CREATE TRIGGER IF NOT EXISTS activity_${table}_insert
-              AFTER INSERT ON ${table}
-              BEGIN
-                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-                VALUES ('${table}', ${id}, 'insert', datetime('now'));
-              END;
-            `);
-            await client.execute(`
-              CREATE TRIGGER IF NOT EXISTS activity_${table}_update
-              AFTER UPDATE ON ${table}
-              BEGIN
-                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-                VALUES ('${table}', ${id}, 'update', datetime('now'));
-              END;
-            `);
-            await client.execute(`
-              CREATE TRIGGER IF NOT EXISTS activity_${table}_delete
-              AFTER DELETE ON ${table}
-              BEGIN
-                INSERT INTO activity_changes (table_name, entity_id, operation, changed_at)
-                VALUES ('${table}', ${oldId}, 'delete', datetime('now'));
-              END;
-            `);
-          }
-        } catch (triggerError) {
-          console.warn('No se pudieron reparar los triggers de actividad:', triggerError);
-        }
+        // El marcador de esquema confirma que los triggers ya fueron instalados.
+        // No se recrean en cada arranque: cada execute implica otra llamada HTTP y
+        // provocaba decenas de viajes a Turso antes de mostrar el sistema.
         return { success: true, tables: ['schema_ready', 'supplier_sync_ready'] };
       }
     }
@@ -1037,489 +986,535 @@ class TursoService {
       throw new Error('Cliente Turso no configurado');
     }
 
-    // 1. Settings
-    if (shouldLoad('system_settings')) {
-    
-    try {
-      const res = await client.execute("SELECT data FROM system_settings WHERE key = 'main'");
-      if (res.rows.length > 0 && res.rows[0].data) {
-        settings = JSON.parse(res.rows[0].data as string);
-      }
-    } catch (e) {
-      console.warn('Error fetching settings from Turso:', e);
-      recordLoadError('system_settings', e);
-    }
-
+    const loadSection1 = async () => {
+      // 1. Settings
+      if (shouldLoad('system_settings')) {
+      
+      try {
+        const res = await client.execute("SELECT data FROM system_settings WHERE key = 'main'");
+        if (res.rows.length > 0 && res.rows[0].data) {
+          settings = JSON.parse(res.rows[0].data as string);
         }
-// 2. Categories
-    if (shouldLoad('categories')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM categories ORDER BY name ASC');
-      for (const row of res.rows) {
-        categories.push({
-          id: String(row.id),
-          name: String(row.name),
-          description: row.description ? String(row.description) : undefined,
-        });
+      } catch (e) {
+        console.warn('Error fetching settings from Turso:', e);
+        recordLoadError('system_settings', e);
       }
-    } catch (e) {
-      console.warn('Error fetching categories from Turso:', e);
-      recordLoadError('categories', e);
-    }
-
-        }
-// 3. Units
-    if (shouldLoad('units')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM units ORDER BY name ASC');
-      for (const row of res.rows) {
-        units.push({
-          id: String(row.id),
-          name: String(row.name),
-          abbreviation: String(row.abbreviation),
-          allowDecimals: Boolean(row.allow_decimals),
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching units from Turso:', e);
-      recordLoadError('units', e);
-    }
-
-        }
-// 4. Products
-    if (shouldLoad('products')) {
-    // Las lecturas no deben ejecutar ALTER TABLE. El esquema se garantiza en
-    // bootstrap/migraciones; repetir DDL durante cada sincronización provoca
-    // carreras entre terminales y ruido de errores "duplicate column".
-    try {
-      const res = await client.execute('SELECT * FROM products ORDER BY name ASC');
-      for (const row of res.rows) {
-        products.push({
-          id: String(row.id),
-          code: String(row.code),
-          name: String(row.name),
-          category: String(row.category),
-          costUSD: Number(row.cost_usd),
-          profitMarginPercent: row.profit_margin_percent ? Number(row.profit_margin_percent) : undefined,
-          priceUSD: Number(row.price_usd),
-          stock: Number(row.stock),
-          reservedStock: Number(row.reserved_stock || 0),
-          minStock: Number(row.min_stock),
-          unit: String(row.unit),
-          warehouseStocks: row.warehouse_stocks ? JSON.parse(String(row.warehouse_stocks)) : undefined,
-          image: String(row.image || ''),
-          isOffer: Boolean(row.is_offer),
-          discountPercentage: row.discount_percentage ? Number(row.discount_percentage) : undefined,
-          offerCondition: row.offer_condition ? String(row.offer_condition) : undefined,
-          offerBadgeText: row.offer_badge_text ? String(row.offer_badge_text) : undefined,
-          offerSavingsUSD: row.offer_savings_usd !== null && row.offer_savings_usd !== undefined ? Number(row.offer_savings_usd) : undefined,
-          offerSavingsBs: row.offer_savings_bs !== null && row.offer_savings_bs !== undefined ? Number(row.offer_savings_bs) : undefined,
-          offerMinQuantity: row.offer_min_quantity !== null && row.offer_min_quantity !== undefined ? Number(row.offer_min_quantity) : undefined,
-          promotionalPriceUSD: row.promotional_price_usd !== null && row.promotional_price_usd !== undefined ? Number(row.promotional_price_usd) : undefined,
-          offerStartDate: row.offer_start_date ? String(row.offer_start_date) : undefined,
-          offerEndDate: row.offer_end_date ? String(row.offer_end_date) : undefined,
-          description: row.description ? String(row.description) : undefined,
-          appliesIva: row.applies_iva !== undefined && row.applies_iva !== null ? Boolean(row.applies_iva) : true,
-          alternativePrices: row.alternative_prices ? JSON.parse(String(row.alternative_prices)) : undefined,
-          presentations: row.presentations ? JSON.parse(String(row.presentations)) : undefined,
-          suppliersInfo: row.suppliers_info ? JSON.parse(String(row.suppliers_info)) : undefined,
-          highestSupplierCost: row.highest_supplier_cost ? Number(row.highest_supplier_cost) : undefined,
-          isComposite: Boolean(row.is_composite),
-          compositeComponents: row.composite_components ? JSON.parse(String(row.composite_components)) : undefined,
-          compositeVirtualStock: row.composite_virtual_stock ? Number(row.composite_virtual_stock) : undefined,
-          isWeighable: Boolean(row.is_weighable),
-          pricePerKgUSD: row.price_per_kg_usd ? Number(row.price_per_kg_usd) : undefined,
-          isFractionable: Boolean(row.is_fractionable),
-          fractionUnit: row.fraction_unit ? String(row.fraction_unit) : undefined,
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching products from Turso:', e);
-      recordLoadError('products', e);
-    }
-
-    // Reservas online: el stock físico permanece intacto; el catálogo muestra
-    // stock disponible = stock físico - reservas activas.
-    try {
-      await client.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
-        id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
-        quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-      )`);
-      const reservations = await client.execute(
-        "SELECT product_id, COALESCE(SUM(quantity), 0) AS reserved FROM inventory_reservations WHERE status = 'reserved' GROUP BY product_id"
-      );
-      const reservedByProduct = new Map<string, number>();
-      for (const row of reservations.rows) reservedByProduct.set(String(row.product_id), Number(row.reserved || 0));
-      for (const product of products) product.reservedStock = Number((reservedByProduct.get(product.id) || 0).toFixed(3));
-    } catch (e) {
-      console.warn('No se pudieron cargar reservas de inventario:', e);
-      for (const product of products) product.reservedStock = 0;
-    }
-
-        }
-// 5. Customers
-    if (shouldLoad('customers')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM customers ORDER BY created_at DESC');
-      for (const row of res.rows) {
-        const extra = row.extra_data ? JSON.parse(String(row.extra_data)) : {};
-        customers.push({
-          id: String(row.id),
-          name: String(row.name),
-          rif: String(row.rif),
-          email: String(row.email || ''),
-          phone: String(row.phone || ''),
-          address: String(row.address || ''),
-          hasCredit: Boolean(row.has_credit),
-          creditDays: Number(row.credit_days || 15),
-          creditLimitUSD: Number(row.credit_limit_usd || 0),
-          currentDebtUSD: Number(row.current_debt_usd || 0),
-          avatar: row.avatar ? String(row.avatar) : undefined,
-          notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
-          verificationStatus: (row.verification_status ? String(row.verification_status) : 'pending') as any,
-          accountStatus: (row.account_status ? String(row.account_status) : 'active') as any,
-          isFirstTime: row.is_first_time !== undefined && row.is_first_time !== null ? Boolean(row.is_first_time) : true,
-          registeredAt: String(row.registered_at || row.created_at || new Date().toISOString()),
-          businessType: row.business_type ? String(row.business_type) : undefined,
-          tradeName: row.trade_name ? String(row.trade_name) : undefined,
-          contactPerson: row.contact_person ? String(row.contact_person) : undefined,
-          creditStatus: (row.credit_status ? String(row.credit_status) : 'none') as any,
-          creditRequestedLimitUSD: row.credit_requested_limit_usd ? Number(row.credit_requested_limit_usd) : 0,
-          creditRequestedDays: row.credit_requested_days ? Number(row.credit_requested_days) : 0,
-          creditRequestedAt: row.credit_requested_at ? String(row.credit_requested_at) : undefined,
-          assignedPriceTier: row.assigned_price_tier ? String(row.assigned_price_tier) as any : 'mayorista',
-          verificationNotes: row.verification_notes ? String(row.verification_notes) : undefined,
-          attachedDocRif: extra.attachedDocRif,
-          attachedCommercialRef: extra.attachedCommercialRef,
-          rejectionReason: extra.rejectionReason,
-          verifiedAt: extra.verifiedAt,
-          verifiedBy: extra.verifiedBy,
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching customers from Turso:', e);
-      recordLoadError('customers', e);
-    }
-
-        }
-// 6. Suppliers
-    if (shouldLoad('suppliers')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM suppliers ORDER BY name ASC');
-      for (const row of res.rows) {
-        suppliers.push({
-          id: String(row.id),
-          name: String(row.name),
-          rif: String(row.rif),
-          phone: String(row.phone || ''),
-          email: String(row.email || ''),
-          contactPerson: String(row.contact_person || ''),
-          contactName: String(row.contact_name || row.contact_person || ''),
-          address: String(row.address || ''),
-          creditDays: Number(row.credit_days || 15),
-          creditLimitUSD: Number(row.credit_limit_usd || 0),
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching suppliers from Turso:', e);
-      recordLoadError('suppliers', e);
-    }
-
-        }
-// 7. Orders
-    if (shouldLoad('orders')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM orders ORDER BY created_at DESC');
-      for (const row of res.rows) {
-        orders.push({
-          id: String(row.id),
-          orderNumber: String(row.order_number),
-          customerId: String(row.customer_id),
-          customerName: String(row.customer_name),
-          customerRif: String(row.customer_rif || ''),
-          customerPhone: String(row.customer_phone || ''),
-          customerAddress: String(row.customer_address || ''),
-          items: JSON.parse(String(row.items || '[]')),
-          subtotalUSD: Number(row.subtotal_usd),
-          taxUSD: Number(row.tax_usd),
-          totalUSD: Number(row.total_usd),
-          totalBs: Number(row.total_bs),
-          bcvRate: Number(row.bcv_rate),
-          paymentMethod: row.payment_method as any,
-          cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
-          documentSeries: row.document_series ? String(row.document_series) : undefined,
-          documentSequence: row.document_sequence != null ? Number(row.document_sequence) : undefined,
-          returnNumber: row.return_number ? String(row.return_number) : undefined,
-          voidNumber: row.void_number ? String(row.void_number) : undefined,
-          paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
-          paymentStatus: row.payment_status as any,
-          orderStatus: row.order_status as any,
-          paymentReference: row.payment_reference ? String(row.payment_reference) : undefined,
-          channel: row.channel as any,
-          createdAt: String(row.created_at),
-          estimatedDelivery: row.estimated_delivery ? String(row.estimated_delivery) : undefined,
-          creditDueDate: row.credit_due_date ? String(row.credit_due_date) : undefined,
-          creditDays: row.credit_days ? Number(row.credit_days) : undefined,
-          notes: row.notes ? String(row.notes) : undefined,
-          isVoided: Boolean(row.is_voided),
-          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
-          voidedBy: row.voided_by ? String(row.voided_by) : undefined,
-          voidReason: row.void_reason ? String(row.void_reason) : undefined,
-          isReturned: Boolean(row.is_returned),
-          returnedAt: row.returned_at ? String(row.returned_at) : undefined,
-          returnedBy: row.returned_by ? String(row.returned_by) : undefined,
-          returnReason: row.return_reason ? String(row.return_reason) : undefined,
-          approvedAt: row.approved_at ? String(row.approved_at) : undefined,
-          reservedAt: row.reserved_at ? String(row.reserved_at) : undefined,
-          posRegisteredAt: row.pos_registered_at ? String(row.pos_registered_at) : undefined,
-          posRegisteredBy: row.pos_registered_by ? String(row.pos_registered_by) : undefined,
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching orders from Turso:', e);
-      recordLoadError('orders', e);
-    }
-
-        }
-// 8. Invoices
-    if (shouldLoad('invoices')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM invoices ORDER BY created_at DESC');
-      for (const row of res.rows) {
-        invoices.push({
-          id: String(row.id),
-          invoiceNumber: String(row.invoice_number),
-          orderId: String(row.order_id),
-          customerId: String(row.customer_id),
-          customerName: String(row.customer_name),
-          customerRif: String(row.customer_rif),
-          customerAddress: String(row.customer_address),
-          customerPhone: String(row.customer_phone),
-          items: JSON.parse(String(row.items || '[]')),
-          subtotalUSD: Number(row.subtotal_usd),
-          taxUSD: Number(row.tax_usd),
-          totalUSD: Number(row.total_usd),
-          totalBs: Number(row.total_bs),
-          bcvRate: Number(row.bcv_rate),
-          paymentMethod: row.payment_method as any,
-          cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
-          paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
-          paymentStatus: row.payment_status as any,
-          createdAt: String(row.created_at),
-          dueDate: row.due_date ? String(row.due_date) : undefined,
-          isCredit: Boolean(row.is_credit),
-          creditDays: row.credit_days ? Number(row.credit_days) : undefined,
-          isVoided: Boolean(row.is_voided),
-          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
-          voidedBy: row.voided_by ? String(row.voided_by) : undefined,
-          voidReason: row.void_reason ? String(row.void_reason) : undefined,
-          isReturned: Boolean(row.is_returned),
-          returnedAt: row.returned_at ? String(row.returned_at) : undefined,
-          returnedBy: row.returned_by ? String(row.returned_by) : undefined,
-          returnReason: row.return_reason ? String(row.return_reason) : undefined,
-          approvedAt: row.approved_at ? String(row.approved_at) : undefined,
-          posRegisteredAt: row.pos_registered_at ? String(row.pos_registered_at) : undefined,
-          posRegisteredBy: row.pos_registered_by ? String(row.pos_registered_by) : undefined,
-          terminalId: row.terminal_id ? String(row.terminal_id) : undefined,
-          documentSeries: row.document_series ? String(row.document_series) : undefined,
-          documentSequence: row.document_sequence != null ? Number(row.document_sequence) : undefined,
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching invoices from Turso:', e);
-      recordLoadError('invoices', e);
-    }
-
-        }
-// 9. Accounts Receivable
-    if (shouldLoad('accounts_receivable')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM accounts_receivable ORDER BY due_date ASC');
-      for (const row of res.rows) {
-        receivables.push({
-          id: String(row.id),
-          invoiceId: String(row.invoice_id),
-          invoiceNumber: String(row.invoice_number),
-          customerId: String(row.customer_id),
-          customerName: String(row.customer_name),
-          customerPhone: String(row.customer_phone || ''),
-          totalAmountUSD: Number(row.total_amount_usd),
-          amountPaidUSD: Number(row.amount_paid_usd),
-          balanceUSD: Number(row.balance_usd),
-          issuedDate: String(row.issued_date),
-          dueDate: String(row.due_date),
-          creditDays: Number(row.credit_days || 15),
-          status: row.status as any,
-          isVoided: Boolean(row.is_voided),
-          voidedAt: row.voided_at ? String(row.voided_at) : undefined,
-          voidReason: row.void_reason ? String(row.void_reason) : undefined,
-          paymentHistory: row.payment_history ? JSON.parse(String(row.payment_history)) : [],
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching receivables from Turso:', e);
-      recordLoadError('accounts_receivable', e);
-    }
-
-        }
-// 10. Accounts Payable
-    if (shouldLoad('accounts_payable')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM accounts_payable ORDER BY due_date ASC');
-      for (const row of res.rows) {
-        payables.push({
-          id: String(row.id),
-          supplierId: String(row.supplier_id),
-          supplierName: String(row.supplier_name),
-          invoiceNumber: String(row.invoice_number),
-          description: String(row.description),
-          totalAmountUSD: Number(row.total_amount_usd),
-          amountPaidUSD: Number(row.amount_paid_usd),
-          balanceUSD: Number(row.balance_usd),
-          issuedDate: String(row.issued_date),
-          dueDate: String(row.due_date),
-          status: row.status as any,
-          paymentHistory: row.payment_history ? JSON.parse(String(row.payment_history)) : [],
-          items: row.items_json ? JSON.parse(String(row.items_json)) : undefined,
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching payables from Turso:', e);
-      recordLoadError('accounts_payable', e);
-    }
-
-        }
-// 11. Purchase entries
-    if (shouldLoad('purchase_entries')) {
-    
-    try {
-      const res = await client.execute('SELECT data FROM purchase_entries ORDER BY created_at DESC');
-      for (const row of res.rows) {
-        if (row.data) purchaseEntries.push(JSON.parse(String(row.data)));
-      }
-    } catch (e) {
-      console.warn('Error fetching purchase entries from Turso:', e);
-      recordLoadError('purchase_entries', e);
-    }
-
-    // Recuperación de renglones de CxP históricos: las entradas de compra
-    // son la fuente completa del detalle y permiten reconstruir facturas
-    // creadas antes de existir items_json en accounts_payable.
-    if (purchaseEntries.length > 0 && payables.some((p) => !p.items?.length)) {
-      const byInvoice = new Map<string, PurchaseEntry>();
-      for (const entry of purchaseEntries) {
-        if (entry.invoiceNumber) byInvoice.set(entry.invoiceNumber.trim(), entry);
-      }
-      for (const payable of payables) {
-        if (payable.items?.length) continue;
-        const entry = byInvoice.get((payable.invoiceNumber || '').trim());
-        if (!entry?.items?.length) continue;
-        payable.items = entry.items.map((item) => ({
-          productName: item.productName,
-          quantity: item.quantity,
-          unitPriceUSD: item.realCostUSD,
-          subtotalUSD: item.subtotalUSD,
-        }));
-      }
-    }
-
-        }
-// 12. Users
-    if (shouldLoad('system_users')) {
-    
-    try {
-      const res = await client.execute('SELECT * FROM system_users ORDER BY name ASC');
-      for (const row of res.rows) {
-        users.push({
-          id: String(row.id),
-          name: String(row.name),
-          email: String(row.email),
-          role: row.role as any,
-          avatar: row.avatar ? String(row.avatar) : undefined,
-          active: Boolean(row.active),
-          isInitialGeneric: Boolean(row.is_initial_generic),
-          createdAt: String(row.created_at || new Date().toISOString()),
-        });
-      }
-    } catch (e) {
-      console.warn('Error fetching users from Turso:', e);
-      recordLoadError('system_users', e);
-    }
-
-        }
-// 12. BCV History from table
-    if (shouldLoad('system_settings')) {
-    // Merge BCV history from the dedicated table when settings are loaded.
-    try {
-      const bcvRes = await client.execute('SELECT * FROM bcv_history ORDER BY date DESC LIMIT 500');
-      if (bcvRes.rows.length > 0 && settings) {
-        const tableEntries: BcvHistoryEntry[] = bcvRes.rows.map((row) => ({
-          id: String(row.id),
-          rate: Number(row.rate),
-          date: String(row.date),
-          type: (row.type as 'manual' | 'automatic') || 'automatic',
-          updatedBy: String(row.updated_by || 'BCV'),
-          previousRate: row.previous_rate !== null ? Number(row.previous_rate) : undefined,
-          changePercent: row.change_percent !== null ? Number(row.change_percent) : undefined,
-          source: 'https://bcv.today/api/rate.json',
-        }));
-        // Merge with settings.bcvHistory avoiding duplicates
-        const existingIds = new Set((settings.bcvHistory || []).map((h) => h.id));
-        const merged = [...(settings.bcvHistory || [])];
-        for (const item of tableEntries) {
-          if (!existingIds.has(item.id)) {
-            merged.push(item);
-            existingIds.add(item.id);
+  
           }
+    };
+
+    const loadSection2 = async () => {
+  // 2. Categories
+      if (shouldLoad('categories')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM categories ORDER BY name ASC');
+        for (const row of res.rows) {
+          categories.push({
+            id: String(row.id),
+            name: String(row.name),
+            description: row.description ? String(row.description) : undefined,
+          });
         }
-        settings.bcvHistory = merged.sort(
-          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      } catch (e) {
+        console.warn('Error fetching categories from Turso:', e);
+        recordLoadError('categories', e);
+      }
+  
+          }
+    };
+
+    const loadSection3 = async () => {
+  // 3. Units
+      if (shouldLoad('units')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM units ORDER BY name ASC');
+        for (const row of res.rows) {
+          units.push({
+            id: String(row.id),
+            name: String(row.name),
+            abbreviation: String(row.abbreviation),
+            allowDecimals: Boolean(row.allow_decimals),
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching units from Turso:', e);
+        recordLoadError('units', e);
+      }
+  
+          }
+    };
+
+    const loadSection4 = async () => {
+  // 4. Products
+      if (shouldLoad('products')) {
+      // Las lecturas no deben ejecutar ALTER TABLE. El esquema se garantiza en
+      // bootstrap/migraciones; repetir DDL durante cada sincronización provoca
+      // carreras entre terminales y ruido de errores "duplicate column".
+      try {
+        const res = await client.execute('SELECT * FROM products ORDER BY name ASC');
+        for (const row of res.rows) {
+          products.push({
+            id: String(row.id),
+            code: String(row.code),
+            name: String(row.name),
+            category: String(row.category),
+            costUSD: Number(row.cost_usd),
+            profitMarginPercent: row.profit_margin_percent ? Number(row.profit_margin_percent) : undefined,
+            priceUSD: Number(row.price_usd),
+            stock: Number(row.stock),
+            reservedStock: Number(row.reserved_stock || 0),
+            minStock: Number(row.min_stock),
+            unit: String(row.unit),
+            warehouseStocks: row.warehouse_stocks ? JSON.parse(String(row.warehouse_stocks)) : undefined,
+            image: String(row.image || ''),
+            isOffer: Boolean(row.is_offer),
+            discountPercentage: row.discount_percentage ? Number(row.discount_percentage) : undefined,
+            offerCondition: row.offer_condition ? String(row.offer_condition) : undefined,
+            offerBadgeText: row.offer_badge_text ? String(row.offer_badge_text) : undefined,
+            offerSavingsUSD: row.offer_savings_usd !== null && row.offer_savings_usd !== undefined ? Number(row.offer_savings_usd) : undefined,
+            offerSavingsBs: row.offer_savings_bs !== null && row.offer_savings_bs !== undefined ? Number(row.offer_savings_bs) : undefined,
+            offerMinQuantity: row.offer_min_quantity !== null && row.offer_min_quantity !== undefined ? Number(row.offer_min_quantity) : undefined,
+            promotionalPriceUSD: row.promotional_price_usd !== null && row.promotional_price_usd !== undefined ? Number(row.promotional_price_usd) : undefined,
+            offerStartDate: row.offer_start_date ? String(row.offer_start_date) : undefined,
+            offerEndDate: row.offer_end_date ? String(row.offer_end_date) : undefined,
+            description: row.description ? String(row.description) : undefined,
+            appliesIva: row.applies_iva !== undefined && row.applies_iva !== null ? Boolean(row.applies_iva) : true,
+            alternativePrices: row.alternative_prices ? JSON.parse(String(row.alternative_prices)) : undefined,
+            presentations: row.presentations ? JSON.parse(String(row.presentations)) : undefined,
+            suppliersInfo: row.suppliers_info ? JSON.parse(String(row.suppliers_info)) : undefined,
+            highestSupplierCost: row.highest_supplier_cost ? Number(row.highest_supplier_cost) : undefined,
+            isComposite: Boolean(row.is_composite),
+            compositeComponents: row.composite_components ? JSON.parse(String(row.composite_components)) : undefined,
+            compositeVirtualStock: row.composite_virtual_stock ? Number(row.composite_virtual_stock) : undefined,
+            isWeighable: Boolean(row.is_weighable),
+            pricePerKgUSD: row.price_per_kg_usd ? Number(row.price_per_kg_usd) : undefined,
+            isFractionable: Boolean(row.is_fractionable),
+            fractionUnit: row.fraction_unit ? String(row.fraction_unit) : undefined,
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching products from Turso:', e);
+        recordLoadError('products', e);
+      }
+  
+      // Reservas online: el stock físico permanece intacto; el catálogo muestra
+      // stock disponible = stock físico - reservas activas.
+      try {
+        await client.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
+          id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+          quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )`);
+        const reservations = await client.execute(
+          "SELECT product_id, COALESCE(SUM(quantity), 0) AS reserved FROM inventory_reservations WHERE status = 'reserved' GROUP BY product_id"
         );
+        const reservedByProduct = new Map<string, number>();
+        for (const row of reservations.rows) reservedByProduct.set(String(row.product_id), Number(row.reserved || 0));
+        for (const product of products) product.reservedStock = Number((reservedByProduct.get(product.id) || 0).toFixed(3));
+      } catch (e) {
+        console.warn('No se pudieron cargar reservas de inventario:', e);
+        for (const product of products) product.reservedStock = 0;
       }
-    } catch (e) {
-      console.warn('Error fetching bcv_history from Turso:', e);
-      recordLoadError('bcv_history', e);
-    }
+  
+          }
+    };
 
+    const loadSection5 = async () => {
+  // 5. Customers
+      if (shouldLoad('customers')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM customers ORDER BY created_at DESC');
+        for (const row of res.rows) {
+          const extra = row.extra_data ? JSON.parse(String(row.extra_data)) : {};
+          customers.push({
+            id: String(row.id),
+            name: String(row.name),
+            rif: String(row.rif),
+            email: String(row.email || ''),
+            phone: String(row.phone || ''),
+            address: String(row.address || ''),
+            hasCredit: Boolean(row.has_credit),
+            creditDays: Number(row.credit_days || 15),
+            creditLimitUSD: Number(row.credit_limit_usd || 0),
+            currentDebtUSD: Number(row.current_debt_usd || 0),
+            avatar: row.avatar ? String(row.avatar) : undefined,
+            notificationPreferences: row.notification_preferences ? JSON.parse(String(row.notification_preferences)) : undefined,
+            verificationStatus: (row.verification_status ? String(row.verification_status) : 'pending') as any,
+            accountStatus: (row.account_status ? String(row.account_status) : 'active') as any,
+            isFirstTime: row.is_first_time !== undefined && row.is_first_time !== null ? Boolean(row.is_first_time) : true,
+            registeredAt: String(row.registered_at || row.created_at || new Date().toISOString()),
+            businessType: row.business_type ? String(row.business_type) : undefined,
+            tradeName: row.trade_name ? String(row.trade_name) : undefined,
+            contactPerson: row.contact_person ? String(row.contact_person) : undefined,
+            creditStatus: (row.credit_status ? String(row.credit_status) : 'none') as any,
+            creditRequestedLimitUSD: row.credit_requested_limit_usd ? Number(row.credit_requested_limit_usd) : 0,
+            creditRequestedDays: row.credit_requested_days ? Number(row.credit_requested_days) : 0,
+            creditRequestedAt: row.credit_requested_at ? String(row.credit_requested_at) : undefined,
+            assignedPriceTier: row.assigned_price_tier ? String(row.assigned_price_tier) as any : 'mayorista',
+            verificationNotes: row.verification_notes ? String(row.verification_notes) : undefined,
+            attachedDocRif: extra.attachedDocRif,
+            attachedCommercialRef: extra.attachedCommercialRef,
+            rejectionReason: extra.rejectionReason,
+            verifiedAt: extra.verifiedAt,
+            verifiedBy: extra.verifiedBy,
+          });
         }
-// 13. Notifications
-    if (shouldLoad('system_notifications')) {
-    
-    try {
-      const res = await client.execute(
-        "SELECT * FROM system_notifications WHERE title != 'Sesión Finalizada' ORDER BY created_at DESC LIMIT 200"
-      );
-      for (const row of res.rows) {
-        notifications.push({
-          id: String(row.id),
-          title: String(row.title),
-          message: String(row.message),
-          type: row.type as any,
-          read: Boolean(row.read),
-          createdAt: String(row.created_at || new Date().toISOString()),
-          targetRole: row.target_role ? (String(row.target_role) as any) : undefined,
-          targetCustomerId: row.target_customer_id ? String(row.target_customer_id) : undefined,
-          relatedOrderId: row.related_order_id ? String(row.related_order_id) : undefined,
-        });
+      } catch (e) {
+        console.warn('Error fetching customers from Turso:', e);
+        recordLoadError('customers', e);
       }
-    } catch (e) {
-      console.warn('Error fetching notifications from Turso:', e);
-      recordLoadError('system_notifications', e);
-    }
+  
+          }
+    };
 
-    }
-    // Una tabla con error no debe anular los datos válidos de todas las demás.
-    // Devolvemos las entidades que sí se pudieron leer y los errores por separado,
-    // para que la interfaz muestre datos parciales y permita diagnosticar el módulo fallido.
+    const loadSection6 = async () => {
+  // 6. Suppliers
+      if (shouldLoad('suppliers')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM suppliers ORDER BY name ASC');
+        for (const row of res.rows) {
+          suppliers.push({
+            id: String(row.id),
+            name: String(row.name),
+            rif: String(row.rif),
+            phone: String(row.phone || ''),
+            email: String(row.email || ''),
+            contactPerson: String(row.contact_person || ''),
+            contactName: String(row.contact_name || row.contact_person || ''),
+            address: String(row.address || ''),
+            creditDays: Number(row.credit_days || 15),
+            creditLimitUSD: Number(row.credit_limit_usd || 0),
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching suppliers from Turso:', e);
+        recordLoadError('suppliers', e);
+      }
+  
+          }
+    };
+
+    const loadSection7 = async () => {
+  // 7. Orders
+      if (shouldLoad('orders')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM orders ORDER BY created_at DESC');
+        for (const row of res.rows) {
+          orders.push({
+            id: String(row.id),
+            orderNumber: String(row.order_number),
+            customerId: String(row.customer_id),
+            customerName: String(row.customer_name),
+            customerRif: String(row.customer_rif || ''),
+            customerPhone: String(row.customer_phone || ''),
+            customerAddress: String(row.customer_address || ''),
+            items: JSON.parse(String(row.items || '[]')),
+            subtotalUSD: Number(row.subtotal_usd),
+            taxUSD: Number(row.tax_usd),
+            totalUSD: Number(row.total_usd),
+            totalBs: Number(row.total_bs),
+            bcvRate: Number(row.bcv_rate),
+            paymentMethod: row.payment_method as any,
+            cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
+            documentSeries: row.document_series ? String(row.document_series) : undefined,
+            documentSequence: row.document_sequence != null ? Number(row.document_sequence) : undefined,
+            returnNumber: row.return_number ? String(row.return_number) : undefined,
+            voidNumber: row.void_number ? String(row.void_number) : undefined,
+            paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
+            paymentStatus: row.payment_status as any,
+            orderStatus: row.order_status as any,
+            paymentReference: row.payment_reference ? String(row.payment_reference) : undefined,
+            channel: row.channel as any,
+            createdAt: String(row.created_at),
+            estimatedDelivery: row.estimated_delivery ? String(row.estimated_delivery) : undefined,
+            creditDueDate: row.credit_due_date ? String(row.credit_due_date) : undefined,
+            creditDays: row.credit_days ? Number(row.credit_days) : undefined,
+            notes: row.notes ? String(row.notes) : undefined,
+            isVoided: Boolean(row.is_voided),
+            voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+            voidedBy: row.voided_by ? String(row.voided_by) : undefined,
+            voidReason: row.void_reason ? String(row.void_reason) : undefined,
+            isReturned: Boolean(row.is_returned),
+            returnedAt: row.returned_at ? String(row.returned_at) : undefined,
+            returnedBy: row.returned_by ? String(row.returned_by) : undefined,
+            returnReason: row.return_reason ? String(row.return_reason) : undefined,
+            approvedAt: row.approved_at ? String(row.approved_at) : undefined,
+            reservedAt: row.reserved_at ? String(row.reserved_at) : undefined,
+            posRegisteredAt: row.pos_registered_at ? String(row.pos_registered_at) : undefined,
+            posRegisteredBy: row.pos_registered_by ? String(row.pos_registered_by) : undefined,
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching orders from Turso:', e);
+        recordLoadError('orders', e);
+      }
+  
+          }
+    };
+
+    const loadSection8 = async () => {
+  // 8. Invoices
+      if (shouldLoad('invoices')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM invoices ORDER BY created_at DESC');
+        for (const row of res.rows) {
+          invoices.push({
+            id: String(row.id),
+            invoiceNumber: String(row.invoice_number),
+            orderId: String(row.order_id),
+            customerId: String(row.customer_id),
+            customerName: String(row.customer_name),
+            customerRif: String(row.customer_rif),
+            customerAddress: String(row.customer_address),
+            customerPhone: String(row.customer_phone),
+            items: JSON.parse(String(row.items || '[]')),
+            subtotalUSD: Number(row.subtotal_usd),
+            taxUSD: Number(row.tax_usd),
+            totalUSD: Number(row.total_usd),
+            totalBs: Number(row.total_bs),
+            bcvRate: Number(row.bcv_rate),
+            paymentMethod: row.payment_method as any,
+            cashSessionId: row.cash_session_id ? String(row.cash_session_id) : undefined,
+            paymentSplits: row.payment_splits ? JSON.parse(String(row.payment_splits)) : undefined,
+            paymentStatus: row.payment_status as any,
+            createdAt: String(row.created_at),
+            dueDate: row.due_date ? String(row.due_date) : undefined,
+            isCredit: Boolean(row.is_credit),
+            creditDays: row.credit_days ? Number(row.credit_days) : undefined,
+            isVoided: Boolean(row.is_voided),
+            voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+            voidedBy: row.voided_by ? String(row.voided_by) : undefined,
+            voidReason: row.void_reason ? String(row.void_reason) : undefined,
+            isReturned: Boolean(row.is_returned),
+            returnedAt: row.returned_at ? String(row.returned_at) : undefined,
+            returnedBy: row.returned_by ? String(row.returned_by) : undefined,
+            returnReason: row.return_reason ? String(row.return_reason) : undefined,
+            approvedAt: row.approved_at ? String(row.approved_at) : undefined,
+            posRegisteredAt: row.pos_registered_at ? String(row.pos_registered_at) : undefined,
+            posRegisteredBy: row.pos_registered_by ? String(row.pos_registered_by) : undefined,
+            terminalId: row.terminal_id ? String(row.terminal_id) : undefined,
+            documentSeries: row.document_series ? String(row.document_series) : undefined,
+            documentSequence: row.document_sequence != null ? Number(row.document_sequence) : undefined,
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching invoices from Turso:', e);
+        recordLoadError('invoices', e);
+      }
+  
+          }
+    };
+
+    const loadSection9 = async () => {
+  // 9. Accounts Receivable
+      if (shouldLoad('accounts_receivable')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM accounts_receivable ORDER BY due_date ASC');
+        for (const row of res.rows) {
+          receivables.push({
+            id: String(row.id),
+            invoiceId: String(row.invoice_id),
+            invoiceNumber: String(row.invoice_number),
+            customerId: String(row.customer_id),
+            customerName: String(row.customer_name),
+            customerPhone: String(row.customer_phone || ''),
+            totalAmountUSD: Number(row.total_amount_usd),
+            amountPaidUSD: Number(row.amount_paid_usd),
+            balanceUSD: Number(row.balance_usd),
+            issuedDate: String(row.issued_date),
+            dueDate: String(row.due_date),
+            creditDays: Number(row.credit_days || 15),
+            status: row.status as any,
+            isVoided: Boolean(row.is_voided),
+            voidedAt: row.voided_at ? String(row.voided_at) : undefined,
+            voidReason: row.void_reason ? String(row.void_reason) : undefined,
+            paymentHistory: row.payment_history ? JSON.parse(String(row.payment_history)) : [],
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching receivables from Turso:', e);
+        recordLoadError('accounts_receivable', e);
+      }
+  
+          }
+    };
+
+    const loadSection10 = async () => {
+  // 10. Accounts Payable
+      if (shouldLoad('accounts_payable')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM accounts_payable ORDER BY due_date ASC');
+        for (const row of res.rows) {
+          payables.push({
+            id: String(row.id),
+            supplierId: String(row.supplier_id),
+            supplierName: String(row.supplier_name),
+            invoiceNumber: String(row.invoice_number),
+            description: String(row.description),
+            totalAmountUSD: Number(row.total_amount_usd),
+            amountPaidUSD: Number(row.amount_paid_usd),
+            balanceUSD: Number(row.balance_usd),
+            issuedDate: String(row.issued_date),
+            dueDate: String(row.due_date),
+            status: row.status as any,
+            paymentHistory: row.payment_history ? JSON.parse(String(row.payment_history)) : [],
+            items: row.items_json ? JSON.parse(String(row.items_json)) : undefined,
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching payables from Turso:', e);
+        recordLoadError('accounts_payable', e);
+      }
+  
+          }
+    };
+
+    const loadSection11 = async () => {
+  // 11. Purchase entries
+      if (shouldLoad('purchase_entries')) {
+      
+      try {
+        const res = await client.execute('SELECT data FROM purchase_entries ORDER BY created_at DESC');
+        for (const row of res.rows) {
+          if (row.data) purchaseEntries.push(JSON.parse(String(row.data)));
+        }
+      } catch (e) {
+        console.warn('Error fetching purchase entries from Turso:', e);
+        recordLoadError('purchase_entries', e);
+      }
+  
+      // Recuperación de renglones de CxP históricos: las entradas de compra
+      // son la fuente completa del detalle y permiten reconstruir facturas
+      // creadas antes de existir items_json en accounts_payable.
+      if (purchaseEntries.length > 0 && payables.some((p) => !p.items?.length)) {
+        const byInvoice = new Map<string, PurchaseEntry>();
+        for (const entry of purchaseEntries) {
+          if (entry.invoiceNumber) byInvoice.set(entry.invoiceNumber.trim(), entry);
+        }
+        for (const payable of payables) {
+          if (payable.items?.length) continue;
+          const entry = byInvoice.get((payable.invoiceNumber || '').trim());
+          if (!entry?.items?.length) continue;
+          payable.items = entry.items.map((item) => ({
+            productName: item.productName,
+            quantity: item.quantity,
+            unitPriceUSD: item.realCostUSD,
+            subtotalUSD: item.subtotalUSD,
+          }));
+        }
+      }
+  
+          }
+    };
+
+    const loadSection12 = async () => {
+  // 12. Users
+      if (shouldLoad('system_users')) {
+      
+      try {
+        const res = await client.execute('SELECT * FROM system_users ORDER BY name ASC');
+        for (const row of res.rows) {
+          users.push({
+            id: String(row.id),
+            name: String(row.name),
+            email: String(row.email),
+            role: row.role as any,
+            avatar: row.avatar ? String(row.avatar) : undefined,
+            active: Boolean(row.active),
+            isInitialGeneric: Boolean(row.is_initial_generic),
+            createdAt: String(row.created_at || new Date().toISOString()),
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching users from Turso:', e);
+        recordLoadError('system_users', e);
+      }
+  
+          }
+    };
+
+    const loadSection13 = async () => {
+  // 12. BCV History from table
+      if (shouldLoad('system_settings')) {
+      // Merge BCV history from the dedicated table when settings are loaded.
+      try {
+        const bcvRes = await client.execute('SELECT * FROM bcv_history ORDER BY date DESC LIMIT 500');
+        if (bcvRes.rows.length > 0 && settings) {
+          const tableEntries: BcvHistoryEntry[] = bcvRes.rows.map((row) => ({
+            id: String(row.id),
+            rate: Number(row.rate),
+            date: String(row.date),
+            type: (row.type as 'manual' | 'automatic') || 'automatic',
+            updatedBy: String(row.updated_by || 'BCV'),
+            previousRate: row.previous_rate !== null ? Number(row.previous_rate) : undefined,
+            changePercent: row.change_percent !== null ? Number(row.change_percent) : undefined,
+            source: 'https://bcv.today/api/rate.json',
+          }));
+          // Merge with settings.bcvHistory avoiding duplicates
+          const existingIds = new Set((settings.bcvHistory || []).map((h) => h.id));
+          const merged = [...(settings.bcvHistory || [])];
+          for (const item of tableEntries) {
+            if (!existingIds.has(item.id)) {
+              merged.push(item);
+              existingIds.add(item.id);
+            }
+          }
+          settings.bcvHistory = merged.sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+        }
+      } catch (e) {
+        console.warn('Error fetching bcv_history from Turso:', e);
+        recordLoadError('bcv_history', e);
+      }
+  
+          }
+    };
+
+    const loadSection14 = async () => {
+  // 13. Notifications
+      if (shouldLoad('system_notifications')) {
+      
+      try {
+        const res = await client.execute(
+          "SELECT * FROM system_notifications WHERE title != 'Sesión Finalizada' ORDER BY created_at DESC LIMIT 200"
+        );
+        for (const row of res.rows) {
+          notifications.push({
+            id: String(row.id),
+            title: String(row.title),
+            message: String(row.message),
+            type: row.type as any,
+            read: Boolean(row.read),
+            createdAt: String(row.created_at || new Date().toISOString()),
+            targetRole: row.target_role ? (String(row.target_role) as any) : undefined,
+            targetCustomerId: row.target_customer_id ? String(row.target_customer_id) : undefined,
+            relatedOrderId: row.related_order_id ? String(row.related_order_id) : undefined,
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching notifications from Turso:', e);
+        recordLoadError('system_notifications', e);
+      }
+  
+      }
+      // Una tabla con error no debe anular los datos válidos de todas las demás.
+      // Devolvemos las entidades que sí se pudieron leer y los errores por separado,
+      // para que la interfaz muestre datos parciales y permita diagnosticar el módulo fallido.
+    };
+
+    // Las tablas no dependen unas de otras para su lectura. Ejecutarlas en paralelo
+    // reduce la carga inicial de muchos viajes HTTP secuenciales a una sola ventana concurrente.
+    await Promise.all([loadSection1(), loadSection2(), loadSection3(), loadSection4(), loadSection5(), loadSection6(), loadSection7(), loadSection8(), loadSection9(), loadSection10(), loadSection11(), loadSection12(), loadSection13(), loadSection14()]);
+
     return {
       loadErrors,
       settings,
