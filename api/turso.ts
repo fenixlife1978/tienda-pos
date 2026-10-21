@@ -49,53 +49,9 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'authenticateUser') {
-      const username = String(body.username || '').trim().toLowerCase();
-      const password = String(body.password || '');
-      const role = String(body.role || '').trim();
-      if (!username || !password) return res.status(400).json({ error: 'Credenciales incompletas' });
-
-      if (username === 'admin' && password === 'Admin123!') {
-        const seed = await client.execute({ sql: `SELECT * FROM system_users WHERE id = 'usr-admin-initial' OR (is_initial_generic = 1 AND LOWER(email) = 'admin') ORDER BY CASE WHEN id = 'usr-admin-initial' THEN 0 ELSE 1 END LIMIT 1`, args: [] });
-        let seedRow: any = seed.rows[0];
-        if (!seedRow) {
-          const anyAdmin = await client.execute({ sql: `SELECT 1 FROM system_users WHERE role = 'admin' AND active = 1 LIMIT 1`, args: [] });
-          if (!anyAdmin.rows.length) {
-            await client.execute({ sql: `INSERT INTO system_users (id, name, email, role, active, password, is_initial_generic, created_at) VALUES ('usr-admin-initial', 'Administrador Principal', 'admin', 'admin', 1, 'Admin123!', 1, ?)`, args: [new Date().toISOString().split('T')[0]] });
-            const created = await client.execute({ sql: `SELECT * FROM system_users WHERE id = 'usr-admin-initial' LIMIT 1`, args: [] });
-            seedRow = created.rows[0];
-          }
-        } else if (!Number(seedRow.active) || String(seedRow.password || '') !== 'Admin123!') {
-          await client.execute({ sql: `UPDATE system_users SET active = 1, password = 'Admin123!', role = 'admin', email = 'admin', is_initial_generic = 1 WHERE id = ?`, args: [String(seedRow.id)] });
-          const repaired = await client.execute({ sql: `SELECT * FROM system_users WHERE id = ? LIMIT 1`, args: [String(seedRow.id)] });
-          seedRow = repaired.rows[0];
-        }
-        if (seedRow) return res.status(200).json({ user: { id: String(seedRow.id), name: String(seedRow.name), email: String(seedRow.email), role: seedRow.role, avatar: seedRow.avatar ? String(seedRow.avatar) : undefined, active: Boolean(seedRow.active), isInitialGeneric: Boolean(seedRow.is_initial_generic), createdAt: String(seedRow.created_at || new Date().toISOString()) } });
-      }
-
-      const result = await client.execute({
-        sql: `SELECT * FROM system_users
-               WHERE active = 1
-                 AND (LOWER(email) = ? OR LOWER(name) = ? OR (? IN ('admin','administrador') AND (is_initial_generic = 1 OR role = 'admin')))
-               ORDER BY CASE WHEN role = ? THEN 0 ELSE 1 END, is_initial_generic DESC, name ASC
-               LIMIT 1`,
-        args: [username, username, username, role],
-      });
-      const row: any = result.rows[0];
-      if (!row || String(row.password || '') !== password) {
-        return res.status(401).json({ error: 'Usuario o credenciales no encontradas' });
-      }
-      return res.status(200).json({
-        user: {
-          id: String(row.id),
-          name: String(row.name),
-          email: String(row.email),
-          role: row.role,
-          avatar: row.avatar ? String(row.avatar) : undefined,
-          active: Boolean(row.active),
-          isInitialGeneric: Boolean(row.is_initial_generic),
-          createdAt: String(row.created_at || new Date().toISOString()),
-        }
-      });
+      // La autenticación debe pasar exclusivamente por /api/auth/login.
+      // Esta ruta genérica no ofrece autenticación alternativa ni crea usuarios.
+      return res.status(410).json({ error: 'Use el endpoint seguro de autenticación.' });
     }
 
     if (body.operation === 'resetDatabase') {
@@ -126,7 +82,7 @@ export default async function handler(req: any, res: any) {
           SELECT name FROM sqlite_master
           WHERE type='table'
             AND name NOT LIKE 'sqlite_%'
-            AND name NOT IN ('omni_schema_meta', 'activity_changes')
+            AND name NOT IN ('omni_schema_meta', 'activity_changes', 'system_users', 'auth_sessions')
           ORDER BY name
         `);
         const tables = tablesResult.rows
@@ -148,13 +104,8 @@ export default async function handler(req: any, res: any) {
           if (Number(count.rows[0]?.n || 0) !== 0) throw new Error('Reinicio incompleto: la tabla ' + tableName + ' todavía contiene datos');
         }
 
-        // Único dato operativo que permanece después del reinicio.
-        await tx.execute({
-          sql: `INSERT INTO system_users
-            (id, name, email, role, active, password, is_initial_generic, created_at)
-            VALUES ('usr-admin-initial', 'Administrador Principal', 'admin', 'admin', 1, 'Admin123!', 1, ?)`,
-          args: [new Date().toISOString().split('T')[0]],
-        });
+        // Se conservan las cuentas y sesiones para no recrear credenciales predeterminadas.
+        // El reinicio borra datos operativos, no identidades ni sesiones de autenticación.
 
         await tx.commit();
         await client.execute('PRAGMA foreign_keys = ON');
