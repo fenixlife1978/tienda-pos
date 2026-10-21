@@ -1453,17 +1453,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         const data = await response.json();
         if (cancelled || !data?.authenticated || !data?.user) return;
+        // La API ya confirmó la sesión. Restaurar la vista administrativa antes
+        // de consultar cajas: una consulta lenta/fallida de terminales no debe
+        // expulsar al administrador a la landing después de F5.
         sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(data.user));
-        const assigned = await tursoService.listUserTerminals(String(data.user.id), true);
-        const activeTerminal = sessionStorage.getItem('omni_terminal_id_v2');
-        if (activeTerminal && !assigned.some((t) => t.id === activeTerminal)) {
-          terminalIdentity.clear();
-        } else if (!activeTerminal && assigned.length === 1) {
-          terminalIdentity.setId(assigned[0].id);
-        }
         setCurrentUser(data.user);
         setIsAdminActive(true);
         setMode('erp');
+
+        try {
+          const assigned = await tursoService.listUserTerminals(String(data.user.id), true);
+          const activeTerminal = sessionStorage.getItem('omni_terminal_id_v2');
+          if (activeTerminal && !assigned.some((t) => t.id === activeTerminal)) {
+            terminalIdentity.clear();
+          } else if (!activeTerminal && assigned.length === 1) {
+            terminalIdentity.setId(assigned[0].id);
+          }
+        } catch (terminalError) {
+          // La sesión ya está validada. Registrar el problema sin invalidar
+          // el acceso ni reemplazar el ERP por la landing.
+          console.warn('Sesión restaurada; no se pudieron refrescar las cajas asignadas:', terminalError);
+        }
         const savedTab = sessionStorage.getItem('omni_erp_active_tab');
         if (savedTab) window.dispatchEvent(new CustomEvent('omni-restore-erp-tab', { detail: savedTab }));
       } catch (error) {
