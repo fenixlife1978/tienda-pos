@@ -1233,15 +1233,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
       if (!cancelled) {
-        // Sondeo corto para que los cambios entre cliente y administración
-        // aparezcan prácticamente en tiempo real. En una pestaña oculta
-        // reducimos la frecuencia para no gastar recursos innecesariamente.
-        const delay = document.hidden ? 1500 : 250;
+        // No consultar Turso continuamente: cada ciclo requiere round-trips
+        // al backend. Mantener sincronización frecuente sin competir con la carga
+        // inicial ni saturar la conexión en pestañas activas.
+        const delay = document.hidden ? 15000 : 5000;
         timer = window.setTimeout(tick, delay);
       }
     };
 
-    timer = window.setTimeout(tick, 250);
+    // La primera reconciliación se realiza durante el arranque; el sondeo
+    // periódico comienza después para evitar solicitudes encadenadas.
+    timer = window.setTimeout(tick, 5000);
     return () => {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
