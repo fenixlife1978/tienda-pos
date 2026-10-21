@@ -312,11 +312,6 @@ export const CustomerOrdersModal: React.FC = () => {
         </div>
       </div>
 
-      {/* Embedded Invoice Modal */}
-      <InvoiceModal
-        invoice={selectedInvoiceForModal}
-        onClose={() => setSelectedInvoiceForModal(null)}
-      />
     </>
   );
 };
