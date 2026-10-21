@@ -11,7 +11,7 @@ interface AdminLoginModalProps {
 }
 
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClose }) => {
-  const { users, setCurrentUser, setIsAdminActive, setMode } = useApp();
+  const { setCurrentUser, setIsAdminActive, setMode } = useApp();
 
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -21,6 +21,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
   const [assignedTerminals, setAssignedTerminals] = useState<Terminal[]>([]);
   const [selectedTerminalId, setSelectedTerminalId] = useState('');
   const [pendingUser, setPendingUser] = useState<any | null>(null);
+  const [pendingSessionId, setPendingSessionId] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -34,6 +35,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       setAssignedTerminals([]);
       setSelectedTerminalId('');
       setPendingUser(null);
+      setPendingSessionId('');
     }
   }, [isOpen]);
 
@@ -55,13 +57,30 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       return;
     }
 
-    // Authentication is verified against centralized Turso, not this browser's cached users.
-    const cloudUser = await tursoService.authenticateUser(trimmedUser, trimmedPass, selectedRole);
-    if (!cloudUser) {
-      setError('Usuario o contraseña incorrectos, o usuario inactivo.');
+    // La autenticación debe crear una sesión de servidor restaurable tras F5.
+    // No usar solo authenticateUser() aquí: esa llamada no genera el token de sesión
+    // que /api/auth/session exige para recuperar el panel administrativo.
+    let authData: any;
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        body: JSON.stringify({ username: trimmedUser, password: trimmedPass, role: selectedRole }),
+      });
+      authData = await response.json().catch(() => ({}));
+      if (!response.ok || !authData?.sessionId || !authData?.user) {
+        setError(authData?.error || 'No se pudo validar el acceso administrativo.');
+        return;
+      }
+    } catch (authError) {
+      console.error('Error autenticando administrador con el servidor:', authError);
+      setError('No se pudo conectar con el servicio de autenticación. Inténtalo nuevamente.');
       return;
     }
-    const matchedUser = cloudUser;
+    const matchedUser = authData.user;
+    const sessionId = String(authData.sessionId);
 
 
     let terminals: Terminal[] = [];
@@ -78,6 +97,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       setSelectedTerminalId(terminals[0].id);
     } else if (terminals.length > 1) {
       setPendingUser(matchedUser);
+      setPendingSessionId(sessionId);
       setSelectedTerminalId(terminals[0].id);
       return;
     } else {
@@ -85,6 +105,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     }
 
     sessionStorage.removeItem('omni_active_customer_id');
+    sessionStorage.setItem('tienda_pos_tab_session', sessionId);
+    sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(matchedUser));
     setCurrentUser(matchedUser);
     sessionStorage.setItem('omni_erp_active_tab', 'dashboard');
     sessionStorage.setItem('omni_admin_authenticated', '1');
@@ -97,12 +119,15 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     if (!pendingUser || !selectedTerminalId) return;
     terminalIdentity.setId(selectedTerminalId);
     sessionStorage.removeItem('omni_active_customer_id');
+    if (pendingSessionId) sessionStorage.setItem('tienda_pos_tab_session', pendingSessionId);
+    sessionStorage.setItem('tienda_pos_admin_user', JSON.stringify(pendingUser));
     setCurrentUser(pendingUser);
     sessionStorage.setItem('omni_erp_active_tab', 'dashboard');
     sessionStorage.setItem('omni_admin_authenticated', '1');
     setIsAdminActive(true);
     setMode('erp');
     setPendingUser(null);
+    setPendingSessionId('');
     onClose();
   };
 
