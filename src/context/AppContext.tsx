@@ -1440,15 +1440,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (!tabSession) return;
       try {
-        const response = await fetch('/api/auth/session', {
-          method: 'GET',
-          credentials: 'same-origin',
-          cache: 'no-store',
-          headers: { 'Cache-Control': 'no-cache', 'X-Tienda-Pos-Session': tabSession },
-        });
-        if (!response.ok) {
+        // Reintentar errores temporales de red/servidor. Una respuesta 5xx no
+        // significa que la sesión sea inválida y nunca debe borrar el token.
+        let response: Response | null = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          if (cancelled) return;
+          try {
+            response = await fetch('/api/auth/session', {
+              method: 'GET',
+              credentials: 'same-origin',
+              cache: 'no-store',
+              headers: { 'Cache-Control': 'no-cache', 'X-Tienda-Pos-Session': tabSession },
+            });
+            if (response.ok || response.status === 401 || response.status === 403) break;
+          } catch (networkError) {
+            if (attempt === 2) throw networkError;
+          }
+          if (attempt < 2) {
+            await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+          }
+        }
+        if (cancelled || !response) return;
+        if (response.status === 401 || response.status === 403) {
+          // Solo invalidar el token cuando el servidor afirma que no es válido.
           sessionStorage.removeItem('tienda_pos_tab_session');
           sessionStorage.removeItem('tienda_pos_admin_user');
+          return;
+        }
+        if (!response.ok) {
+          console.warn('No se pudo validar la sesión por un error temporal del servidor; se conserva el token para reintentar.');
           return;
         }
         const data = await response.json();
