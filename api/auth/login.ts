@@ -81,18 +81,23 @@ export default async function handler(req: any, res: any) {
     }
 
     const sessionId = crypto.randomUUID();
-    await client.execute(`CREATE TABLE IF NOT EXISTS auth_sessions (
-      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL, revoked_at TEXT
-    )`);
-
     const now = new Date();
     const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    await client.execute({
-      sql: `INSERT INTO auth_sessions (id,user_id,created_at,expires_at,revoked_at)
-             VALUES (?,?,?,?,NULL)`,
-      args: [sessionId, String(row.id), now.toISOString(), expires.toISOString()]
-    });
+    // Crear tabla e insertar la sesión en un único viaje al servidor de Turso.
+    await client.batch([
+      {
+        sql: `CREATE TABLE IF NOT EXISTS auth_sessions (
+          id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL, revoked_at TEXT
+        )`,
+        args: [],
+      },
+      {
+        sql: `INSERT INTO auth_sessions (id,user_id,created_at,expires_at,revoked_at)
+              VALUES (?,?,?,?,NULL)`,
+        args: [sessionId, String(row.id), now.toISOString(), expires.toISOString()],
+      },
+    ], 'write');
 
     res.setHeader('Set-Cookie', cookie('tienda_pos_session', sessionId, 7 * 24 * 60 * 60));
     return res.status(200).json({
