@@ -82,7 +82,7 @@ export default async function handler(req: any, res: any) {
           SELECT name FROM sqlite_master
           WHERE type='table'
             AND name NOT LIKE 'sqlite_%'
-            AND name NOT IN ('omni_schema_meta', 'activity_changes', 'system_users', 'auth_sessions')
+            AND name NOT IN ('omni_schema_meta', 'activity_changes', 'system_users')
           ORDER BY name
         `);
         const tables = tablesResult.rows
@@ -104,8 +104,8 @@ export default async function handler(req: any, res: any) {
           if (Number(count.rows[0]?.n || 0) !== 0) throw new Error('Reinicio incompleto: la tabla ' + tableName + ' todavía contiene datos');
         }
 
-        // Se conservan las cuentas y sesiones para no recrear credenciales predeterminadas.
-        // El reinicio borra datos operativos, no identidades ni sesiones de autenticación.
+        // Se conservan las cuentas existentes, pero las sesiones sí se revocan
+        // al reiniciar para exigir una nueva autenticación.
 
         await tx.commit();
         await client.execute('PRAGMA foreign_keys = ON');
