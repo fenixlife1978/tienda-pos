@@ -574,7 +574,7 @@ export default async function handler(req: any, res: any) {
       )`);
       for (const [table, column, definition] of [
         ['purchase_entries','entry_number','TEXT'], ['purchase_entries','data','TEXT'], ['purchase_entries','created_at','TEXT'],
-        ['inventory_movements','product_id','TEXT'], ['inventory_movements','quantity_delta','REAL DEFAULT 0'],
+        ['inventory_movements','movement_id','TEXT'], ['inventory_movements','product_id','TEXT'], ['inventory_movements','quantity_delta','REAL DEFAULT 0'],
         ['inventory_movements','movement_type','TEXT'], ['inventory_movements','source_operation_id','TEXT'],
         ['inventory_movements','terminal_id','TEXT'], ['inventory_movements','created_at','TEXT'],
         ['accounts_payable','supplier_id','TEXT'], ['accounts_payable','supplier_name','TEXT'],
