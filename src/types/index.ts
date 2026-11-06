@@ -412,6 +412,9 @@ export interface Invoice {
   createdAt: string;
   /** Momento en que administración aprobó y contabilizó la venta. */
   approvedAt?: string;
+  /** Momento y usuario que registraron el pedido online en una caja POS. */
+  posRegisteredAt?: string;
+  posRegisteredBy?: string;
   /** Sesión de caja POS asociada al documento, cuando aplica. */
   cashSessionId?: string;
   /** Terminal POS asociada al documento; vacío para pedidos online. */
