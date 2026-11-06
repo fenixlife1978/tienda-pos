@@ -8,6 +8,31 @@ function db() {
   return createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
 }
 
+async function authenticatedUser(req: any, client: any) {
+  const rawHeader = String(req.headers?.['x-tienda-pos-session'] || '').trim();
+  const cookieHeader = String(req.headers?.cookie || '');
+  const match = cookieHeader.match(/(?:^|;\\s*)tienda_pos_session=([^;]+)/);
+  const sessionId = rawHeader || (match ? decodeURIComponent(match[1]) : '');
+  if (!sessionId) return null;
+  const result = await client.execute({
+    sql: `SELECT u.id, u.role, u.active
+          FROM auth_sessions s JOIN system_users u ON u.id=s.user_id
+          WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.active=1
+          LIMIT 1`,
+    args: [sessionId, new Date().toISOString()],
+  });
+  return result.rows[0] || null;
+}
+
+function publicReadTable(sql: string) {
+  const normalized = sql.trim();
+  if (!/^SELECT\\b/i.test(normalized) || /;|--|\\/\\*|\\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\\b/i.test(normalized)) return null;
+  const match = normalized.match(/\\bFROM\\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\\s|$)/i);
+  if (!match) return null;
+  const table = match[1].toLowerCase();
+  return ['products', 'categories', 'units', 'system_settings', 'bcv_history', 'inventory_reservations'].includes(table) ? table : null;
+}
+
 function argsOf(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
@@ -49,53 +74,36 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'authenticateUser') {
-      const username = String(body.username || '').trim().toLowerCase();
-      const password = String(body.password || '');
-      const role = String(body.role || '').trim();
-      if (!username || !password) return res.status(400).json({ error: 'Credenciales incompletas' });
+      return res.status(410).json({ error: 'Método obsoleto. Utiliza /api/auth/login.' });
+    }
 
-      if (username === 'admin' && password === 'Admin123!') {
-        const seed = await client.execute({ sql: `SELECT * FROM system_users WHERE id = 'usr-admin-initial' OR (is_initial_generic = 1 AND LOWER(email) = 'admin') ORDER BY CASE WHEN id = 'usr-admin-initial' THEN 0 ELSE 1 END LIMIT 1`, args: [] });
-        let seedRow: any = seed.rows[0];
-        if (!seedRow) {
-          const anyAdmin = await client.execute({ sql: `SELECT 1 FROM system_users WHERE role = 'admin' AND active = 1 LIMIT 1`, args: [] });
-          if (!anyAdmin.rows.length) {
-            await client.execute({ sql: `INSERT INTO system_users (id, name, email, role, active, password, is_initial_generic, created_at) VALUES ('usr-admin-initial', 'Administrador Principal', 'admin', 'admin', 1, 'Admin123!', 1, ?)`, args: [new Date().toISOString().split('T')[0]] });
-            const created = await client.execute({ sql: `SELECT * FROM system_users WHERE id = 'usr-admin-initial' LIMIT 1`, args: [] });
-            seedRow = created.rows[0];
-          }
-        } else if (!Number(seedRow.active) || String(seedRow.password || '') !== 'Admin123!') {
-          await client.execute({ sql: `UPDATE system_users SET active = 1, password = 'Admin123!', role = 'admin', email = 'admin', is_initial_generic = 1 WHERE id = ?`, args: [String(seedRow.id)] });
-          const repaired = await client.execute({ sql: `SELECT * FROM system_users WHERE id = ? LIMIT 1`, args: [String(seedRow.id)] });
-          seedRow = repaired.rows[0];
+    if (body.operation === 'execute') {
+      const sql = String(body.sql || '').trim();
+      if (!sql) return res.status(400).json({ error: 'Consulta SQL vacía' });
+      const user = await authenticatedUser(req, client);
+      if (!user) {
+        const table = publicReadTable(sql);
+        if (!table) return res.status(401).json({ error: 'Se requiere una sesión válida para consultar o modificar datos administrativos.' });
+        const result = await client.execute({ sql, args: argsOf(body.args) as any });
+        if (table === 'products') {
+          const rows = result.rows.map((row: any) => {
+            const safe = { ...row };
+            for (const key of ['cost_usd','profit_margin_percent','suppliers_info','highest_supplier_cost','composite_components']) delete safe[key];
+            return safe;
+          });
+          return res.status(200).json({ rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
         }
-        if (seedRow) return res.status(200).json({ user: { id: String(seedRow.id), name: String(seedRow.name), email: String(seedRow.email), role: seedRow.role, avatar: seedRow.avatar ? String(seedRow.avatar) : undefined, active: Boolean(seedRow.active), isInitialGeneric: Boolean(seedRow.is_initial_generic), createdAt: String(seedRow.created_at || new Date().toISOString()) } });
+        return res.status(200).json({ rows: result.rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
       }
+      if (/\\b(password|password_hash)\\b/i.test(sql)) return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
+      const result = await client.execute({ sql, args: argsOf(body.args) as any });
+      return res.status(200).json({ rows: result.rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
+    }
 
-      const result = await client.execute({
-        sql: `SELECT * FROM system_users
-               WHERE active = 1
-                 AND (LOWER(email) = ? OR LOWER(name) = ? OR (? IN ('admin','administrador') AND (is_initial_generic = 1 OR role = 'admin')))
-               ORDER BY CASE WHEN role = ? THEN 0 ELSE 1 END, is_initial_generic DESC, name ASC
-               LIMIT 1`,
-        args: [username, username, username, role],
-      });
-      const row: any = result.rows[0];
-      if (!row || String(row.password || '') !== password) {
-        return res.status(401).json({ error: 'Usuario o credenciales no encontradas' });
-      }
-      return res.status(200).json({
-        user: {
-          id: String(row.id),
-          name: String(row.name),
-          email: String(row.email),
-          role: row.role,
-          avatar: row.avatar ? String(row.avatar) : undefined,
-          active: Boolean(row.active),
-          isInitialGeneric: Boolean(row.is_initial_generic),
-          createdAt: String(row.created_at || new Date().toISOString()),
-        }
-      });
+    const publicOperations = new Set(['reserveOrderInventory', 'releaseOrderInventory', 'reportCustomerReceivablePayment']);
+    if (!publicOperations.has(String(body.operation || ''))) {
+      const user = await authenticatedUser(req, client);
+      if (!user) return res.status(401).json({ error: 'Se requiere una sesión administrativa válida.' });
     }
 
     if (body.operation === 'resetDatabase') {
@@ -431,25 +439,6 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    if (body.operation === 'execute') {
-      const sql = String(body.sql || '');
-      // La API genérica no debe exponer las credenciales de clientes.
-      if (/^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql) && /\bcustomers\b/i.test(sql) && /\b(password|password_hash)\b/i.test(sql)) {
-        return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
-      }
-      const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      const rows = /\bcustomers\b/i.test(sql) ? result.rows.map((row: any) => {
-        const safe = { ...row };
-        delete safe.password;
-        delete safe.password_hash;
-        return safe;
-      }) : result.rows;
-      return res.status(200).json({
-        rows,
-        rowsAffected: Number(result.rowsAffected || 0),
-        lastInsertRowid: result.lastInsertRowid == null ? null : String(result.lastInsertRowid),
-      });
-    }
 
     if (body.operation === 'reserveTerminalDocuments') {
       const terminalId = String(body.terminalId || '').trim();
@@ -1176,6 +1165,12 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'offlineSale' || body.operation === 'saleReversal') {
+      const pendingOperation = body.payload;
+      const isPublicOnlineOrder = body.operation === 'offlineSale' && String(pendingOperation?.order?.channel || '') === 'online';
+      if (!isPublicOnlineOrder) {
+        const user = await authenticatedUser(req, client);
+        if (!user) return res.status(401).json({ error: 'Se requiere una sesión administrativa válida para ventas POS y reversiones.' });
+      }
       // Pedidos online y ventas offline reutilizan la tabla orders. Las bases
       // antiguas pueden no tener approved_at; la migración se hace antes de
       // abrir la transacción para que la operación sea compatible sin perder datos.
