@@ -115,9 +115,20 @@ export default async function handler(req: any, res: any) {
         }
         return res.status(200).json({ rows: result.rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
       }
-      if (/\\b(password|password_hash)\\b/i.test(sql)) return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
+      if (/^SELECT\\b/i.test(sql) && /\\b(password|password_hash)\\b/i.test(sql)) {
+        return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
+      }
       const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      return res.status(200).json({ rows: result.rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
+      const readsSensitiveIdentity = /\\bFROM\\s+["'`]?((system_users)|(customers))["'`]?\\b/i.test(sql);
+      const rows = readsSensitiveIdentity
+        ? result.rows.map((row: any) => {
+            const safe = { ...row };
+            delete safe.password;
+            delete safe.password_hash;
+            return safe;
+          })
+        : result.rows;
+      return res.status(200).json({ rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
     }
 
     const publicOperations = new Set(['reserveOrderInventory', 'releaseOrderInventory', 'reportCustomerReceivablePayment', 'offlineSale']);
