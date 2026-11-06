@@ -1494,6 +1494,7 @@ export default async function handler(req: any, res: any) {
       if (!receivableId || !paymentId) return res.status(400).json({ error: 'Pago CxC incompleto.' });
       await ensureColumn(client, 'customers', 'current_debt_usd', 'REAL DEFAULT 0');
       await ensureColumn(client, 'accounts_receivable', 'payment_history', 'TEXT');
+      await ensureColumn(client, 'accounts_receivable', 'is_voided', 'INTEGER DEFAULT 0');
       await ensureColumn(client, 'invoices', 'payment_status', 'TEXT');
       await client.execute(`CREATE TABLE IF NOT EXISTS accounting_entries (
         id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
