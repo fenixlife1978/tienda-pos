@@ -3499,9 +3499,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await tursoService.approveCustomerReceivablePayment(updated, paymentId, currentUser.name);
     setReceivables((prev) => prev.map((r) => r.id === target.id ? updated : r));
 
+    const debtAfterPayment = receivables
+      .filter((item) => item.customerId === target.customerId && !item.isVoided)
+      .reduce((sum, item) => sum + (item.id === target.id ? newBalance : item.balanceUSD), 0);
     setCustomers((prev) => prev.map((customer) =>
       customer.id === target.customerId
-        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - appliedAmount) }
+        ? { ...customer, currentDebtUSD: debtAfterPayment }
         : customer
     ));
     if (isSettled) {
@@ -3617,9 +3620,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       paymentHistory: [paymentRecord, ...(target.paymentHistory || [])],
     };
     setReceivables((prev) => prev.map((item) => item.id === target.id ? updatedReceivable : item));
+    const debtAfterApproval = receivables
+      .filter((item) => item.customerId === target.customerId && !item.isVoided)
+      .reduce((sum, item) => sum + (item.id === target.id ? newBalance : item.balanceUSD), 0);
     setCustomers((prev) => prev.map((customer) =>
       customer.id === target.customerId
-        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - appliedAmount) }
+        ? { ...customer, currentDebtUSD: debtAfterApproval }
         : customer
     ));
     if (isSettled) {
@@ -3757,9 +3763,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setReceivables(updatedReceivables);
+    const debtAfterPayment = updatedReceivables
+      .filter((item) => item.customerId === customerId && !item.isVoided)
+      .reduce((sum, item) => sum + item.balanceUSD, 0);
     setCustomers((custs) => custs.map((customer) =>
       customer.id === customerId
-        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - persisted.appliedTotal) }
+        ? { ...customer, currentDebtUSD: debtAfterPayment }
         : customer
     ));
     if (settledInvoiceNumbers.size > 0) {
