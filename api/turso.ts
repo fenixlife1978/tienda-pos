@@ -153,7 +153,7 @@ export default async function handler(req: any, res: any) {
         if (table === 'products') {
           const rows = result.rows.map((row: any) => {
             const safe = { ...row };
-            for (const key of ['cost_usd','profit_margin_percent','suppliers_info','highest_supplier_cost','composite_components','warehouse_stocks','composite_virtual_stock']) delete safe[key];
+            for (const key of ['cost_usd','profit_margin_percent','suppliers_info','highest_supplier_cost','composite_components','warehouse_stocks']) delete safe[key];
             return safe;
           });
           return res.status(200).json({ rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
@@ -164,8 +164,10 @@ export default async function handler(req: any, res: any) {
             try { settings = JSON.parse(String(row.data || '{}')); } catch {}
             const publicKeys = [
               'companyName','companyRif','companyPhone','companyEmail','companyAddress','companyLogo',
-              'ivaPercentage','defaultCreditDays','defaultCreditLimitUSD','bcvRate','bcvEffectiveDate',
-              'bcvSourceUrl','pagoMovilBank','pagoMovilPhone','pagoMovilRif','zelleEmail','zelleBeneficiary',
+              'ivaPercentage','defaultCreditDays','defaultCreditLimitUSD','bcvRate','autoUpdateBcv',
+              'lastBcvUpdate','bcvAutoUpdateIntervalSeconds','bcvEffectiveDate','bcvSourceUrl','bcvHistory',
+              'acceptedPaymentMethods','pagoMovilBank','pagoMovilPhone','pagoMovilRif','zelleEmail','zelleBeneficiary',
+              'transferenciaBank','transferenciaAccountNumber','transferenciaAccountType','transferenciaBeneficiary','transferenciaRif',
             ];
             const safeSettings: any = {};
             for (const key of publicKeys) if (settings[key] !== undefined) safeSettings[key] = settings[key];
