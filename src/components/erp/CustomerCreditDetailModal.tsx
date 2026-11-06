@@ -38,7 +38,7 @@ interface CustomerCreditDetailModalProps {
       notes?: string;
       bcvRate?: number;
     }
-  ) => void;
+  ) => Promise<void>;
   onRegisterGlobalCustomerPayment: (
     customerId: string,
     amountUSD: number,
@@ -48,7 +48,7 @@ interface CustomerCreditDetailModalProps {
       notes?: string;
       bcvRate?: number;
     }
-  ) => { liquidatedInvoicesCount: number; partialAbonoUSD: number; fullyPaidTotalUSD: number };
+  ) => Promise<{ liquidatedInvoicesCount: number; partialAbonoUSD: number; fullyPaidTotalUSD: number }>;
   onLiquidateCustomerInvoice: (
     receivableId: string,
     details?: {
@@ -57,7 +57,7 @@ interface CustomerCreditDetailModalProps {
       notes?: string;
       bcvRate?: number;
     }
-  ) => void;
+  ) => Promise<void>;
   onLiquidateCustomerTotalDebt: (
     customerId: string,
     details?: {
@@ -66,7 +66,7 @@ interface CustomerCreditDetailModalProps {
       notes?: string;
       bcvRate?: number;
     }
-  ) => void;
+  ) => Promise<void>;
   onOpenCreditConfig: (customer: Customer) => void;
   onInspectInvoice: (invoice: Invoice | null, receivable: ReceivableItem | null) => void;
 }
@@ -166,11 +166,11 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
   const fifoPreview = simulateFifoDistribution(globalPayAmount || 0);
 
   // Handle Global Payment Submission
-  const handleExecuteGlobalPayment = (e: React.FormEvent) => {
+  const handleExecuteGlobalPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (globalPayAmount <= 0) return;
 
-    const result = onRegisterGlobalCustomerPayment(customer.id, globalPayAmount, {
+    const result = await onRegisterGlobalCustomerPayment(customer.id, globalPayAmount, {
       paymentMethod: globalPaymentMethod,
       reference: globalPayReference,
       notes: globalPayNotes || 'Abono Global Distribuido (FIFO)',
@@ -189,11 +189,11 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
   };
 
   // Handle Single Invoice Payment Submission
-  const handleExecuteSinglePayment = (e: React.FormEvent) => {
+  const handleExecuteSinglePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activePayingReceivable || singlePayAmount <= 0) return;
 
-    onRegisterReceivablePayment(activePayingReceivable.id, singlePayAmount, {
+    await onRegisterReceivablePayment(activePayingReceivable.id, singlePayAmount, {
       paymentMethod: singlePaymentMethod,
       reference: singlePayReference,
       notes: singlePayNotes || 'Abono individual a factura',
@@ -205,9 +205,9 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
     setSinglePayNotes('');
   };
 
-  const handle1ClickLiquidateInvoice = (rec: ReceivableItem) => {
+  const handle1ClickLiquidateInvoice = async (rec: ReceivableItem) => {
     if (window.confirm(`¿Confirmas la liquidación total de la factura ${rec.invoiceNumber} por $${rec.balanceUSD.toFixed(2)} USD?`)) {
-      onLiquidateCustomerInvoice(rec.id, {
+      await onLiquidateCustomerInvoice(rec.id, {
         paymentMethod: 'transferencia_usd',
         notes: 'Liquidación directa 100% de factura',
         bcvRate: bcvRate,
@@ -215,14 +215,14 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
     }
   };
 
-  const handle1ClickLiquidateTotalDebt = () => {
+  const handle1ClickLiquidateTotalDebt = async () => {
     if (totalDebtUSD <= 0) return;
     if (
       window.confirm(
         `¿Confirmas la liquidación TOTAL de la deuda de ${customer.name} por $${totalDebtUSD.toFixed(2)} USD (${pendingReceivables.length} facturas)?`
       )
     ) {
-      onLiquidateCustomerTotalDebt(customer.id, {
+      await onLiquidateCustomerTotalDebt(customer.id, {
         paymentMethod: 'transferencia_usd',
         notes: 'Cancelación / Liquidación TOTAL de deuda',
         bcvRate: bcvRate,
