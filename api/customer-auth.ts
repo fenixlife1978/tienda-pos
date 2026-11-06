@@ -114,6 +114,66 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: 'No se pudo cerrar la sesión del cliente' });
     }
   }
+  if (operation === 'notifySeller') {
+    try {
+      const client = db();
+      const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || '').trim();
+      let customerId = '';
+      if (sessionId) {
+        const session = await client.execute({
+          sql: `SELECT s.customer_id FROM customer_sessions s
+                JOIN customers c ON c.id=s.customer_id
+                WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
+                  AND COALESCE(c.account_status,'active')='active' LIMIT 1`,
+          args: [sessionId, new Date().toISOString()],
+        });
+        customerId = String(session.rows[0]?.customer_id || '');
+      }
+      const relatedOrderId = String(body.relatedOrderId || '').trim();
+      if (relatedOrderId) {
+        const order = await client.execute({
+          sql: 'SELECT customer_id, channel FROM orders WHERE id=? LIMIT 1',
+          args: [relatedOrderId],
+        });
+        const orderRow: any = order.rows[0];
+        if (!orderRow || String(orderRow.channel) !== 'online') return res.status(404).json({ error: 'Pedido online no encontrado' });
+        if (customerId ? customerId !== String(orderRow.customer_id || '') : String(orderRow.customer_id || '') !== 'cust-generic') {
+          return res.status(403).json({ error: 'No puedes notificar sobre este pedido' });
+        }
+      } else if (!customerId) {
+        return res.status(401).json({ error: 'Sesión de cliente requerida' });
+      }
+      const title = String(body.title || '').trim().slice(0, 120);
+      const message = String(body.message || '').trim().slice(0, 500);
+      const type = String(body.type || 'order_status');
+      if (!title || !message || !['order_status', 'credit_alert'].includes(type)) {
+        return res.status(400).json({ error: 'Notificación de cliente no válida' });
+      }
+      await client.execute(`CREATE TABLE IF NOT EXISTS system_notifications (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL, type TEXT NOT NULL,
+        target_role TEXT, target_customer_id TEXT, related_order_id TEXT, read INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`);
+      const notificationId = 'notif-' + randomBytes(12).toString('hex');
+      const createdAt = new Date().toISOString();
+      await client.execute({
+        sql: 'INSERT INTO system_notifications (id,title,message,type,target_role,target_customer_id,related_order_id,read,created_at) VALUES (?,?,?,?,NULL,?,0,?)',
+        args: [],
+      }).catch(() => undefined);
+      await client.execute({
+        sql: 'INSERT INTO system_notifications (id,title,message,type,target_role,target_customer_id,related_order_id,read,created_at) VALUES (?,?,?,?,\'seller\',NULL,?,0,?)',
+        args: [notificationId, title, message, type, relatedOrderId || null, createdAt],
+      });
+      await client.execute({
+        sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('system_notifications', ?, 'customer_notification', ?)",
+        args: [notificationId, createdAt],
+      });
+      return res.status(200).json({ ok: true, notificationId });
+    } catch (error) {
+      console.error('Customer notification error:', error);
+      return res.status(500).json({ error: 'No se pudo enviar la notificación a administración' });
+    }
+  }
   if (operation === 'updatePreferences') {
     try {
       const client = db();
