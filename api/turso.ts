@@ -1483,11 +1483,19 @@ export default async function handler(req: any, res: any) {
         const newBalance = Math.max(0, balance - amount);
         const isSettled = newBalance <= 0.01;
         const approvedAt = new Date().toISOString();
+        const requestedApproved = Array.isArray(body.receivable?.paymentHistory)
+          ? body.receivable.paymentHistory.find((item: any) => String(item.id) === paymentId)
+          : null;
         const approvedPayment = {
           ...pendingPayment,
           verificationStatus: 'aprobado',
           approvedBy,
           approvedAt,
+          registeredBy: approvedBy,
+          terminalId: requestedApproved?.terminalId || null,
+          cashSessionId: requestedApproved?.cashSessionId || null,
+          receiptNumber: requestedApproved?.receiptNumber || null,
+          notes: requestedApproved?.notes || pendingPayment.notes || '',
           balanceAfterUSD: newBalance,
           isFullSettlement: isSettled,
         };
@@ -1543,7 +1551,7 @@ export default async function handler(req: any, res: any) {
             accountingId,
             'cxc-payment-' + paymentId,
             String(row.invoice_id || ''),
-            String(row.invoice_number || ''),
+            String(approvedPayment.receiptNumber || row.invoice_number || ''),
             String(approvedPayment.date || approvedAt),
             'Cobro CxC aprobado ' + String(row.invoice_number || ''),
             'customer_receivable_payment_approval',
