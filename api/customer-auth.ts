@@ -114,6 +114,31 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: 'No se pudo cerrar la sesión del cliente' });
     }
   }
+  if (operation === 'updatePreferences') {
+    try {
+      const client = db();
+      const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || '').trim();
+      if (!sessionId) return res.status(401).json({ error: 'Sesión de cliente requerida' });
+      const session = await client.execute({
+        sql: `SELECT s.customer_id FROM customer_sessions s
+              JOIN customers c ON c.id=s.customer_id
+              WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
+                AND COALESCE(c.account_status,'active')='active' LIMIT 1`,
+        args: [sessionId, new Date().toISOString()],
+      });
+      const customerId = String(session.rows[0]?.customer_id || '');
+      if (!customerId) return res.status(401).json({ error: 'La sesión del cliente expiró o fue revocada' });
+      const preferences = body.preferences || {};
+      await client.execute({
+        sql: 'UPDATE customers SET notification_preferences=? WHERE id=?',
+        args: [JSON.stringify(preferences), customerId],
+      });
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error('Customer preferences error:', error);
+      return res.status(500).json({ error: 'No se pudieron guardar las preferencias' });
+    }
+  }
   if (!['login', 'register'].includes(operation)) return res.status(400).json({ error: 'Operación no válida' });
   if (!password || (operation === 'register' && password.length < 8)) {
     return res.status(400).json({ error: operation === 'register' ? 'La contraseña debe tener al menos 8 caracteres' : 'Credenciales incompletas' });
