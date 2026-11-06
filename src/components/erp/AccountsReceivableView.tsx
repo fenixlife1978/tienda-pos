@@ -253,7 +253,7 @@ export const AccountsReceivableView: React.FC = () => {
     }]);
   };
 
-  const handleProcessPayment = (e: React.FormEvent) => {
+  const handleProcessPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedReceivableForPay || paymentAmount <= 0) return;
     const rate = settings.bcvRate;
@@ -262,14 +262,18 @@ export const AccountsReceivableView: React.FC = () => {
       alert('Los métodos y montos del cobro no cuadran con el saldo pendiente.');
       return;
     }
-    registerReceivablePayment(selectedReceivableForPay.id, normalized, {
-      paymentMethod: paymentSplits.length > 1 ? 'mixto' : paymentSplits[0]?.method || paymentMethod,
-      paymentSplits,
-      reference: paymentReference,
-      notes: paymentNotes,
-      bcvRate: rate,
-    });
-    setSelectedReceivableForPay(null);
+    try {
+      await registerReceivablePayment(selectedReceivableForPay.id, normalized, {
+        paymentMethod: paymentSplits.length > 1 ? 'mixto' : paymentSplits[0]?.method || paymentMethod,
+        paymentSplits,
+        reference: paymentReference,
+        notes: paymentNotes,
+        bcvRate: rate,
+      });
+      setSelectedReceivableForPay(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo registrar el cobro CxC.');
+    }
   };
 
   const handleOpenCreditConfig = (cust: Customer) => {

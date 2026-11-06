@@ -10,6 +10,7 @@ import {
   ProductCategory,
   ProductUnit,
   ReceivableItem,
+  ReceivablePaymentRecord,
   Supplier,
   SystemSettings,
   User,
@@ -2026,6 +2027,24 @@ class TursoService {
   public async reportCustomerReceivablePayment(receivable: ReceivableItem, paymentId: string, customerName: string): Promise<{ duplicate: boolean }> {
     const result = await this.request('reportCustomerReceivablePayment', { receivable, paymentId, customerName });
     return { duplicate: Boolean(result.duplicate) };
+  }
+
+  public async rejectCustomerReceivablePayment(receivableId: string, paymentId: string, rejectedBy: string, notes: string): Promise<void> {
+    const result = await this.request('rejectCustomerReceivablePayment', { receivableId, paymentId, rejectedBy, notes });
+    if (!result?.ok) throw new Error(String(result?.error || 'Turso no confirmó el rechazo del pago reportado.'));
+  }
+
+  public async applyReceivablePayments(
+    customerId: string,
+    updates: Array<{ receivableId: string; paymentRecord: ReceivablePaymentRecord }>
+  ): Promise<{ appliedTotal: number; processedCount: number; duplicate: boolean }> {
+    const result = await this.request('applyReceivablePayments', { customerId, updates });
+    if (!result?.ok) throw new Error(String(result?.error || 'Turso no confirmó los pagos de CxC.'));
+    return {
+      appliedTotal: Number(result.appliedTotal || 0),
+      processedCount: Number(result.processedCount || 0),
+      duplicate: Boolean(result.duplicate),
+    };
   }
 
   public async saveReceivable(r: ReceivableItem) {
