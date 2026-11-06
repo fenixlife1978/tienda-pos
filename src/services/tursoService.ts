@@ -1140,11 +1140,13 @@ class TursoService {
       // Reservas online: el stock físico permanece intacto; el catálogo muestra
       // stock disponible = stock físico - reservas activas.
       try {
-        await client.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
-          id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
-          quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        )`);
+        if (hasAdminSession) {
+          await client.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
+            id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+            quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+          )`);
+        }
         const reservations = await client.execute(
           "SELECT product_id, COALESCE(SUM(quantity), 0) AS reserved FROM inventory_reservations WHERE status = 'reserved' GROUP BY product_id"
         );
