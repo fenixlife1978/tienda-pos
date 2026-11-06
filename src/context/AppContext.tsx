@@ -3634,7 +3634,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Liquidate a specific invoice completely in one action
-  const liquidateCustomerInvoice = (
+  const liquidateCustomerInvoice = async (
     receivableId: string,
     details?: {
       paymentMethod?: PaymentMethod;
@@ -3642,17 +3642,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       notes?: string;
       bcvRate?: number;
     }
-  ) => {
+  ): Promise<void> => {
     const targetRec = receivables.find((r) => r.id === receivableId);
     if (!targetRec || targetRec.balanceUSD <= 0) return;
-    registerReceivablePayment(receivableId, targetRec.balanceUSD, {
+    await registerReceivablePayment(receivableId, targetRec.balanceUSD, {
       ...details,
       notes: details?.notes || 'Cancelación / Liquidación completa de factura',
     });
   };
 
-  // Global FIFO waterfall distribution across all pending customer invoices
-  const registerGlobalCustomerPayment = (
+  // Global FIFO waterfall distribution is committed as one Turso transaction.
+  const registerGlobalCustomerPayment = async (
     customerId: string,
     amountUSD: number,
     details?: {
@@ -3661,18 +3661,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       notes?: string;
       bcvRate?: number;
     }
-  ) => {
-    const rate = details?.bcvRate || settings.bcvRate;
+  ): Promise<{ liquidatedInvoicesCount: number; partialAbonoUSD: number; fullyPaidTotalUSD: number }> => {
+    const rate = Math.max(0.000001, details?.bcvRate || settings.bcvRate);
     const method = details?.paymentMethod || 'transferencia_usd';
     const ref = details?.reference || '';
     const customNotes = details?.notes || 'Abono Global Distribuido (FIFO)';
+    const emptyResult = { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) return emptyResult;
 
-    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
-      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
-    }
-
-    // FIFO real: la aplicación se calcula sobre la cola cronológica y luego
-    // se proyecta por ID. Nunca dependemos del orden físico del array.
     const customerPendingRecs = receivables
       .filter((r) => r.customerId === customerId && r.balanceUSD > 0.001 && !r.isVoided)
       .sort((a, b) => {
@@ -3690,18 +3686,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     for (const rec of customerPendingRecs) {
       if (remainingPayment <= 0.0001) break;
-
       const toPay = Math.min(rec.balanceUSD, remainingPayment);
       if (toPay <= 0.0001) continue;
-
       allocations.set(rec.id, toPay);
       remainingPayment -= toPay;
       appliedTotal += toPay;
-
       const newBalance = Math.max(0, rec.balanceUSD - toPay);
-      const isSettled = newBalance <= 0.01;
-
-      if (isSettled) {
+      if (newBalance <= 0.01) {
         liquidatedCount++;
         fullyPaidTotal += toPay;
         settledInvoiceNumbers.add(rec.invoiceNumber);
@@ -3709,25 +3700,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         partialAbono += toPay;
       }
     }
-
-    if (appliedTotal <= 0.0001) {
-      return { liquidatedInvoicesCount: 0, partialAbonoUSD: 0, fullyPaidTotalUSD: 0 };
-    }
+    if (appliedTotal <= 0.0001) return emptyResult;
 
     const paymentDate = new Date().toISOString();
+    const terminalId = terminalIdentity.getId();
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
+    let cashSessionId: string | undefined;
+    try {
+      const active = JSON.parse(sessionStorage.getItem(`omni_cash_session_v3:${terminalId}`) || 'null');
+      if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
+    } catch {}
+
+    const paymentUpdates: Array<{ receivableId: string; paymentRecord: ReceivablePaymentRecord }> = [];
     const updatedReceivables = receivables.map((rec) => {
       const toPay = allocations.get(rec.id);
       if (!toPay) return rec;
-
       const newPaid = rec.amountPaidUSD + toPay;
-      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
+      const newBalance = Math.max(0, rec.balanceUSD - toPay);
       const isSettled = newBalance <= 0.01;
-
       const record: ReceivablePaymentRecord = {
-        id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${rec.id}`,
+        id: 'pay-' + crypto.randomUUID() + '-' + rec.id,
         date: paymentDate,
         amountUSD: toPay,
-        amountBs: toPay * rate,
+        amountBs: Number((toPay * rate).toFixed(2)),
         bcvRate: rate,
         paymentMethod: method,
         reference: ref,
@@ -3737,8 +3732,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         registeredBy: currentUser.name,
         balanceAfterUSD: newBalance,
         isFullSettlement: isSettled,
+        terminalId,
+        cashSessionId,
+        receiptNumber,
       };
-
+      paymentUpdates.push({ receivableId: rec.id, paymentRecord: record });
       return {
         ...rec,
         amountPaidUSD: newPaid,
@@ -3748,51 +3746,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
+    const persisted = await tursoService.applyReceivablePayments(customerId, paymentUpdates);
+    if (persisted.duplicate) {
+      await syncWithTurso(true).catch((error) => console.warn('No se pudo refrescar el estado CxC:', error));
+      return { liquidatedInvoicesCount: liquidatedCount, partialAbonoUSD: partialAbono, fullyPaidTotalUSD: fullyPaidTotal };
+    }
+
     setReceivables(updatedReceivables);
-    for (const rec of updatedReceivables) {
-      if (allocations.has(rec.id)) void tursoService.saveReceivable(rec).catch((error) => console.error('Error saving global CxC payment to Turso:', error));
-    }
-
-    // Solo descuenta lo realmente aplicado. Si el pago supera toda la deuda,
-    // el sobrante queda sin aplicar y no reduce la deuda por debajo de cero.
-    setCustomers((custs) =>
-      custs.map((c) =>
-        c.id === customerId
-          ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - appliedTotal) }
-          : c
-      )
-    );
-
+    setCustomers((custs) => custs.map((customer) =>
+      customer.id === customerId
+        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - persisted.appliedTotal) }
+        : customer
+    ));
     if (settledInvoiceNumbers.size > 0) {
-      setInvoices((prev) =>
-        prev.map((inv) =>
-          settledInvoiceNumbers.has(inv.invoiceNumber)
-            ? { ...inv, paymentStatus: 'pagado' }
-            : inv
-        )
-      );
+      setInvoices((prev) => prev.map((invoice) =>
+        settledInvoiceNumbers.has(invoice.invoiceNumber) ? { ...invoice, paymentStatus: 'pagado' } : invoice
+      ));
     }
 
-    const customerObj = customers.find((c) => c.id === customerId);
+    const customerObj = customers.find((customer) => customer.id === customerId);
     const custName = customerObj ? customerObj.name : 'Cliente';
     const remainder = Math.max(0, remainingPayment);
-
     triggerPushNotification({
       title: '💳 Abono Global Distribuido (CxC)',
-      message: `Pago de $${amountUSD.toFixed(2)} para ${custName}: se aplicaron $${appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
+      message: `Pago de $${amountUSD.toFixed(2)} para ${custName}: se aplicaron $${persisted.appliedTotal.toFixed(2)} siguiendo FIFO (factura más antigua → más reciente)${remainder > 0.01 ? ` y quedaron $${remainder.toFixed(2)} sin aplicar por no existir más deuda pendiente` : '.'}`,
       type: 'credit_alert',
       targetCustomerId: customerId,
       badge: 'Pago Global CxC',
     });
-
     return {
       liquidatedInvoicesCount: liquidatedCount,
       partialAbonoUSD: partialAbono,
       fullyPaidTotalUSD: fullyPaidTotal,
     };
   };
+
   // Liquidate all debt for a customer
-  const liquidateCustomerTotalDebt = (
+  const liquidateCustomerTotalDebt = async (
     customerId: string,
     details?: {
       paymentMethod?: PaymentMethod;
@@ -3800,11 +3790,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       notes?: string;
       bcvRate?: number;
     }
-  ) => {
+  ): Promise<void> => {
     const custPendingRecs = receivables.filter((r) => r.customerId === customerId && r.balanceUSD > 0.001);
     const totalDebt = custPendingRecs.reduce((sum, r) => sum + r.balanceUSD, 0);
     if (totalDebt <= 0) return;
-    registerGlobalCustomerPayment(customerId, totalDebt, {
+    await registerGlobalCustomerPayment(customerId, totalDebt, {
       ...details,
       notes: details?.notes || 'Liquidación TOTAL de deuda del cliente',
     });
