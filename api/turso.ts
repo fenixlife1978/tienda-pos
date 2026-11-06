@@ -9,10 +9,9 @@ function db() {
 }
 
 async function authenticatedUser(req: any, client: any) {
-  const rawHeader = String(req.headers?.['x-tienda-pos-session'] || '').trim();
-  const cookieHeader = String(req.headers?.cookie || '');
-  const cookieValue = cookieHeader.split(';').map((part: string) => part.trim()).find((part: string) => part.startsWith('tienda_pos_session='));
-  const sessionId = rawHeader || (cookieValue ? decodeURIComponent(cookieValue.slice('tienda_pos_session='.length)) : '');
+  // La sesión ERP es estrictamente por pestaña. No usar la cookie global,
+  // que podría permitir que una pestaña cliente herede otra sesión administrativa.
+  const sessionId = String(req.headers?.['x-tienda-pos-session'] || '').trim();
   if (!sessionId) return null;
   const result = await client.execute({
     sql: `SELECT u.id, u.role, u.active
@@ -196,9 +195,7 @@ export default async function handler(req: any, res: any) {
 
     if (body.operation === 'resetDatabase') {
       // Reinicio destructivo: solo puede ejecutarlo una sesión administrativa válida.
-      const cookieHeader = String(req.headers?.cookie || '');
-      const match = cookieHeader.match(/(?:^|;\\s*)tienda_pos_session=([^;]+)/);
-      const sessionId = match ? decodeURIComponent(match[1]) : '';
+      const sessionId = String(req.headers?.['x-tienda-pos-session'] || '').trim();
       if (!sessionId) return res.status(401).json({ error: 'Sesión administrativa requerida' });
 
       const auth = await client.execute({
