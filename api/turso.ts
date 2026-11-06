@@ -625,10 +625,12 @@ export default async function handler(req: any, res: any) {
         await tx.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_order_product ON inventory_reservations(order_id, product_id)');
         await tx.execute('CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status_product ON inventory_reservations(status, product_id)');
 
-        const existingOrder = await tx.execute({ sql: 'SELECT id, order_status, channel, customer_id, items FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
+        const existingOrder = await tx.execute({ sql: 'SELECT id, order_status, channel, customer_id, items, pos_registered_at FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
         if (!existingOrder.rows.length) throw new Error('Turso no encontró el pedido antes de reservar inventario.');
         const savedOrder: any = existingOrder.rows[0];
-        if (String(savedOrder.channel) !== 'online') throw new Error('Solo se pueden reservar pedidos de la tienda online.');
+        if (String(savedOrder.channel) !== 'online' || savedOrder.pos_registered_at || String(savedOrder.order_status) === 'cancelado') {
+          throw new Error('El pedido no está disponible para reservar inventario.');
+        }
         const adminUser = await authenticatedUser(req, client);
         if (!adminUser) {
           const customerId = await authenticatedCustomer(req, client);
