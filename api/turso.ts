@@ -11,14 +11,14 @@ function db() {
 async function authenticatedUser(req: any, client: any) {
   const rawHeader = String(req.headers?.['x-tienda-pos-session'] || '').trim();
   const cookieHeader = String(req.headers?.cookie || '');
-  const match = cookieHeader.match(/(?:^|;\\s*)tienda_pos_session=([^;]+)/);
-  const sessionId = rawHeader || (match ? decodeURIComponent(match[1]) : '');
+  const cookieValue = cookieHeader.split(';').map((part: string) => part.trim()).find((part: string) => part.startsWith('tienda_pos_session='));
+  const sessionId = rawHeader || (cookieValue ? decodeURIComponent(cookieValue.slice('tienda_pos_session='.length)) : '');
   if (!sessionId) return null;
   const result = await client.execute({
-    sql: `SELECT u.id, u.role, u.active
+    sql: \`SELECT u.id, u.role, u.active
           FROM auth_sessions s JOIN system_users u ON u.id=s.user_id
           WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.active=1
-          LIMIT 1`,
+          LIMIT 1\`,
     args: [sessionId, new Date().toISOString()],
   });
   return result.rows[0] || null;
@@ -26,12 +26,12 @@ async function authenticatedUser(req: any, client: any) {
 
 function publicReadTable(sql: string) {
   const normalized = sql.trim();
-  if (!/^SELECT\\b/i.test(normalized) || /;|--|\\/\\*|\\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\\b/i.test(normalized)) return null;
-  if (/\\bSELECT\\b/i.test(normalized.slice(6))) return null;
-  const match = normalized.match(/\\bFROM\\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\\s|$)/i);
+  if (!/^SELECT\b/i.test(normalized) || /;|--|\/\*|\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(normalized)) return null;
+  if (/\bSELECT\b/i.test(normalized.slice(6))) return null;
+  const match = normalized.match(/\bFROM\s+["'\`]?([a-zA-Z_][a-zA-Z0-9_]*)["'\`]?(?:\s|$)/i);
   if (!match) return null;
   const fromStart = match.index! + match[0].length;
-  const nextClause = normalized.slice(fromStart).search(/\\b(WHERE|GROUP\\s+BY|ORDER\\s+BY|LIMIT)\\b/i);
+  const nextClause = normalized.slice(fromStart).search(/\b(WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT)\b/i);
   const fromTail = normalized.slice(fromStart, nextClause < 0 ? undefined : fromStart + nextClause);
   if (fromTail.includes(',')) return null;
   const table = match[1].toLowerCase();
