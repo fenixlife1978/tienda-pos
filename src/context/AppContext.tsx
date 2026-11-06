@@ -3522,7 +3522,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Accounts Receivable payment registration (Cobro a Clientes)
-  const registerReceivablePayment = (
+  const registerReceivablePayment = async (
     receivableId: string,
     amountUSD: number,
     details?: {
@@ -3533,8 +3533,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       bcvRate?: number;
       sourceReportId?: string;
     }
-  ) => {
-    const rate = details?.bcvRate || settings.bcvRate;
+  ): Promise<void> => {
+    const target = receivables.find((item) => item.id === receivableId);
+    if (!target || target.isVoided || target.balanceUSD <= 0.001) return;
+    const rate = Math.max(0.000001, details?.bcvRate || settings.bcvRate);
     const method = details?.paymentMethod || 'transferencia_usd';
     const ref = details?.reference || '';
     const notes = details?.notes || '';
@@ -3545,12 +3547,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (active?.status === 'open' && active?.terminalId === terminalId) cashSessionId = String(active.id);
     } catch {}
 
-    const suppliedSplits = details?.paymentSplits?.filter(s => Number(s.amountUSD) > 0 || Number(s.amountBs) > 0) || [];
+    const suppliedSplits = details?.paymentSplits?.filter((split) => Number(split.amountUSD) > 0 || Number(split.amountBs) > 0) || [];
     const splits: ReceivablePaymentSplit[] = suppliedSplits.length
-      ? suppliedSplits.map(s => ({ ...s, amountUSD: Number((s.amountUSD || 0).toFixed(6)), amountBs: Number((s.amountBs || 0).toFixed(2)), currency: s.currency }))
+      ? suppliedSplits.map((split) => ({
+          ...split,
+          amountUSD: Number((split.amountUSD || 0).toFixed(6)),
+          amountBs: Number((split.amountBs || 0).toFixed(2)),
+          currency: split.currency,
+        }))
       : [{
-          id: 'cxc-split-' + Date.now(),
-          method: method as Exclude<PaymentMethod,'mixto'>,
+          id: 'cxc-split-' + crypto.randomUUID(),
+          method: method as Exclude<PaymentMethod, 'mixto'>,
           amountUSD: Number(amountUSD.toFixed(6)),
           amountBs: Number((amountUSD * rate).toFixed(2)),
           currency: ['efectivo_bs','transferencia_bs','pago_movil','biopago','tarjeta'].includes(method) ? 'Bs' : 'USD',
@@ -3558,55 +3565,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdAt: new Date().toISOString(),
         }];
 
-    const normalizedAmountUSD = Number(splits.reduce((sum, s) => sum + (s.currency === 'USD' ? s.amountUSD : (s.amountBs / rate)), 0).toFixed(6));
+    const normalizedAmountUSD = Number(splits.reduce(
+      (sum, split) => sum + (split.currency === 'USD' ? split.amountUSD : split.amountBs / rate),
+      0
+    ).toFixed(6));
     if (!Number.isFinite(normalizedAmountUSD) || normalizedAmountUSD <= 0) return;
 
-    const receiptNumber = terminalIdentity.nextReceiptNumber();
-    let customerId = '';
-    let invoiceNumber = '';
-    let isSettled = false;
-
-    setReceivables(prev => prev.map(rec => {
-      if (rec.id !== receivableId) return rec;
-      customerId = rec.customerId;
-      invoiceNumber = rec.invoiceNumber;
-      const actualAmountToPay = Math.min(rec.balanceUSD, normalizedAmountUSD);
-      const newPaid = rec.amountPaidUSD + actualAmountToPay;
-      const newBalance = Math.max(0, rec.totalAmountUSD - newPaid);
-      isSettled = newBalance <= 0.01;
-      const factor = normalizedAmountUSD > 0 ? actualAmountToPay / normalizedAmountUSD : 0;
-      const appliedSplits = splits.map(s => ({ ...s, amountUSD: Number((s.amountUSD * factor).toFixed(6)), amountBs: Number((s.amountBs * factor).toFixed(2)) }));
-      const paymentRecord: ReceivablePaymentRecord = {
-        id: 'pay-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-        date: new Date().toISOString(),
-        amountUSD: actualAmountToPay,
-        amountBs: Number((actualAmountToPay * rate).toFixed(2)),
-        bcvRate: rate,
-        paymentMethod: appliedSplits.length > 1 ? 'mixto' : appliedSplits[0].method,
-        paymentSplits: appliedSplits,
-        reference: ref,
-        notes: notes || (isSettled ? 'Liquidación total de factura' : 'Abono a factura'),
-        registeredBy: currentUser.name,
-        balanceAfterUSD: newBalance,
-        isFullSettlement: isSettled,
-        terminalId,
-        cashSessionId,
-        receiptNumber,
-      };
-      const updatedRec = { ...rec, amountPaidUSD: newPaid, balanceUSD: newBalance, status: isSettled ? 'pagado' : rec.status, paymentHistory: [paymentRecord, ...(rec.paymentHistory || [])] };
-      void tursoService.saveReceivable(updatedRec).catch((error) => console.error('Error saving CxC payment to Turso:', error));
-      return updatedRec;
+    const appliedAmount = Math.min(target.balanceUSD, normalizedAmountUSD);
+    const factor = normalizedAmountUSD > 0 ? appliedAmount / normalizedAmountUSD : 0;
+    const appliedSplits = splits.map((split) => ({
+      ...split,
+      amountUSD: Number((split.amountUSD * factor).toFixed(6)),
+      amountBs: Number((split.amountBs * factor).toFixed(2)),
     }));
+    const receiptNumber = terminalIdentity.nextReceiptNumber();
+    const paymentDate = new Date().toISOString();
+    const newBalance = Math.max(0, target.balanceUSD - appliedAmount);
+    const isSettled = newBalance <= 0.01;
+    const paymentRecord: ReceivablePaymentRecord = {
+      id: 'pay-' + crypto.randomUUID(),
+      date: paymentDate,
+      amountUSD: appliedAmount,
+      amountBs: Number((appliedAmount * rate).toFixed(2)),
+      bcvRate: rate,
+      paymentMethod: appliedSplits.length > 1 ? 'mixto' : appliedSplits[0].method,
+      paymentSplits: appliedSplits,
+      reference: ref,
+      notes: notes || (isSettled ? 'Liquidación total de factura' : 'Abono a factura'),
+      registeredBy: currentUser.name,
+      balanceAfterUSD: newBalance,
+      isFullSettlement: isSettled,
+      terminalId,
+      cashSessionId,
+      receiptNumber,
+    };
 
-    if (customerId) {
-      setCustomers(custs => custs.map(c => c.id === customerId ? { ...c, currentDebtUSD: Math.max(0, c.currentDebtUSD - Math.min(c.currentDebtUSD, normalizedAmountUSD)) } : c));
+    await tursoService.applyReceivablePayments(target.customerId, [{
+      receivableId: target.id,
+      paymentRecord,
+    }]);
+
+    const updatedReceivable: ReceivableItem = {
+      ...target,
+      amountPaidUSD: target.amountPaidUSD + appliedAmount,
+      balanceUSD: newBalance,
+      status: isSettled ? 'pagado' : target.status,
+      paymentHistory: [paymentRecord, ...(target.paymentHistory || [])],
+    };
+    setReceivables((prev) => prev.map((item) => item.id === target.id ? updatedReceivable : item));
+    setCustomers((prev) => prev.map((customer) =>
+      customer.id === target.customerId
+        ? { ...customer, currentDebtUSD: Math.max(0, customer.currentDebtUSD - appliedAmount) }
+        : customer
+    ));
+    if (isSettled) {
+      setInvoices((prev) => prev.map((invoice) =>
+        invoice.invoiceNumber === target.invoiceNumber ? { ...invoice, paymentStatus: 'pagado' } : invoice
+      ));
     }
-    if (invoiceNumber && isSettled) setInvoices(prev => prev.map(inv => inv.invoiceNumber === invoiceNumber ? { ...inv, paymentStatus: 'pagado' } : inv));
     triggerPushNotification({
       title: isSettled ? '🎉 Factura Liquidada en CxC' : '💵 Abono Registrado en CxC',
-      message: (isSettled ? 'Factura ' + invoiceNumber + ' liquidada' : 'Abono a factura ' + invoiceNumber) + ' por $' + normalizedAmountUSD.toFixed(2) + ' USD. Recibo ' + receiptNumber + '.',
+      message: (isSettled ? 'Factura ' + target.invoiceNumber + ' liquidada' : 'Abono a factura ' + target.invoiceNumber) +
+        ' por $' + appliedAmount.toFixed(2) + ' USD. Recibo ' + receiptNumber + '.',
       type: 'credit_alert',
-      targetCustomerId: customerId,
+      targetCustomerId: target.customerId,
       badge: isSettled ? 'Factura Pagada' : 'Abono CxC',
     });
   };
