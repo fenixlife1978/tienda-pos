@@ -1117,21 +1117,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const initTursoOnMount = async () => {
       if (tursoService.isConfigured()) {
-        // Las operaciones POS pendientes son datos transaccionales y deben sobrevivir
-        // a recargas/cierres del navegador hasta que Turso las confirme. La cola solo
-        // se limpia mediante el flujo explícito de reinicio de base de datos.
-        // La inicialización del esquema ocurre una sola vez por dispositivo.
-        // En recargas posteriores no bloqueamos la interfaz esperando DDL de Turso.
-        const schemaReady = localStorage.getItem('omni_turso_schema_ready') === '1';
-        if (!schemaReady) {
-          const bootstrap = await bootstrapTursoSchema();
-          if (bootstrap.success) {
-            localStorage.setItem('omni_turso_schema_ready', '1');
+        // El portal público solo consulta el catálogo. El bootstrap y las
+        // migraciones de esquema requieren una sesión administrativa validada.
+        const hasAdminSession = Boolean(sessionStorage.getItem('tienda_pos_tab_session'));
+        if (hasAdminSession) {
+          const schemaReady = localStorage.getItem('omni_turso_schema_ready') === '1';
+          if (!schemaReady) {
+            const bootstrap = await bootstrapTursoSchema();
+            if (bootstrap.success) localStorage.setItem('omni_turso_schema_ready', '1');
           }
         }
 
-        // El snapshot de Turso se carga inmediatamente; no se vuelve a crear
-        // tablas ni se espera a que termine un bootstrap en cada F5.
+        // La primera lectura pública solo hidrata los datos del catálogo;
+        // con sesión administrativa válida se cargan también los módulos ERP.
         await syncWithTurso(true);
 
         // La sesión cliente ya fue pintada desde sessionStorage. syncWithTurso(true)
