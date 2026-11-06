@@ -175,7 +175,7 @@ export default async function handler(req: any, res: any) {
         return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
       }
       const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      const readsSensitiveIdentity = /\bFROM\\s+["'`]?((system_users)|(customers))["'`]?\\b/i.test(sql);
+      const readsSensitiveIdentity = /\bFROM\s+["'\`]?((system_users)|(customers))["'\`]?\b/i.test(sql);
       const rows = readsSensitiveIdentity
         ? result.rows.map((row: any) => {
             const safe = { ...row };
