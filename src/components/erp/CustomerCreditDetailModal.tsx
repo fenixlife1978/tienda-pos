@@ -170,6 +170,7 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
     e.preventDefault();
     if (globalPayAmount <= 0) return;
 
+    try {
     const result = await onRegisterGlobalCustomerPayment(customer.id, globalPayAmount, {
       paymentMethod: globalPaymentMethod,
       reference: globalPayReference,
@@ -186,6 +187,9 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
     setGlobalPayReference('');
     setGlobalPayNotes('');
     setTimeout(() => setGlobalPaySuccessMessage(null), 6000);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo registrar el pago global.');
+    }
   };
 
   // Handle Single Invoice Payment Submission
@@ -193,6 +197,7 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
     e.preventDefault();
     if (!activePayingReceivable || singlePayAmount <= 0) return;
 
+    try {
     await onRegisterReceivablePayment(activePayingReceivable.id, singlePayAmount, {
       paymentMethod: singlePaymentMethod,
       reference: singlePayReference,
@@ -203,15 +208,22 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
     setActivePayingReceivable(null);
     setSinglePayReference('');
     setSinglePayNotes('');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo registrar el abono.');
+    }
   };
 
   const handle1ClickLiquidateInvoice = async (rec: ReceivableItem) => {
-    if (window.confirm(`¿Confirmas la liquidación total de la factura ${rec.invoiceNumber} por $${rec.balanceUSD.toFixed(2)} USD?`)) {
+    if (window.confirm(`¿Confirmas la liquidación total de la factura ${rec.invoiceNumber} por ${rec.balanceUSD.toFixed(2)} USD?`)) {
+      try {
       await onLiquidateCustomerInvoice(rec.id, {
         paymentMethod: 'transferencia_usd',
         notes: 'Liquidación directa 100% de factura',
         bcvRate: bcvRate,
       });
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'No se pudo liquidar la factura.');
+      }
     }
   };
 
@@ -222,11 +234,15 @@ export const CustomerCreditDetailModal: React.FC<CustomerCreditDetailModalProps>
         `¿Confirmas la liquidación TOTAL de la deuda de ${customer.name} por $${totalDebtUSD.toFixed(2)} USD (${pendingReceivables.length} facturas)?`
       )
     ) {
+      try {
       await onLiquidateCustomerTotalDebt(customer.id, {
         paymentMethod: 'transferencia_usd',
         notes: 'Cancelación / Liquidación TOTAL de deuda',
         bcvRate: bcvRate,
       });
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'No se pudo liquidar la deuda.');
+      }
     }
   };
 
