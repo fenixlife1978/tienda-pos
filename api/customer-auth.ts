@@ -157,10 +157,6 @@ export default async function handler(req: any, res: any) {
       const notificationId = 'notif-' + randomBytes(12).toString('hex');
       const createdAt = new Date().toISOString();
       await client.execute({
-        sql: 'INSERT INTO system_notifications (id,title,message,type,target_role,target_customer_id,related_order_id,read,created_at) VALUES (?,?,?,?,NULL,?,0,?)',
-        args: [],
-      }).catch(() => undefined);
-      await client.execute({
         sql: 'INSERT INTO system_notifications (id,title,message,type,target_role,target_customer_id,related_order_id,read,created_at) VALUES (?,?,?,?,\'seller\',NULL,?,0,?)',
         args: [notificationId, title, message, type, relatedOrderId || null, createdAt],
       });
