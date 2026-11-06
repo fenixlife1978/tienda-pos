@@ -1122,6 +1122,33 @@ export default async function handler(req: any, res: any) {
       if (!payment || !payment.reportedByCustomer || payment.verificationStatus !== 'pendiente') {
         return res.status(400).json({ error: 'Reporte de pago inválido' });
       }
+      const adminUser = await authenticatedUser(req, client);
+      const customerId = await authenticatedCustomer(req, client);
+      const storedReceivable = await client.execute({
+        sql: 'SELECT * FROM accounts_receivable WHERE id = ? LIMIT 1',
+        args: [String(receivable.id)],
+      });
+      const storedRow: any = storedReceivable.rows[0];
+      if (!storedRow) return res.status(404).json({ error: 'Cuenta por cobrar no encontrada.' });
+      if (!adminUser && (!customerId || customerId !== String(storedRow.customer_id || ''))) {
+        return res.status(403).json({ error: 'Solo el titular de la cuenta puede reportar un pago.' });
+      }
+      const paymentAmount = Number(payment.amountUSD || 0);
+      if (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > Number(storedRow.balance_usd || 0) + 0.000001) {
+        return res.status(400).json({ error: 'El monto reportado no es válido para el saldo pendiente.' });
+      }
+      const storedHistory = (() => { try { return JSON.parse(String(storedRow.payment_history || '[]')); } catch { return []; } })();
+      const safePayment = {
+        id: paymentId,
+        amountUSD: paymentAmount,
+        reference: String(payment.reference || '').slice(0, 120),
+        date: String(payment.date || new Date().toISOString()),
+        reportedByCustomer: true,
+        verificationStatus: 'pendiente',
+      };
+      const nextHistory = Array.isArray(storedHistory)
+        ? [...storedHistory.filter((item: any) => String(item.id) !== paymentId), safePayment]
+        : [safePayment];
       const tx = await client.transaction('write');
       try {
         await tx.execute({ sql: `CREATE TABLE IF NOT EXISTS receivable_payment_reports (
@@ -1132,18 +1159,15 @@ export default async function handler(req: any, res: any) {
           sql: `INSERT OR IGNORE INTO receivable_payment_reports
             (payment_id, receivable_id, customer_id, amount_usd, reference, created_at)
             VALUES (?, ?, ?, ?, ?, ?)`,
-          args: [paymentId, String(receivable.id), String(receivable.customerId || ''), Number(payment.amountUSD || 0), payment.reference || null, String(payment.date || new Date().toISOString())],
+          args: [paymentId, String(storedRow.id), String(storedRow.customer_id), paymentAmount, safePayment.reference || null, safePayment.date],
         });
         if (Number(inserted.rowsAffected || 0) === 0) {
           await tx.rollback();
           return res.status(200).json({ ok: true, duplicate: true, paymentId });
         }
         await tx.execute({
-          sql: `INSERT OR REPLACE INTO accounts_receivable
-            (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,
-             issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          args: [String(receivable.id),String(receivable.invoiceId),String(receivable.invoiceNumber),String(receivable.customerId),String(receivable.customerName),String(receivable.customerPhone||''),Number(receivable.totalAmountUSD||0),Number(receivable.amountPaidUSD||0),Number(receivable.balanceUSD||0),String(receivable.issuedDate),String(receivable.dueDate),Number(receivable.creditDays||0),String(receivable.status),new Date().toISOString(),receivable.isVoided?1:0,receivable.voidedAt||null,receivable.voidReason||null,JSON.stringify(receivable.paymentHistory||[])],
+          sql: 'UPDATE accounts_receivable SET payment_history = ? WHERE id = ? AND customer_id = ?',
+          args: [JSON.stringify(nextHistory), String(storedRow.id), String(storedRow.customer_id)],
         });
         await tx.execute({ sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('accounts_receivable', ?, 'payment_reported', ?)", args: [String(receivable.id),new Date().toISOString()] });
         await tx.commit();
@@ -1287,9 +1311,19 @@ export default async function handler(req: any, res: any) {
     if (body.operation === 'offlineSale' || body.operation === 'saleReversal') {
       const pendingOperation = body.payload;
       const isPublicOnlineOrder = body.operation === 'offlineSale' && String(pendingOperation?.order?.channel || '') === 'online';
-      if (!isPublicOnlineOrder) {
-        const user = await authenticatedUser(req, client);
-        if (!user) return res.status(401).json({ error: 'Se requiere una sesión administrativa válida para ventas POS y reversiones.' });
+      const user = await authenticatedUser(req, client);
+      if (!isPublicOnlineOrder && !user) {
+        return res.status(401).json({ error: 'Se requiere una sesión administrativa válida para ventas POS y reversiones.' });
+      }
+      if (isPublicOnlineOrder && !user) {
+        const customerId = await authenticatedCustomer(req, client);
+        const orderCustomerId = String(pendingOperation?.order?.customerId || '');
+        if (customerId ? customerId !== orderCustomerId : orderCustomerId !== 'cust-generic') {
+          return res.status(403).json({ error: 'La sesión no corresponde al cliente del pedido.' });
+        }
+        if (Array.isArray(pendingOperation?.inventoryMovements) && pendingOperation.inventoryMovements.length) {
+          return res.status(400).json({ error: 'Un pedido online no puede alterar el inventario físico al crearse.' });
+        }
       }
       // Pedidos online y ventas offline reutilizan la tabla orders. Las bases
       // antiguas pueden no tener approved_at; la migración se hace antes de
