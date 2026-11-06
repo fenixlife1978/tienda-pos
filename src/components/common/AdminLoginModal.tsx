@@ -84,6 +84,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
 
     // Guardar el token de pestaña antes de consultar cajas o ejecutar
     // migraciones: todas las llamadas protegidas a Turso lo necesitan.
+    sessionStorage.removeItem('omni_customer_tab_session');
     sessionStorage.setItem('tienda_pos_tab_session', sessionId);
     try {
       const bootstrap = await tursoService.autoBootstrapSchema();
