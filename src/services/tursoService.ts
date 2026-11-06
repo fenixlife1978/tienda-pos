@@ -10,6 +10,7 @@ import {
   ProductCategory,
   ProductUnit,
   ReceivableItem,
+  ReceivablePaymentRecord,
   Supplier,
   SystemSettings,
   User,
