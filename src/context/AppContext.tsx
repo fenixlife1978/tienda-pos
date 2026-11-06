@@ -4138,7 +4138,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Una entrada de compra es una única operación contable: el documento,
     // las existencias, los costos y la CxP se confirman juntos en Turso.
     // Si no hay red, se conserva como una operación atómica en la cola offline.
-    const operationId = offlineSyncService.enqueuePurchaseEntry(newEntry, newPayable);
+    const operationId = tursoService.isConfigured()
+      ? offlineSyncService.enqueuePurchaseEntry(newEntry, newPayable)
+      : '';
     setProducts(updatedProducts);
     broadcastStockUpdate(updatedProducts, {
       productIds: entryData.items.map((it) => it.productId),
@@ -4148,10 +4150,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (newPayable) setPayables((prev) => [newPayable!, ...prev]);
     setPurchaseEntries((prev) => [newEntry, ...prev]);
 
-    if (navigator.onLine && tursoService.isConfigured()) {
+    if (operationId && navigator.onLine) {
       await offlineSyncService.flush();
     }
-    const pendingSync = offlineSyncService.hasPending(operationId);
+    const pendingSync = Boolean(operationId && offlineSyncService.hasPending(operationId));
     if (!pendingSync && tursoService.isConfigured()) {
       await syncWithTurso(true).catch((error) => console.warn('La entrada se guardó en Turso, pero no se pudo actualizar la vista:', error));
     }
