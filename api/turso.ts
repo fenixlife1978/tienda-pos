@@ -574,10 +574,16 @@ export default async function handler(req: any, res: any) {
       )`);
       for (const [table, column, definition] of [
         ['purchase_entries','entry_number','TEXT'], ['purchase_entries','data','TEXT'], ['purchase_entries','created_at','TEXT'],
+        ['inventory_movements','product_id','TEXT'], ['inventory_movements','quantity_delta','REAL DEFAULT 0'],
         ['inventory_movements','movement_type','TEXT'], ['inventory_movements','source_operation_id','TEXT'],
         ['inventory_movements','terminal_id','TEXT'], ['inventory_movements','created_at','TEXT'],
+        ['accounts_payable','supplier_id','TEXT'], ['accounts_payable','supplier_name','TEXT'],
+        ['accounts_payable','invoice_number','TEXT'], ['accounts_payable','description','TEXT'],
+        ['accounts_payable','total_amount_usd','REAL DEFAULT 0'], ['accounts_payable','amount_paid_usd','REAL DEFAULT 0'],
+        ['accounts_payable','balance_usd','REAL DEFAULT 0'], ['accounts_payable','issued_date','TEXT'],
+        ['accounts_payable','due_date','TEXT'], ['accounts_payable','status','TEXT'],
         ['accounts_payable','payment_history','TEXT'], ['accounts_payable','items_json','TEXT'],
-        ['products','cost_usd','REAL DEFAULT 0'], ['products','updated_at','TEXT'],
+        ['products','stock','REAL DEFAULT 0'], ['products','cost_usd','REAL DEFAULT 0'], ['products','updated_at','TEXT'],
       ] as Array<[string,string,string]>) {
         await ensureColumn(client, table, column, definition);
       }
