@@ -40,7 +40,13 @@ export default async function handler(req: any, res: any) {
     ];
     for (const [column, definition] of compatibilityColumns) {
       if (!existingColumns.has(column)) {
-        await client.execute(`ALTER TABLE system_users ADD COLUMN ${column} ${definition}`);
+        try {
+          await client.execute(`ALTER TABLE system_users ADD COLUMN ${column} ${definition}`);
+        } catch (error) {
+          // Otro inicio de sesión puede aplicar la misma migración en paralelo.
+          const refreshed = await client.execute('PRAGMA table_info(system_users)');
+          if (!refreshed.rows.some((row: any) => String(row.name) === column)) throw error;
+        }
       }
     }
 
