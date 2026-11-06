@@ -1591,9 +1591,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logoutCustomer = () => {
-    // Cerrar sesión del cliente es una acción local de esta pestaña.
-    // No debe generar una notificación global ni persistirse en Turso,
-    // porque las sesiones de administrador y cliente son independientes.
+    // Revocar la sesión del cliente en Turso y cerrar únicamente esta pestaña.
+    void tursoService.logoutCustomer().catch((error) =>
+      console.warn('No se pudo revocar la sesión del cliente:', error)
+    );
     setCurrentCustomer(null);
     currentCustomerRef.current = null;
     setCurrentUser(INITIAL_GENERIC_ADMIN);
@@ -1611,7 +1612,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentCustomer(updated);
     setCustomers((prev) => prev.map((c) => (c.id === currentCustomer.id ? updated : c)));
     if (tursoService.isConfigured() && navigator.onLine) {
-      void tursoService.saveCustomer(updated).catch((error) =>
+      void tursoService.updateCustomerPreferences(preferences).catch((error) =>
         console.warn('No se pudieron guardar las preferencias de notificaciones en Turso:', error)
       );
     }
