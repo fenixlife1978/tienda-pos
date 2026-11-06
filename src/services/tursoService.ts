@@ -139,6 +139,32 @@ class TursoService {
 
     await this.ensureTerminalSchema(client);
 
+    // Migración compatible de usuarios antes del fast path. Bases antiguas
+    // pueden tener el marcador de esquema y carecer de is_initial_generic.
+    await client.execute(`CREATE TABLE IF NOT EXISTS system_users (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+      avatar TEXT, active INTEGER DEFAULT 1, password TEXT,
+      is_initial_generic INTEGER DEFAULT 0, created_at TEXT
+    )`);
+    const userSchema = await client.execute('PRAGMA table_info(system_users)');
+    const userColumnNames = new Set(userSchema.rows.map((column: any) => String(column.name)));
+    const userCompatibilityColumns: Array<[string, string]> = [
+      ['name', 'TEXT'], ['email', 'TEXT'], ['role', 'TEXT'], ['avatar', 'TEXT'],
+      ['active', 'INTEGER DEFAULT 1'], ['password', 'TEXT'],
+      ['is_initial_generic', 'INTEGER DEFAULT 0'], ['created_at', 'TEXT'],
+    ];
+    for (const [column, definition] of userCompatibilityColumns) {
+      if (!userColumnNames.has(column)) {
+        try {
+          await client.execute(`ALTER TABLE system_users ADD COLUMN ${column} ${definition}`);
+        } catch (error) {
+          // Otro terminal puede haber aplicado la misma columna simultáneamente.
+          const refreshed = await client.execute('PRAGMA table_info(system_users)');
+          if (!refreshed.rows.some((row: any) => String(row.name) === column)) throw error;
+        }
+      }
+    }
+
     // Fast path: la base ya fue inicializada. En cada recarga no debemos
     // repetir decenas de CREATE/ALTER/DROP/TRIGGER contra Turso porque eso
     // bloqueaba la entrada durante varios segundos. El marcador vive en Turso,

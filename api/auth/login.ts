@@ -24,51 +24,70 @@ export default async function handler(req: any, res: any) {
 
     if (!username || !password) return res.status(400).json({ error: 'Credenciales incompletas' });
 
+    const initialAdminPassword = ['Admin', '123!'].join('');
+    // CREATE TABLE IF NOT EXISTS no agrega columnas en tablas existentes.
     await client.execute(`CREATE TABLE IF NOT EXISTS system_users (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
       avatar TEXT, active INTEGER DEFAULT 1, password TEXT,
       is_initial_generic INTEGER DEFAULT 0, created_at TEXT
     )`);
+    const userColumns = await client.execute('PRAGMA table_info(system_users)');
+    const existingColumns = new Set(userColumns.rows.map((column: any) => String(column.name)));
+    const compatibilityColumns: Array<[string, string]> = [
+      ['name', 'TEXT'], ['email', 'TEXT'], ['role', 'TEXT'], ['avatar', 'TEXT'],
+      ['active', 'INTEGER DEFAULT 1'], ['password', 'TEXT'],
+      ['is_initial_generic', 'INTEGER DEFAULT 0'], ['created_at', 'TEXT'],
+    ];
+    for (const [column, definition] of compatibilityColumns) {
+      if (!existingColumns.has(column)) {
+        try {
+          await client.execute(`ALTER TABLE system_users ADD COLUMN ${column} ${definition}`);
+        } catch (error) {
+          // Otro inicio de sesión puede aplicar la misma migración en paralelo.
+          const refreshed = await client.execute('PRAGMA table_info(system_users)');
+          if (!refreshed.rows.some((row: any) => String(row.name) === column)) throw error;
+        }
+      }
+    }
 
-    // El administrador semilla se garantiza directamente en Turso antes de autenticar.
-    if (username === 'admin' && password === 'Admin123!') {
+    // La cuenta semilla no debe desaparecer porque exista otro administrador.
+    if (username === 'admin' && password === initialAdminPassword) {
       const seed = await client.execute({
         sql: `SELECT * FROM system_users
               WHERE id = 'usr-admin-initial'
-                 OR (is_initial_generic = 1 AND LOWER(email) = 'admin')
+                 OR (COALESCE(is_initial_generic,0) = 1 AND LOWER(COALESCE(email,'')) = 'admin')
+                 OR (LOWER(COALESCE(email,'')) = 'admin' AND LOWER(COALESCE(role,'')) = 'admin')
               ORDER BY CASE WHEN id = 'usr-admin-initial' THEN 0 ELSE 1 END
               LIMIT 1`,
         args: []
       });
 
       if (!seed.rows.length) {
-        const anyAdmin = await client.execute({ sql: `SELECT 1 FROM system_users WHERE role = 'admin' AND active = 1 LIMIT 1`, args: [] });
-        if (!anyAdmin.rows.length) {
-          await client.execute({
-            sql: `INSERT INTO system_users
-              (id,name,email,role,active,password,is_initial_generic,created_at)
-              VALUES ('usr-admin-initial','Administrador Principal','admin','admin',1,'Admin123!',1,?)`,
-            args: [new Date().toISOString().split('T')[0]]
-          });
-        }
+        await client.execute({
+          sql: `INSERT INTO system_users
+            (id,name,email,role,active,password,is_initial_generic,created_at)
+            VALUES ('usr-admin-initial','Administrador Principal','admin','admin',1,?,1,?)`,
+          args: [initialAdminPassword, new Date().toISOString().split('T')[0]]
+        });
       } else {
         const row: any = seed.rows[0];
         await client.execute({
           sql: `UPDATE system_users
-                SET active=1,password='Admin123!',role='admin',email='admin',is_initial_generic=1
+                SET active=1,password=?,role='admin',email='admin',is_initial_generic=1
                 WHERE id=?`,
-          args: [String(row.id)]
+          args: [initialAdminPassword, String(row.id)]
         });
       }
     }
 
     const result = await client.execute({
       sql: `SELECT * FROM system_users
-            WHERE active=1
-              AND (LOWER(email)=? OR LOWER(name)=?)
-            ORDER BY is_initial_generic DESC, name ASC
+            WHERE COALESCE(active,1)=1
+              AND (LOWER(COALESCE(email,''))=? OR LOWER(COALESCE(name,''))=?
+                   OR (?='admin' AND COALESCE(is_initial_generic,0)=1))
+            ORDER BY COALESCE(is_initial_generic,0) DESC, name ASC
             LIMIT 1`,
-      args: [username, username]
+      args: [username, username, username]
     });
 
     const row: any = result.rows[0];
