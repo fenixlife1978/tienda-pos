@@ -3449,7 +3449,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : p
         ),
       };
-      await tursoService.saveReceivable(rejected);
+      await tursoService.rejectCustomerReceivablePayment(receivableId, paymentId, currentUser.name, notes || 'Pago rechazado por administración.');
       setReceivables((prev) => prev.map((r) => r.id === target.id ? rejected : r));
       triggerPushNotification({
         title: '❌ Pago por deuda rechazado',
