@@ -45,7 +45,7 @@ function scopeCustomerRead(sql: string, args: unknown[], customerId: string) {
   const match = normalized.match(/\bFROM\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s|$)/i);
   if (!match) return null;
   const fromStart = match.index! + match[0].length;
-  const nextClause = normalized.slice(fromStart).search(/\\b(WHERE|GROUP\\s+BY|ORDER\\s+BY|LIMIT)\\b/i);
+  const nextClause = normalized.slice(fromStart).search(/\b(WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT)\b/i);
   const fromTail = normalized.slice(fromStart, nextClause < 0 ? undefined : fromStart + nextClause);
   if (fromTail.includes(',')) return null;
   const table = match[1].toLowerCase();
