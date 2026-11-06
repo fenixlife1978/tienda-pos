@@ -3600,10 +3600,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       receiptNumber,
     };
 
-    await tursoService.applyReceivablePayments(target.customerId, [{
+    const persisted = await tursoService.applyReceivablePayments(target.customerId, [{
       receivableId: target.id,
       paymentRecord,
     }]);
+    if (persisted.duplicate) {
+      await syncWithTurso(true).catch((error) => console.warn('No se pudo refrescar el estado CxC:', error));
+      return;
+    }
 
     const updatedReceivable: ReceivableItem = {
       ...target,
