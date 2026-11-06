@@ -108,6 +108,7 @@ export const PurchasesEntryView: React.FC = () => {
   // History inspection modal & Success modal
   const [selectedHistoryEntry, setSelectedHistoryEntry] = useState<PurchaseEntry | null>(null);
   const [completedEntry, setCompletedEntry] = useState<PurchaseEntry | null>(null);
+  const [isCompletedEntryPendingSync, setIsCompletedEntryPendingSync] = useState(false);
 
   // History search and filters
   const [historySearch, setHistorySearch] = useState<string>('');
@@ -335,7 +336,7 @@ export const PurchasesEntryView: React.FC = () => {
   };
 
   // Submit and process purchase entry
-  const handleSubmitPurchase = () => {
+  const handleSubmitPurchase = async () => {
     setFormError(null);
 
     if (!selectedSupplierId) {
@@ -385,7 +386,8 @@ export const PurchasesEntryView: React.FC = () => {
 
     const creditDays = parseInt(creditDaysStr, 10) || 15;
 
-    const result = processPurchaseEntry({
+    try {
+      const result = await processPurchaseEntry({
       date: entryDate,
       supplierId: supplierObj.id,
       supplierName: supplierObj.name,
@@ -404,11 +406,15 @@ export const PurchasesEntryView: React.FC = () => {
       items: payloadItems,
       notes: purchaseNotes.trim() || undefined,
       registeredBy: currentUser.name || 'Admin',
-    });
+      });
 
-    if (result.success) {
-      setCompletedEntry(result.purchaseEntry);
-      handleResetForm();
+      if (result.success) {
+        setIsCompletedEntryPendingSync(result.pendingSync);
+        setCompletedEntry(result.purchaseEntry);
+        handleResetForm();
+      }
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'No se pudo registrar la entrada de compra.');
     }
   };
 
@@ -1465,6 +1471,11 @@ export const PurchasesEntryView: React.FC = () => {
               </p>
             </div>
 
+            {isCompletedEntryPendingSync && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">
+                La entrada quedó guardada en la cola local y se enviará a Turso automáticamente cuando se restablezca la conexión. Existencias y CxP se confirmarán juntas.
+              </div>
+            )}
             <div className="bg-slate-50 p-4 rounded-xl text-left text-xs space-y-2 border border-slate-200">
               <div className="flex justify-between">
                 <span className="text-slate-500">N° de Entrada:</span>
@@ -1496,7 +1507,7 @@ export const PurchasesEntryView: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => setCompletedEntry(null)}
+              onClick={() => { setCompletedEntry(null); setIsCompletedEntryPendingSync(false); }}
               className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-md transition-all"
             >
               Aceptar y Continuar
