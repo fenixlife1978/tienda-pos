@@ -24,6 +24,47 @@ async function authenticatedUser(req: any, client: any) {
   return result.rows[0] || null;
 }
 
+async function authenticatedCustomer(req: any, client: any) {
+  const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || '').trim();
+  if (!sessionId) return '';
+  const result = await client.execute({
+    sql: \`SELECT s.customer_id
+          FROM customer_sessions s
+          JOIN customers c ON c.id=s.customer_id
+          WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
+            AND COALESCE(c.account_status,'active')='active'
+          LIMIT 1\`,
+    args: [sessionId, new Date().toISOString()],
+  });
+  return result.rows[0]?.customer_id ? String(result.rows[0].customer_id) : '';
+}
+
+function scopeCustomerRead(sql: string, args: unknown[], customerId: string) {
+  const normalized = sql.trim();
+  if (!/^SELECT\b/i.test(normalized) || /;|--|\/\*|\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(normalized)) return null;
+  if (/\bSELECT\b/i.test(normalized.slice(6))) return null;
+  const match = normalized.match(/\bFROM\s+["'\`]?([a-zA-Z_][a-zA-Z0-9_]*)["'\`]?(?:\s|$)/i);
+  if (!match) return null;
+  const table = match[1].toLowerCase();
+  const predicates: Record<string, string> = {
+    customers: 'id = ?',
+    orders: 'customer_id = ?',
+    invoices: 'customer_id = ?',
+    accounts_receivable: 'customer_id = ?',
+    system_notifications: '(target_customer_id = ? OR target_role = \\'all\\')',
+  };
+  const predicate = predicates[table];
+  if (!predicate) return null;
+  const clauseIndex = normalized.search(/\b(ORDER\s+BY|GROUP\s+BY|LIMIT)\b/i);
+  const splitAt = clauseIndex < 0 ? normalized.length : clauseIndex;
+  const head = normalized.slice(0, splitAt);
+  const tail = normalized.slice(splitAt);
+  const scopedHead = /\bWHERE\b/i.test(head)
+    ? head + ' AND (' + predicate + ')'
+    : head + ' WHERE ' + predicate;
+  return { sql: scopedHead + ' ' + tail, args: [...args, customerId], table };
+}
+
 function publicReadTable(sql: string) {
   const normalized = sql.trim();
   if (!/^SELECT\b/i.test(normalized) || /;|--|\/\*|\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(normalized)) return null;
@@ -87,6 +128,22 @@ export default async function handler(req: any, res: any) {
       if (!sql) return res.status(400).json({ error: 'Consulta SQL vacía' });
       const user = await authenticatedUser(req, client);
       if (!user) {
+        const customerId = await authenticatedCustomer(req, client);
+        if (customerId) {
+          const scoped = scopeCustomerRead(sql, argsOf(body.args), customerId);
+          if (scoped) {
+            const scopedResult = await client.execute({ sql: scoped.sql, args: scoped.args as any });
+            const rows = scoped.table === 'customers'
+              ? scopedResult.rows.map((row: any) => {
+                  const safe = { ...row };
+                  delete safe.password;
+                  delete safe.password_hash;
+                  return safe;
+                })
+              : scopedResult.rows;
+            return res.status(200).json({ rows, rowsAffected: scopedResult.rowsAffected || 0, lastInsertRowid: scopedResult.lastInsertRowid });
+          }
+        }
         const table = publicReadTable(sql);
         if (!table) return res.status(401).json({ error: 'Se requiere una sesión válida para consultar o modificar datos administrativos.' });
         const result = await client.execute({ sql, args: argsOf(body.args) as any });
