@@ -1000,7 +1000,13 @@ class TursoService {
       loadErrors.push(`${table}: ${message}`);
     };
     const loadAll = !tables || tables.size === 0;
-    const shouldLoad = (table: string) => loadAll || tables!.has(table);
+    const hasAdminSession = typeof sessionStorage !== 'undefined' && Boolean(sessionStorage.getItem('tienda_pos_tab_session'));
+    const adminOnlyTables = new Set([
+      'customers', 'suppliers', 'orders', 'invoices', 'accounts_receivable',
+      'accounts_payable', 'purchase_entries', 'system_users', 'system_notifications', 'bcv_history',
+    ]);
+    const shouldLoad = (table: string) =>
+      (loadAll || tables!.has(table)) && (hasAdminSession || !adminOnlyTables.has(table));
     let settings: SystemSettings | null = null;
     let categories: ProductCategory[] = [];
     let units: ProductUnit[] = [];
