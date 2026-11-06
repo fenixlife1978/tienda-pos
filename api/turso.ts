@@ -27,8 +27,13 @@ async function authenticatedUser(req: any, client: any) {
 function publicReadTable(sql: string) {
   const normalized = sql.trim();
   if (!/^SELECT\\b/i.test(normalized) || /;|--|\\/\\*|\\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\\b/i.test(normalized)) return null;
+  if (/\\bSELECT\\b/i.test(normalized.slice(6))) return null;
   const match = normalized.match(/\\bFROM\\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\\s|$)/i);
   if (!match) return null;
+  const fromStart = match.index! + match[0].length;
+  const nextClause = normalized.slice(fromStart).search(/\\b(WHERE|GROUP\\s+BY|ORDER\\s+BY|LIMIT)\\b/i);
+  const fromTail = normalized.slice(fromStart, nextClause < 0 ? undefined : fromStart + nextClause);
+  if (fromTail.includes(',')) return null;
   const table = match[1].toLowerCase();
   return ['products', 'categories', 'units', 'system_settings', 'bcv_history', 'inventory_reservations'].includes(table) ? table : null;
 }
