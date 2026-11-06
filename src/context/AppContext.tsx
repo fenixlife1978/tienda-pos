@@ -843,7 +843,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const syncWithTurso = (forceReload = false): Promise<void> => {
-    if (syncInFlightRef.current) return syncInFlightRef.current;
+    if (syncInFlightRef.current) {
+      if (!forceReload) return syncInFlightRef.current;
+      return syncInFlightRef.current.then(() => syncWithTurso(true));
+    }
 
     const run = (async () => {
       if (!tursoService.isConfigured()) return;
