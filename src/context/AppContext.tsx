@@ -273,10 +273,11 @@ interface AppContextType {
   addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<Supplier>;
   updateSupplier: (supplier: Supplier) => Promise<void>;
   deleteSupplier: (supplierId: string) => { success: boolean; message: string };
-  processPurchaseEntry: (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>) => {
+  processPurchaseEntry: (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>) => Promise<{
     success: boolean;
     purchaseEntry: PurchaseEntry;
-  };
+    pendingSync: boolean;
+  }>;
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: string) => { success: boolean; message: string };
