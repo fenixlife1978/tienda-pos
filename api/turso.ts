@@ -187,7 +187,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
     }
 
-    const publicOperations = new Set(['reserveOrderInventory', 'releaseOrderInventory', 'reportCustomerReceivablePayment', 'offlineSale']);
+    const publicOperations = new Set(['reserveOrderInventory', 'releaseOrderInventory', 'reportCustomerReceivablePayment', 'offlineSale', 'cancelOnlineOrder']);
     if (!publicOperations.has(String(body.operation || ''))) {
       const user = await authenticatedUser(req, client);
       if (!user) return res.status(401).json({ error: 'Se requiere una sesión administrativa válida.' });
@@ -607,6 +607,21 @@ export default async function handler(req: any, res: any) {
     if (body.operation === 'reserveOrderInventory') {
       const order = body.order || {};
       if (!order.id || !Array.isArray(order.items)) return res.status(400).json({ error: 'Pedido incompleto para reservar inventario' });
+      const savedOrder = await client.execute({
+        sql: 'SELECT customer_id, channel, pos_registered_at, order_status FROM orders WHERE id = ? LIMIT 1',
+        args: [orderId],
+      });
+      const savedOrderRow: any = savedOrder.rows[0];
+      if (!savedOrderRow || String(savedOrderRow.channel) !== 'online' || savedOrderRow.pos_registered_at || String(savedOrderRow.order_status) === 'cancelado') {
+        return res.status(404).json({ error: 'Pedido online no disponible para liberar su reserva.' });
+      }
+      const adminUser = await authenticatedUser(req, client);
+      if (!adminUser) {
+        const customerId = await authenticatedCustomer(req, client);
+        if (customerId ? customerId !== String(savedOrderRow.customer_id || '') : String(savedOrderRow.customer_id || '') !== 'cust-generic') {
+          return res.status(403).json({ error: 'No tienes autorización para liberar este pedido.' });
+        }
+      }
       const tx = await client.transaction('write');
       try {
         await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
@@ -621,8 +636,19 @@ export default async function handler(req: any, res: any) {
         await tx.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_order_product ON inventory_reservations(order_id, product_id)');
         await tx.execute('CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status_product ON inventory_reservations(status, product_id)');
 
-        const existingOrder = await tx.execute({ sql: 'SELECT id, order_status, channel FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
+        const existingOrder = await tx.execute({ sql: 'SELECT id, order_status, channel, customer_id, items FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
         if (!existingOrder.rows.length) throw new Error('Turso no encontró el pedido antes de reservar inventario.');
+        const savedOrder: any = existingOrder.rows[0];
+        if (String(savedOrder.channel) !== 'online') throw new Error('Solo se pueden reservar pedidos de la tienda online.');
+        const adminUser = await authenticatedUser(req, client);
+        if (!adminUser) {
+          const customerId = await authenticatedCustomer(req, client);
+          if (customerId ? customerId !== String(savedOrder.customer_id || '') : String(savedOrder.customer_id || '') !== 'cust-generic') {
+            return res.status(403).json({ error: 'No tienes autorización para reservar este pedido.' });
+          }
+        }
+        const savedItems = JSON.parse(String(savedOrder.items || '[]'));
+        if (!Array.isArray(savedItems)) throw new Error('Los artículos del pedido guardado no son válidos.');
         const already = await tx.execute({
           sql: "SELECT COUNT(*) AS n FROM inventory_reservations WHERE order_id = ? AND status = 'reserved'",
           args: [String(order.id)],
@@ -633,7 +659,7 @@ export default async function handler(req: any, res: any) {
         }
 
         const demand = new Map<string, number>();
-        for (const item of order.items) {
+        for (const item of savedItems) {
           let factor = 1;
           if (item.saleMode === 'weight' && item.weightKg) {
             factor = Number(item.weightKg);
@@ -907,9 +933,16 @@ export default async function handler(req: any, res: any) {
           quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         )`);
-        const row = await tx.execute({ sql: 'SELECT order_status, pos_registered_at FROM orders WHERE id = ? LIMIT 1', args: [orderId] });
-        if (!row.rows.length) throw new Error('Pedido no encontrado para cancelar.');
+        const row = await tx.execute({ sql: 'SELECT order_status, pos_registered_at, customer_id, channel FROM orders WHERE id = ? LIMIT 1', args: [orderId] });
+        if (!row.rows.length || String(row.rows[0].channel) !== 'online') throw new Error('Pedido online no encontrado para cancelar.');
         if (row.rows[0].pos_registered_at) throw new Error('El pedido ya fue registrado en POS; no puede rechazarse como reserva.');
+        const adminUser = await authenticatedUser(req, client);
+        if (!adminUser) {
+          const customerId = await authenticatedCustomer(req, client);
+          if (customerId ? customerId !== String(row.rows[0].customer_id || '') : String(row.rows[0].customer_id || '') !== 'cust-generic') {
+            return res.status(403).json({ error: 'No tienes autorización para cancelar este pedido.' });
+          }
+        }
         const now = new Date().toISOString();
         await tx.execute({ sql: "UPDATE inventory_reservations SET status = 'released', updated_at = ? WHERE order_id = ? AND status = 'reserved'", args: [now, orderId] });
         await tx.execute({ sql: "UPDATE orders SET order_status = 'cancelado' WHERE id = ?", args: [orderId] });
