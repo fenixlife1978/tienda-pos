@@ -181,7 +181,7 @@ export default async function handler(req: any, res: any) {
         return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
       }
       const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      const readsSensitiveIdentity = /\bFROM\s+["'\`]?((system_users)|(customers))["'\`]?\b/i.test(sql);
+      const readsSensitiveIdentity = /\bFROM\s+["'`]?((system_users)|(customers))["'`]?\b/i.test(sql);
       const rows = readsSensitiveIdentity
         ? result.rows.map((row: any) => {
             const safe = { ...row };
@@ -1322,11 +1322,11 @@ export default async function handler(req: any, res: any) {
       await ensureColumn(client, 'customers', 'current_debt_usd', 'REAL DEFAULT 0');
       await ensureColumn(client, 'accounts_receivable', 'payment_history', 'TEXT');
       await ensureColumn(client, 'invoices', 'payment_status', 'TEXT');
-      await client.execute(\`CREATE TABLE IF NOT EXISTS accounting_entries (
+      await client.execute(`CREATE TABLE IF NOT EXISTS accounting_entries (
         id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
         document_number TEXT NOT NULL, entry_date TEXT NOT NULL, description TEXT NOT NULL,
         source TEXT NOT NULL, lines TEXT NOT NULL, created_at TEXT NOT NULL
-      )\`);
+      )`);
       const tx = await client.transaction('write');
       try {
         const customer = await tx.execute({
@@ -1401,9 +1401,9 @@ export default async function handler(req: any, res: any) {
           });
           const paymentDate = String(payment.date || new Date().toISOString());
           await tx.execute({
-            sql: \`INSERT OR IGNORE INTO accounting_entries
+            sql: `INSERT OR IGNORE INTO accounting_entries
               (id,order_id,invoice_id,document_number,entry_date,description,source,lines,created_at)
-              VALUES (?,?,?,?,?,?,?,?,?)\`,
+              VALUES (?,?,?,?,?,?,?,?,?)`,
             args: [
               'asiento-cxc-' + String(payment.id),
               'cxc-payment-' + String(payment.id),
@@ -1449,11 +1449,11 @@ export default async function handler(req: any, res: any) {
       await ensureColumn(client, 'customers', 'current_debt_usd', 'REAL DEFAULT 0');
       await ensureColumn(client, 'accounts_receivable', 'payment_history', 'TEXT');
       await ensureColumn(client, 'invoices', 'payment_status', 'TEXT');
-      await client.execute(\`CREATE TABLE IF NOT EXISTS accounting_entries (
+      await client.execute(`CREATE TABLE IF NOT EXISTS accounting_entries (
         id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
         document_number TEXT NOT NULL, entry_date TEXT NOT NULL, description TEXT NOT NULL,
         source TEXT NOT NULL, lines TEXT NOT NULL, created_at TEXT NOT NULL
-      )\`);
+      )`);
       const tx = await client.transaction('write');
       try {
         const accountingId = 'asiento-cxc-' + paymentId;
@@ -1536,9 +1536,9 @@ export default async function handler(req: any, res: any) {
           paymentMethod: String(approvedPayment.paymentMethod || 'mixto'),
         });
         await tx.execute({
-          sql: \`INSERT OR IGNORE INTO accounting_entries
+          sql: `INSERT OR IGNORE INTO accounting_entries
             (id, order_id, invoice_id, document_number, entry_date, description, source, lines, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             accountingId,
             'cxc-payment-' + paymentId,
