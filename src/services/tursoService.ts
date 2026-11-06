@@ -2281,6 +2281,12 @@ class TursoService {
     return r.rows;
   }
 
+  public async processPurchaseEntry(entry: PurchaseEntry, payable: PayableItem | null, terminalId: string): Promise<{ duplicate: boolean }> {
+    const result = await this.request('processPurchaseEntry', { entry, payable, terminalId });
+    if (!result?.persisted) throw new Error(String(result?.error || 'Turso no confirmó la entrada de compra.'));
+    return { duplicate: Boolean(result.duplicate) };
+  }
+
   public async savePurchaseEntry(entry: PurchaseEntry) {
     const client = this.getClient();
     if (!client) return;

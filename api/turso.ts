@@ -531,6 +531,138 @@ export default async function handler(req: any, res: any) {
     }
 
 
+    if (body.operation === 'processPurchaseEntry') {
+      const entry = body.entry;
+      const payable = body.payable || null;
+      const terminalId = String(body.terminalId || '').trim();
+      if (!entry?.id || !entry?.entryNumber || !Array.isArray(entry.items) || !entry.items.length || !terminalId) {
+        return res.status(400).json({ error: 'La entrada de compra está incompleta.' });
+      }
+      if (entry.items.some((item: any) =>
+        !item.productId || !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0 ||
+        !Number.isFinite(Number(item.currentBaseCostUSD)) || Number(item.currentBaseCostUSD) < 0
+      )) {
+        return res.status(400).json({ error: 'La entrada contiene cantidades o costos inválidos.' });
+      }
+      const totalUSD = Number(entry.totalInvoiceUSD);
+      const paidUSD = Number(entry.amountPaidUSD || 0);
+      const balanceUSD = Number(entry.balanceUSD || 0);
+      if (!Number.isFinite(totalUSD) || totalUSD <= 0 || !Number.isFinite(paidUSD) || paidUSD < 0 ||
+          !Number.isFinite(balanceUSD) || balanceUSD < 0 || Math.abs(totalUSD - paidUSD - balanceUSD) > 0.02) {
+        return res.status(400).json({ error: 'Los importes de la entrada no cuadran: total, pago inicial y saldo.' });
+      }
+      if (balanceUSD > 0.001 && (!payable?.id ||
+          String(payable.supplierId) !== String(entry.supplierId) ||
+          Math.abs(Number(payable.totalAmountUSD) - totalUSD) > 0.02 ||
+          Math.abs(Number(payable.balanceUSD) - balanceUSD) > 0.02)) {
+        return res.status(400).json({ error: 'El documento de CxP no coincide con los importes de la entrada.' });
+      }
+      await client.execute(`CREATE TABLE IF NOT EXISTS purchase_entries (
+        id TEXT PRIMARY KEY, entry_number TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL
+      )`);
+      await client.execute(`CREATE TABLE IF NOT EXISTS inventory_movements (
+        movement_id TEXT PRIMARY KEY, product_id TEXT NOT NULL, quantity_delta REAL NOT NULL,
+        movement_type TEXT NOT NULL, source_operation_id TEXT NOT NULL, terminal_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`);
+      await client.execute(`CREATE TABLE IF NOT EXISTS accounts_payable (
+        id TEXT PRIMARY KEY, supplier_id TEXT NOT NULL, supplier_name TEXT NOT NULL,
+        invoice_number TEXT NOT NULL, description TEXT NOT NULL, total_amount_usd REAL NOT NULL,
+        amount_paid_usd REAL NOT NULL, balance_usd REAL NOT NULL, issued_date TEXT NOT NULL,
+        due_date TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+        payment_history TEXT, items_json TEXT
+      )`);
+      for (const [table, column, definition] of [
+        ['purchase_entries','entry_number','TEXT'], ['purchase_entries','data','TEXT'], ['purchase_entries','created_at','TEXT'],
+        ['inventory_movements','movement_id','TEXT'], ['inventory_movements','product_id','TEXT'], ['inventory_movements','quantity_delta','REAL DEFAULT 0'],
+        ['inventory_movements','movement_type','TEXT'], ['inventory_movements','source_operation_id','TEXT'],
+        ['inventory_movements','terminal_id','TEXT'], ['inventory_movements','created_at','TEXT'],
+        ['accounts_payable','supplier_id','TEXT'], ['accounts_payable','supplier_name','TEXT'],
+        ['accounts_payable','invoice_number','TEXT'], ['accounts_payable','description','TEXT'],
+        ['accounts_payable','total_amount_usd','REAL DEFAULT 0'], ['accounts_payable','amount_paid_usd','REAL DEFAULT 0'],
+        ['accounts_payable','balance_usd','REAL DEFAULT 0'], ['accounts_payable','issued_date','TEXT'],
+        ['accounts_payable','due_date','TEXT'], ['accounts_payable','status','TEXT'],
+        ['accounts_payable','payment_history','TEXT'], ['accounts_payable','items_json','TEXT'],
+        ['products','stock','REAL DEFAULT 0'], ['products','cost_usd','REAL DEFAULT 0'], ['products','updated_at','TEXT'],
+      ] as Array<[string,string,string]>) {
+        await ensureColumn(client, table, column, definition);
+      }
+
+      const tx = await client.transaction('write');
+      try {
+        const existing = await tx.execute({
+          sql: 'SELECT id FROM purchase_entries WHERE id = ? LIMIT 1',
+          args: [String(entry.id)],
+        });
+        if (existing.rows.length) {
+          await tx.rollback();
+          return res.status(200).json({ ok: true, persisted: true, duplicate: true });
+        }
+        const duplicateNumber = await tx.execute({
+          sql: 'SELECT id FROM purchase_entries WHERE entry_number = ? LIMIT 1',
+          args: [String(entry.entryNumber)],
+        });
+        if (duplicateNumber.rows.length) throw new Error('El número de entrada ya fue utilizado. Actualiza el historial e intenta nuevamente.');
+
+        const supplier = await tx.execute({
+          sql: 'SELECT id FROM suppliers WHERE id = ? LIMIT 1',
+          args: [String(entry.supplierId)],
+        });
+        if (!supplier.rows.length) throw new Error('El proveedor de la entrada ya no existe en Turso.');
+
+        const sourceOperationId = 'purchase-entry:' + String(entry.id);
+        const createdAt = String(entry.createdAt || new Date().toISOString());
+        for (let index = 0; index < entry.items.length; index++) {
+          const item = entry.items[index];
+          const product = await tx.execute({
+            sql: 'SELECT id FROM products WHERE id = ? LIMIT 1',
+            args: [String(item.productId)],
+          });
+          if (!product.rows.length) throw new Error('El producto ' + String(item.productName || item.productId) + ' no existe en el catálogo de Turso.');
+          const quantity = Number(item.quantity);
+          const baseCost = Number(item.currentBaseCostUSD);
+          await tx.execute({
+            sql: 'UPDATE products SET stock = ROUND(stock + ?, 3), cost_usd = ?, updated_at = ? WHERE id = ?',
+            args: [quantity, baseCost, createdAt, String(item.productId)],
+          });
+          await tx.execute({
+            sql: `INSERT INTO inventory_movements
+              (movement_id, product_id, quantity_delta, movement_type, source_operation_id, terminal_id, created_at)
+              VALUES (?, ?, ?, 'purchase', ?, ?, ?)`,
+            args: [String(entry.id) + ':' + String(index), String(item.productId), quantity, sourceOperationId, terminalId, createdAt],
+          });
+        }
+
+        await tx.execute({
+          sql: 'INSERT INTO purchase_entries (id, entry_number, data, created_at) VALUES (?, ?, ?, ?)',
+          args: [String(entry.id), String(entry.entryNumber), JSON.stringify(entry), createdAt],
+        });
+
+        if (Number(entry.balanceUSD || 0) > 0.001) {
+          if (!payable?.id) throw new Error('Falta el documento de CxP asociado a la entrada.');
+          await tx.execute({
+            sql: `INSERT INTO accounts_payable
+              (id, supplier_id, supplier_name, invoice_number, description, total_amount_usd,
+               amount_paid_usd, balance_usd, issued_date, due_date, status, created_at, payment_history, items_json)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+              String(payable.id), String(payable.supplierId), String(payable.supplierName),
+              String(payable.invoiceNumber), String(payable.description), Number(payable.totalAmountUSD),
+              Number(payable.amountPaidUSD), Number(payable.balanceUSD), String(payable.issuedDate),
+              String(payable.dueDate), String(payable.status), createdAt,
+              JSON.stringify(payable.paymentHistory || []), JSON.stringify(payable.items || []),
+            ],
+          });
+        }
+        await tx.commit();
+        return res.status(200).json({ ok: true, persisted: true, duplicate: false });
+      } catch (error) {
+        try { await tx.rollback(); } catch {}
+        throw error;
+      }
+    }
+
+
     if (body.operation === 'reserveTerminalDocuments') {
       const terminalId = String(body.terminalId || '').trim();
       if (!terminalId) return res.status(400).json({ error: 'Terminal no indicado' });

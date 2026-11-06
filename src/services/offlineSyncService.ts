@@ -73,6 +73,15 @@ export interface OfflineInventoryMovementOperation {
   createdAt: string;
 }
 
+export interface OfflinePurchaseEntryOperation {
+  id: string;
+  terminalId: string;
+  type: 'purchase_entry';
+  entry: PurchaseEntry;
+  payable: PayableItem | null;
+  createdAt: string;
+}
+
 export interface OfflineSnapshotOperation {
   id: string;
   terminalId: string;
@@ -86,6 +95,7 @@ type OfflineOperation =
   | OfflineSaleOperation
   | OfflineSaleReversalOperation
   | OfflineInventoryMovementOperation
+  | OfflinePurchaseEntryOperation
   | OfflineSnapshotOperation;
 
 function readQueue(): OfflineOperation[] {
@@ -187,6 +197,27 @@ export const offlineSyncService = {
     return queue.length;
   },
 
+  enqueuePurchaseEntry(entry: PurchaseEntry, payable: PayableItem | null) {
+    const queue = readQueue();
+    const existing = queue.find((item) => item.type === 'purchase_entry' && item.entry.id === entry.id);
+    if (existing) return existing.id;
+    const operationId = entry.id;
+    queue.push({
+      id: operationId,
+      terminalId: terminalIdentity.getId(),
+      type: 'purchase_entry',
+      entry,
+      payable,
+      createdAt: new Date().toISOString(),
+    });
+    writeQueue(queue);
+    return operationId;
+  },
+
+  hasPending(operationId: string) {
+    return readQueue().some((item) => item.id === operationId);
+  },
+
   enqueueSnapshot(entity: OfflineSnapshotEntity, data: unknown) {
     const queue = readQueue().filter(
       (item) => !(item.type === 'snapshot' && item.entity === entity)
@@ -279,6 +310,13 @@ export const offlineSyncService = {
 
         if (operation.type === 'sale_reversal') {
           await tursoService.applySaleReversal({ ...operation, operationId: operation.id });
+          writeQueue(readQueue().filter((item) => item.id !== operation.id));
+          processed++;
+          continue;
+        }
+
+        if (operation.type === 'purchase_entry') {
+          await tursoService.processPurchaseEntry(operation.entry, operation.payable, operation.terminalId);
           writeQueue(readQueue().filter((item) => item.id !== operation.id));
           processed++;
           continue;

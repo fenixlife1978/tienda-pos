@@ -273,10 +273,11 @@ interface AppContextType {
   addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<Supplier>;
   updateSupplier: (supplier: Supplier) => Promise<void>;
   deleteSupplier: (supplierId: string) => { success: boolean; message: string };
-  processPurchaseEntry: (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>) => {
+  processPurchaseEntry: (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>) => Promise<{
     success: boolean;
     purchaseEntry: PurchaseEntry;
-  };
+    pendingSync: boolean;
+  }>;
   addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: string) => { success: boolean; message: string };
@@ -4073,33 +4074,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: 'Proveedor eliminado.' };
   };
 
-  const processPurchaseEntry = (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): { success: boolean; purchaseEntry: PurchaseEntry } => {
-    const entryId = `ent-${Date.now()}`;
+  const processPurchaseEntry = async (entryData: Omit<PurchaseEntry, 'id' | 'createdAt' | 'entryNumber'>): Promise<{ success: boolean; purchaseEntry: PurchaseEntry; pendingSync: boolean }> => {
+    const entryId = 'ent-' + crypto.randomUUID();
+    const terminalSuffix = terminalIdentity.getId().replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase() || 'MAIN';
     const seq = purchaseEntries.length + 1;
-    const entryNumber = `ENT-${new Date().getFullYear()}-${String(seq).padStart(3, '0')}`;
+    const entryNumber = `ENT-${new Date().getFullYear()}-${terminalSuffix}-${String(seq).padStart(3, '0')}`;
     const nowIso = new Date().toISOString();
     const newEntry: PurchaseEntry = { ...entryData, id: entryId, entryNumber, createdAt: nowIso };
+
     const updatedProducts = products.map((prod) => {
       const match = entryData.items.find((it) => it.productId === prod.id);
       if (!match) return prod;
-      return { ...prod, stock: Math.max(0, (prod.stock || 0) + match.quantity), lastCostUSD: prod.costUSD > 0 ? prod.costUSD : match.currentBaseCostUSD, costUSD: match.currentBaseCostUSD, realCostUSD: match.realCostUSD };
+      return {
+        ...prod,
+        stock: Math.max(0, (prod.stock || 0) + match.quantity),
+        lastCostUSD: prod.costUSD > 0 ? prod.costUSD : match.currentBaseCostUSD,
+        costUSD: match.currentBaseCostUSD,
+        realCostUSD: match.realCostUSD,
+      };
     });
-    setProducts(updatedProducts);
-    broadcastStockUpdate(updatedProducts, { productIds: entryData.items.map((it) => it.productId), source: 'adjustment', summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((s, i) => s + i.quantity, 0)} unidades ingresadas al inventario` });
-    for (const item of entryData.items) offlineSyncService.enqueueInventoryMovement({ productId: item.productId, quantityDelta: item.quantity, movementType: 'purchase' });
-    if (navigator.onLine && tursoService.isConfigured()) offlineSyncService.flush().catch((error) => console.warn('Entrada de inventario en cola:', error));
+    const missingProducts = entryData.items.filter((item) => !products.some((product) => product.id === item.productId));
+    if (missingProducts.length) throw new Error('Hay productos de la entrada que ya no existen en el catálogo.');
+
+    let newPayable: PayableItem | null = null;
     if (entryData.balanceUSD > 0.001) {
       const initialHistory: PayablePaymentRecord[] = [];
       if (entryData.amountPaidUSD > 0) initialHistory.push({
-        id: `pay-rec-${Date.now()}`, date: nowIso, amountUSD: entryData.amountPaidUSD, amountBs: entryData.amountPaidBs, bcvRate: entryData.bcvRate,
-        paymentMethod: 'transferencia_usd', reference: 'PAGO-INICIAL-ENTRADA', notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
-        registeredBy: currentUser.name || 'Admin', balanceAfterUSD: entryData.balanceUSD, isFullSettlement: false,
+        id: `pay-rec-${entryId}`,
+        date: nowIso,
+        amountUSD: entryData.amountPaidUSD,
+        amountBs: entryData.amountPaidBs,
+        bcvRate: entryData.bcvRate,
+        paymentMethod: 'transferencia_usd',
+        reference: 'PAGO-INICIAL-ENTRADA',
+        notes: `Pago inicial de contado al registrar entrada ${entryNumber}`,
+        registeredBy: currentUser.name || 'Admin',
+        balanceAfterUSD: entryData.balanceUSD,
+        isFullSettlement: false,
       });
-      const newPayable: PayableItem = {
-        id: `pay-${Date.now()}`, supplierId: entryData.supplierId, supplierName: entryData.supplierName,
-        invoiceNumber: entryData.invoiceNumber || entryNumber, description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
-        totalAmountUSD: entryData.totalInvoiceUSD, amountPaidUSD: entryData.amountPaidUSD, balanceUSD: entryData.balanceUSD,
-        issuedDate: entryData.date, dueDate: entryData.creditDueDate || entryData.date, creditDays: entryData.creditDays || 15,
+      newPayable = {
+        id: `pay-${entryId}`,
+        supplierId: entryData.supplierId,
+        supplierName: entryData.supplierName,
+        invoiceNumber: entryData.invoiceNumber || entryNumber,
+        description: `Entrada por compra ${entryNumber} (${entryData.items.length} productos)`,
+        totalAmountUSD: entryData.totalInvoiceUSD,
+        amountPaidUSD: entryData.amountPaidUSD,
+        balanceUSD: entryData.balanceUSD,
+        issuedDate: entryData.date,
+        dueDate: entryData.creditDueDate || entryData.date,
+        creditDays: entryData.creditDays || 15,
         status: entryData.balanceUSD <= 0.01 ? 'pagado' : 'al_dia',
         items: entryData.items.map((it) => ({
           productName: it.productName,
@@ -4109,13 +4133,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         })),
         paymentHistory: initialHistory,
       };
-      setPayables((prev) => [newPayable, ...prev]);
-      void tursoService.savePayable(newPayable).catch((error) => console.error('Error saving purchase payable to Turso:', error));
     }
+
+    // Una entrada de compra es una única operación contable: el documento,
+    // las existencias, los costos y la CxP se confirman juntos en Turso.
+    // Si no hay red, se conserva como una operación atómica en la cola offline.
+    const operationId = tursoService.isConfigured()
+      ? offlineSyncService.enqueuePurchaseEntry(newEntry, newPayable)
+      : '';
+    setProducts(updatedProducts);
+    broadcastStockUpdate(updatedProducts, {
+      productIds: entryData.items.map((it) => it.productId),
+      source: 'adjustment',
+      summary: `Entrada por compra ${entryNumber}: +${entryData.items.reduce((sum, item) => sum + item.quantity, 0)} unidades ingresadas al inventario`,
+    });
+    if (newPayable) setPayables((prev) => [newPayable!, ...prev]);
     setPurchaseEntries((prev) => [newEntry, ...prev]);
-    void tursoService.savePurchaseEntry(newEntry).catch((error) => console.error('Error saving purchase entry to Turso:', error));
-    triggerPushNotification({ title: `Entrada ${entryNumber} Registrada con Éxito`, message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`, type: 'inventory_alert', badge: 'Entrada por Compra', sound: true });
-    return { success: true, purchaseEntry: newEntry };
+
+    if (operationId && navigator.onLine) {
+      await offlineSyncService.flush();
+    }
+    const pendingSync = Boolean(operationId && offlineSyncService.hasPending(operationId));
+    if (!pendingSync && tursoService.isConfigured()) {
+      await syncWithTurso(true).catch((error) => console.warn('La entrada se guardó en Turso, pero no se pudo actualizar la vista:', error));
+    }
+    if (navigator.onLine && !pendingSync) {
+      void triggerPushNotification({
+        title: `Entrada ${entryNumber} Registrada con Éxito`,
+        message: `Se ingresaron ${entryData.items.length} renglones al inventario (${entryData.supplierName}). Factura: ${entryData.invoiceNumber || entryNumber}`,
+        type: 'inventory_alert',
+        badge: 'Entrada por Compra',
+        sound: true,
+      });
+    }
+    return { success: true, purchaseEntry: newEntry, pendingSync };
   };
 
   const updateSupplier = async (supplier: Supplier): Promise<void> => {
