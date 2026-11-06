@@ -11,7 +11,7 @@ interface AdminLoginModalProps {
 }
 
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClose }) => {
-  const { setCurrentUser, setIsAdminActive, setMode } = useApp();
+  const { setCurrentUser, setIsAdminActive, setMode, syncWithTurso } = useApp();
 
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -82,6 +82,18 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     const matchedUser = authData.user;
     const sessionId = String(authData.sessionId);
 
+    // Guardar el token de pestaña antes de consultar cajas o ejecutar
+    // migraciones: todas las llamadas protegidas a Turso lo necesitan.
+    sessionStorage.setItem('tienda_pos_tab_session', sessionId);
+    try {
+      const bootstrap = await tursoService.autoBootstrapSchema();
+      if (!bootstrap.success) throw new Error(bootstrap.error || 'No se pudo verificar el esquema de Turso.');
+      localStorage.setItem('omni_turso_schema_ready', '1');
+    } catch (bootstrapError: any) {
+      sessionStorage.removeItem('tienda_pos_tab_session');
+      setError(bootstrapError?.message || 'No se pudo preparar la base de datos.');
+      return;
+    }
 
     let terminals: Terminal[] = [];
     try {
@@ -112,6 +124,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     sessionStorage.setItem('omni_admin_authenticated', '1');
     setIsAdminActive(true);
     setMode('erp');
+    void syncWithTurso(true);
     onClose();
   };
 
@@ -126,6 +139,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
     sessionStorage.setItem('omni_admin_authenticated', '1');
     setIsAdminActive(true);
     setMode('erp');
+    void syncWithTurso(true);
     setPendingUser(null);
     setPendingSessionId('');
     onClose();
