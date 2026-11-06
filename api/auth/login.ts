@@ -84,6 +84,15 @@ export default async function handler(req: any, res: any) {
       args: [username, username, username]
     });
 
+    const row: any = result.rows[0];
+    if (!row || String(row.password || '') !== password) {
+      return res.status(401).json({ error: 'Usuario o contraseña incorrectos, o usuario inactivo.' });
+    }
+
+    if (role && role !== String(row.role || '').trim().toLowerCase()) {
+      return res.status(403).json({ error: `El usuario está registrado con el rol ${String(row.role).toUpperCase()}.` });
+    }
+
     const sessionId = crypto.randomUUID();
     const now = new Date();
     const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
