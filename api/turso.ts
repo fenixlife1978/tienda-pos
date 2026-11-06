@@ -1315,6 +1315,47 @@ export default async function handler(req: any, res: any) {
       } catch (e) { try { await tx.rollback(); } catch {} throw e; }
     }
 
+    if (body.operation === 'rejectCustomerReceivablePayment') {
+      const receivableId = String(body.receivableId || '');
+      const paymentId = String(body.paymentId || '');
+      const rejectedBy = String(body.rejectedBy || 'Administrador');
+      const notes = String(body.notes || 'Pago rechazado por administración.').slice(0, 500);
+      if (!receivableId || !paymentId) return res.status(400).json({ error: 'Reporte de pago incompleto.' });
+      await ensureColumn(client, 'accounts_receivable', 'payment_history', 'TEXT');
+      const tx = await client.transaction('write');
+      try {
+        const stored = await tx.execute({
+          sql: 'SELECT payment_history FROM accounts_receivable WHERE id = ? LIMIT 1',
+          args: [receivableId],
+        });
+        const row: any = stored.rows[0];
+        if (!row) throw new Error('La cuenta por cobrar no existe.');
+        const history = (() => { try { return JSON.parse(String(row.payment_history || '[]')); } catch { return []; } })();
+        const pending = Array.isArray(history) ? history.find((item: any) => String(item.id) === paymentId && item.verificationStatus === 'pendiente') : null;
+        if (!pending) {
+          await tx.rollback();
+          return res.status(200).json({ ok: true, duplicate: true });
+        }
+        const rejectedAt = new Date().toISOString();
+        const nextHistory = history.map((item: any) => String(item.id) === paymentId
+          ? { ...item, verificationStatus: 'rechazado', rejectedBy, rejectedAt, notes }
+          : item);
+        await tx.execute({
+          sql: 'UPDATE accounts_receivable SET payment_history = ? WHERE id = ?',
+          args: [JSON.stringify(nextHistory), receivableId],
+        });
+        await tx.execute({
+          sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('accounts_receivable', ?, 'payment_rejected', ?)",
+          args: [receivableId, rejectedAt],
+        });
+        await tx.commit();
+        return res.status(200).json({ ok: true, duplicate: false });
+      } catch (error) {
+        try { await tx.rollback(); } catch {}
+        throw error;
+      }
+    }
+
     if (body.operation === 'applyReceivablePayments') {
       const customerId = String(body.customerId || '').trim();
       const updates = Array.isArray(body.updates) ? body.updates : [];
