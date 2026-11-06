@@ -178,8 +178,8 @@ interface AppContextType {
       bcvRate?: number;
       sourceReportId?: string;
     }
-  ) => void;
-  reportCustomerReceivablePayment: (
+  ) => Promise<void>;
+  reportCustomerReceivablePayment:
     receivableId: string,
     amountUSD: number,
     details: {
@@ -204,7 +204,7 @@ interface AppContextType {
       notes?: string;
       bcvRate?: number;
     }
-  ) => { liquidatedInvoicesCount: number; partialAbonoUSD: number; fullyPaidTotalUSD: number };
+  ) => Promise<{ liquidatedInvoicesCount: number; partialAbonoUSD: number; fullyPaidTotalUSD: number }>;
   liquidateCustomerInvoice: (
     receivableId: string,
     details?: {
@@ -213,7 +213,7 @@ interface AppContextType {
       notes?: string;
       bcvRate?: number;
     }
-  ) => void;
+  ) => Promise<void>;
   liquidateCustomerTotalDebt: (
     customerId: string,
     details?: {
@@ -222,7 +222,7 @@ interface AppContextType {
       notes?: string;
       bcvRate?: number;
     }
-  ) => void;
+  ) => Promise<void>;
   registerPayablePayment: (
     payableId: string,
     amountUSD: number,
