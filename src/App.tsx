@@ -22,7 +22,7 @@ import { BusinessSettingsModal } from './components/erp/BusinessSettingsModal';
 import { OfflineIndicator } from './components/common/OfflineIndicator';
 
 
-class ErpRenderBoundary extends React.Component<React.PropsWithChildren, { hasError: boolean; message: string }> {
+class ErpRenderBoundary extends React.Component<React.PropsWithChildren<{}>, { hasError: boolean; message: string }> {
   state = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: unknown) {
@@ -202,7 +202,7 @@ const MainLayout: React.FC = () => {
 };
 
 class AppRenderBoundary extends React.Component<
-  React.PropsWithChildren,
+  React.PropsWithChildren<{}>,
   { hasError: boolean; message: string }
 > {
   state = { hasError: false, message: '' };
