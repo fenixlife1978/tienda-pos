@@ -1,5 +1,6 @@
 type TursoClient = any;
 import {
+  AppNotification,
   BcvHistoryEntry,
   Customer,
   Invoice,
@@ -2291,7 +2292,7 @@ class TursoService {
 
   public async checkServerHealth(): Promise<boolean> {
     try {
-      await this.request({ operation: 'health' });
+      await this.request('health');
       return true;
     } catch {
       return false;
