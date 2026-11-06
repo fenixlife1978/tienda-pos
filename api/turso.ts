@@ -557,6 +557,31 @@ export default async function handler(req: any, res: any) {
           Math.abs(Number(payable.balanceUSD) - balanceUSD) > 0.02)) {
         return res.status(400).json({ error: 'El documento de CxP no coincide con los importes de la entrada.' });
       }
+      await client.execute(`CREATE TABLE IF NOT EXISTS purchase_entries (
+        id TEXT PRIMARY KEY, entry_number TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL
+      )`);
+      await client.execute(`CREATE TABLE IF NOT EXISTS inventory_movements (
+        movement_id TEXT PRIMARY KEY, product_id TEXT NOT NULL, quantity_delta REAL NOT NULL,
+        movement_type TEXT NOT NULL, source_operation_id TEXT NOT NULL, terminal_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`);
+      await client.execute(`CREATE TABLE IF NOT EXISTS accounts_payable (
+        id TEXT PRIMARY KEY, supplier_id TEXT NOT NULL, supplier_name TEXT NOT NULL,
+        invoice_number TEXT NOT NULL, description TEXT NOT NULL, total_amount_usd REAL NOT NULL,
+        amount_paid_usd REAL NOT NULL, balance_usd REAL NOT NULL, issued_date TEXT NOT NULL,
+        due_date TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+        payment_history TEXT, items_json TEXT
+      )`);
+      for (const [table, column, definition] of [
+        ['purchase_entries','entry_number','TEXT'], ['purchase_entries','data','TEXT'], ['purchase_entries','created_at','TEXT'],
+        ['inventory_movements','movement_type','TEXT'], ['inventory_movements','source_operation_id','TEXT'],
+        ['inventory_movements','terminal_id','TEXT'], ['inventory_movements','created_at','TEXT'],
+        ['accounts_payable','payment_history','TEXT'], ['accounts_payable','items_json','TEXT'],
+        ['products','cost_usd','REAL DEFAULT 0'], ['products','updated_at','TEXT'],
+      ] as Array<[string,string,string]>) {
+        await ensureColumn(client, table, column, definition);
+      }
+
       const tx = await client.transaction('write');
       try {
         const existing = await tx.execute({
