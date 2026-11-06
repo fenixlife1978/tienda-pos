@@ -644,6 +644,7 @@ export default async function handler(req: any, res: any) {
         if (!adminUser) {
           const customerId = await authenticatedCustomer(req, client);
           if (customerId ? customerId !== String(savedOrder.customer_id || '') : String(savedOrder.customer_id || '') !== 'cust-generic') {
+            await tx.rollback();
             return res.status(403).json({ error: 'No tienes autorización para reservar este pedido.' });
           }
         }
@@ -940,6 +941,7 @@ export default async function handler(req: any, res: any) {
         if (!adminUser) {
           const customerId = await authenticatedCustomer(req, client);
           if (customerId ? customerId !== String(row.rows[0].customer_id || '') : String(row.rows[0].customer_id || '') !== 'cust-generic') {
+            await tx.rollback();
             return res.status(403).json({ error: 'No tienes autorización para cancelar este pedido.' });
           }
         }
