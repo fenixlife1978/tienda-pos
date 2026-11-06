@@ -544,6 +544,19 @@ export default async function handler(req: any, res: any) {
       )) {
         return res.status(400).json({ error: 'La entrada contiene cantidades o costos inválidos.' });
       }
+      const totalUSD = Number(entry.totalInvoiceUSD);
+      const paidUSD = Number(entry.amountPaidUSD || 0);
+      const balanceUSD = Number(entry.balanceUSD || 0);
+      if (!Number.isFinite(totalUSD) || totalUSD <= 0 || !Number.isFinite(paidUSD) || paidUSD < 0 ||
+          !Number.isFinite(balanceUSD) || balanceUSD < 0 || Math.abs(totalUSD - paidUSD - balanceUSD) > 0.02) {
+        return res.status(400).json({ error: 'Los importes de la entrada no cuadran: total, pago inicial y saldo.' });
+      }
+      if (balanceUSD > 0.001 && (!payable?.id ||
+          String(payable.supplierId) !== String(entry.supplierId) ||
+          Math.abs(Number(payable.totalAmountUSD) - totalUSD) > 0.02 ||
+          Math.abs(Number(payable.balanceUSD) - balanceUSD) > 0.02)) {
+        return res.status(400).json({ error: 'El documento de CxP no coincide con los importes de la entrada.' });
+      }
       const tx = await client.transaction('write');
       try {
         const existing = await tx.execute({
