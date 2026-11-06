@@ -1356,9 +1356,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       badge: options.badge,
     };
 
-    // Siempre persistimos la alerta en Turso. El receptor la recogerá mediante
-    // el cursor de cambios aunque esté en otro dispositivo.
-    await tursoService.saveNotification(newNotif);
+    // Los clientes solo pueden publicar notificaciones de su propia cuenta/pedido
+    // mediante una ruta dedicada; el ERP conserva la escritura administrativa.
+    if (effectiveTargetRole === 'seller' && !isAdminActiveRef.current) {
+      await tursoService.notifySellerFromCustomer(newNotif);
+    } else {
+      await tursoService.saveNotification(newNotif);
+    }
 
     if (!shouldDisplayHere) return;
 
