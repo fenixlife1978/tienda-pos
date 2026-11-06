@@ -15,10 +15,10 @@ async function authenticatedUser(req: any, client: any) {
   const sessionId = rawHeader || (cookieValue ? decodeURIComponent(cookieValue.slice('tienda_pos_session='.length)) : '');
   if (!sessionId) return null;
   const result = await client.execute({
-    sql: \`SELECT u.id, u.role, u.active
+    sql: `SELECT u.id, u.role, u.active
           FROM auth_sessions s JOIN system_users u ON u.id=s.user_id
           WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.active=1
-          LIMIT 1\`,
+          LIMIT 1`,
     args: [sessionId, new Date().toISOString()],
   });
   return result.rows[0] || null;
@@ -28,12 +28,12 @@ async function authenticatedCustomer(req: any, client: any) {
   const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || '').trim();
   if (!sessionId) return '';
   const result = await client.execute({
-    sql: \`SELECT s.customer_id
+    sql: `SELECT s.customer_id
           FROM customer_sessions s
           JOIN customers c ON c.id=s.customer_id
           WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
             AND COALESCE(c.account_status,'active')='active'
-          LIMIT 1\`,
+          LIMIT 1`,
     args: [sessionId, new Date().toISOString()],
   });
   return result.rows[0]?.customer_id ? String(result.rows[0].customer_id) : '';
@@ -43,7 +43,7 @@ function scopeCustomerRead(sql: string, args: unknown[], customerId: string) {
   const normalized = sql.trim();
   if (!/^SELECT\b/i.test(normalized) || /;|--|\/\*|\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(normalized)) return null;
   if (/\bSELECT\b/i.test(normalized.slice(6))) return null;
-  const match = normalized.match(/\bFROM\s+["'\`]?([a-zA-Z_][a-zA-Z0-9_]*)["'\`]?(?:\s|$)/i);
+  const match = normalized.match(/\bFROM\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s|$)/i);
   if (!match) return null;
   const table = match[1].toLowerCase();
   const predicates: Record<string, string> = {
@@ -51,7 +51,7 @@ function scopeCustomerRead(sql: string, args: unknown[], customerId: string) {
     orders: 'customer_id = ?',
     invoices: 'customer_id = ?',
     accounts_receivable: 'customer_id = ?',
-    system_notifications: '(target_customer_id = ? OR target_role = \\'all\\')',
+    system_notifications: "(target_customer_id = ? OR target_role = 'all')",
   };
   const predicate = predicates[table];
   if (!predicate) return null;
@@ -69,7 +69,7 @@ function publicReadTable(sql: string) {
   const normalized = sql.trim();
   if (!/^SELECT\b/i.test(normalized) || /;|--|\/\*|\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(normalized)) return null;
   if (/\bSELECT\b/i.test(normalized.slice(6))) return null;
-  const match = normalized.match(/\bFROM\s+["'\`]?([a-zA-Z_][a-zA-Z0-9_]*)["'\`]?(?:\s|$)/i);
+  const match = normalized.match(/\bFROM\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s|$)/i);
   if (!match) return null;
   const fromStart = match.index! + match[0].length;
   const nextClause = normalized.slice(fromStart).search(/\b(WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT)\b/i);
