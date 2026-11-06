@@ -64,9 +64,15 @@ class TursoService {
   }
 
   private async request(operation: string, payload: Record<string, unknown> = {}) {
+    const tabSession = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('tienda_pos_tab_session') || ''
+      : '';
     const response = await fetch('/api/turso', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(tabSession ? { 'X-Tienda-Pos-Session': tabSession } : {}),
+      },
       credentials: 'same-origin',
       body: JSON.stringify({ operation, ...payload }),
       cache: 'no-store',
