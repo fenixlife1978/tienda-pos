@@ -1315,111 +1315,256 @@ export default async function handler(req: any, res: any) {
       } catch (e) { try { await tx.rollback(); } catch {} throw e; }
     }
 
-    if (body.operation === 'approveCustomerReceivablePayment') {
-      const receivable = body.receivable || {};
-      const paymentId = String(body.paymentId || '');
-      const approvedBy = String(body.approvedBy || 'Administrador');
-      const payment = Array.isArray(receivable.paymentHistory)
-        ? receivable.paymentHistory.find((p:any) => String(p.id) === paymentId)
-        : null;
-      if (!receivable.id || !payment || payment.verificationStatus !== 'aprobado') {
-        return res.status(400).json({ error: 'Pago CxC incompleto o no aprobado' });
-      }
-
+    if (body.operation === 'applyReceivablePayments') {
+      const customerId = String(body.customerId || '').trim();
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!customerId || !updates.length) return res.status(400).json({ error: 'No hay pagos CxC para aplicar.' });
+      await ensureColumn(client, 'customers', 'current_debt_usd', 'REAL DEFAULT 0');
+      await ensureColumn(client, 'accounts_receivable', 'payment_history', 'TEXT');
+      await ensureColumn(client, 'invoices', 'payment_status', 'TEXT');
+      await client.execute(\`CREATE TABLE IF NOT EXISTS accounting_entries (
+        id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+        document_number TEXT NOT NULL, entry_date TEXT NOT NULL, description TEXT NOT NULL,
+        source TEXT NOT NULL, lines TEXT NOT NULL, created_at TEXT NOT NULL
+      )\`);
       const tx = await client.transaction('write');
       try {
-        await tx.execute({
-          sql: `INSERT OR REPLACE INTO accounts_receivable
-            (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,
-             issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          args: [
-            String(receivable.id), String(receivable.invoiceId), String(receivable.invoiceNumber),
-            String(receivable.customerId), String(receivable.customerName), String(receivable.customerPhone || ''),
-            Number(receivable.totalAmountUSD || 0), Number(receivable.amountPaidUSD || 0), Number(receivable.balanceUSD || 0),
-            String(receivable.issuedDate), String(receivable.dueDate), Number(receivable.creditDays || 0),
-            String(receivable.status), String(receivable.issuedDate), receivable.isVoided ? 1 : 0,
-            receivable.voidedAt || null, receivable.voidReason || null, JSON.stringify(receivable.paymentHistory || []),
-          ],
+        const customer = await tx.execute({
+          sql: 'SELECT id FROM customers WHERE id = ? LIMIT 1',
+          args: [customerId],
         });
+        if (!customer.rows.length) throw new Error('El cliente de la cuenta por cobrar ya no existe.');
+        let appliedTotal = 0;
+        let processedCount = 0;
+        for (const update of updates) {
+          const receivableId = String(update.receivableId || '');
+          const payment: any = update.paymentRecord || {};
+          if (!receivableId || !payment.id) throw new Error('Pago CxC incompleto.');
+          const stored = await tx.execute({
+            sql: 'SELECT * FROM accounts_receivable WHERE id = ? AND customer_id = ? LIMIT 1',
+            args: [receivableId, customerId],
+          });
+          const row: any = stored.rows[0];
+          if (!row || Number(row.is_voided || 0) === 1) throw new Error('La factura CxC no existe o está anulada.');
+          const history = (() => { try { return JSON.parse(String(row.payment_history || '[]')); } catch { return []; } })();
+          if (Array.isArray(history) && history.some((item: any) => String(item.id) === String(payment.id))) continue;
+          const amount = Number(payment.amountUSD || 0);
+          const balance = Number(row.balance_usd || 0);
+          if (!Number.isFinite(amount) || amount <= 0 || amount > balance + 0.0001) {
+            throw new Error('El pago supera el saldo pendiente de la factura ' + String(row.invoice_number) + '.');
+          }
+          const newPaid = Number(row.amount_paid_usd || 0) + amount;
+          const newBalance = Math.max(0, balance - amount);
+          const isSettled = newBalance <= 0.01;
+          const savedPayment = {
+            ...payment,
+            amountUSD: amount,
+            balanceAfterUSD: newBalance,
+            isFullSettlement: isSettled,
+          };
+          const nextHistory = [savedPayment, ...(Array.isArray(history) ? history : [])];
+          await tx.execute({
+            sql: 'UPDATE accounts_receivable SET amount_paid_usd=?, balance_usd=?, status=?, payment_history=? WHERE id=? AND customer_id=?',
+            args: [newPaid, newBalance, isSettled ? 'pagado' : String(row.status || 'al_dia'), JSON.stringify(nextHistory), receivableId, customerId],
+          });
+          if (isSettled && row.invoice_id) {
+            await tx.execute({
+              sql: "UPDATE invoices SET payment_status='pagado' WHERE id=? AND customer_id=?",
+              args: [String(row.invoice_id), customerId],
+            });
+          }
 
-        await tx.execute({
-          sql: `CREATE TABLE IF NOT EXISTS accounting_entries (
-            id TEXT PRIMARY KEY,
-            order_id TEXT NOT NULL UNIQUE,
-            invoice_id TEXT NOT NULL,
-            document_number TEXT NOT NULL,
-            entry_date TEXT NOT NULL,
-            description TEXT NOT NULL,
-            source TEXT NOT NULL,
-            lines TEXT NOT NULL,
-            created_at TEXT NOT NULL
-          )`,
-          args: [],
-        });
-
-        const splits = Array.isArray(payment.paymentSplits) && payment.paymentSplits.length
-          ? payment.paymentSplits
-          : [{
-              method: payment.paymentMethod,
-              amountUSD: Number(payment.amountUSD || 0),
-              amountBs: Number(payment.amountBs || 0),
-              reference: payment.reference || null,
-            }];
-
-        const lines:any[] = [];
-        for (const split of splits) {
-          lines.push({
-            account: 'CAJA/BANCO - ' + String(split.method || payment.paymentMethod),
+          const splits = Array.isArray(payment.paymentSplits) && payment.paymentSplits.length
+            ? payment.paymentSplits
+            : [{
+                method: payment.paymentMethod || 'transferencia_usd',
+                amountUSD: amount,
+                amountBs: Number(payment.amountBs || 0),
+                reference: payment.reference || null,
+              }];
+          const lines: any[] = splits.map((split: any) => ({
+            account: 'CAJA/BANCO - ' + String(split.method || payment.paymentMethod || 'mixto'),
             debitUSD: Number(split.amountUSD || 0),
             debitBs: Number(split.amountBs || 0),
             creditUSD: 0,
             creditBs: 0,
-            paymentMethod: String(split.method || payment.paymentMethod),
+            paymentMethod: String(split.method || payment.paymentMethod || 'mixto'),
             reference: split.reference || payment.reference || null,
+          }));
+          lines.push({
+            account: 'CUENTAS POR COBRAR - CLIENTES',
+            debitUSD: 0,
+            debitBs: 0,
+            creditUSD: amount,
+            creditBs: Number(payment.amountBs || 0),
+            paymentMethod: String(payment.paymentMethod || 'mixto'),
+          });
+          const paymentDate = String(payment.date || new Date().toISOString());
+          await tx.execute({
+            sql: \`INSERT OR IGNORE INTO accounting_entries
+              (id,order_id,invoice_id,document_number,entry_date,description,source,lines,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?)\`,
+            args: [
+              'asiento-cxc-' + String(payment.id),
+              'cxc-payment-' + String(payment.id),
+              String(row.invoice_id || ''),
+              String(row.invoice_number || ''),
+              paymentDate,
+              'Cobro CxC ' + String(row.invoice_number || ''),
+              'customer_receivable_payment',
+              JSON.stringify(lines),
+              new Date().toISOString(),
+            ],
+          });
+          await tx.execute({
+            sql: "INSERT INTO activity_changes (table_name,entity_id,operation,changed_at) VALUES ('accounts_receivable',?,'payment_registered',?)",
+            args: [receivableId, new Date().toISOString()],
+          });
+          appliedTotal += amount;
+          processedCount++;
+        }
+        if (appliedTotal > 0) {
+          await tx.execute({
+            sql: 'UPDATE customers SET current_debt_usd=MAX(0,COALESCE(current_debt_usd,0)-?) WHERE id=?',
+            args: [appliedTotal, customerId],
+          });
+          await tx.execute({
+            sql: "INSERT INTO activity_changes (table_name,entity_id,operation,changed_at) VALUES ('customers',?,'receivable_payment',?)",
+            args: [customerId, new Date().toISOString()],
+          });
+        }
+        await tx.commit();
+        return res.status(200).json({ ok: true, appliedTotal, processedCount, duplicate: processedCount === 0 });
+      } catch (error) {
+        try { await tx.rollback(); } catch {}
+        throw error;
+      }
+    }
+
+    if (body.operation === 'approveCustomerReceivablePayment') {
+      const receivableId = String(body.receivable?.id || '');
+      const paymentId = String(body.paymentId || '');
+      const approvedBy = String(body.approvedBy || 'Administrador');
+      if (!receivableId || !paymentId) return res.status(400).json({ error: 'Pago CxC incompleto.' });
+      await ensureColumn(client, 'customers', 'current_debt_usd', 'REAL DEFAULT 0');
+      await ensureColumn(client, 'accounts_receivable', 'payment_history', 'TEXT');
+      await ensureColumn(client, 'invoices', 'payment_status', 'TEXT');
+      await client.execute(\`CREATE TABLE IF NOT EXISTS accounting_entries (
+        id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
+        document_number TEXT NOT NULL, entry_date TEXT NOT NULL, description TEXT NOT NULL,
+        source TEXT NOT NULL, lines TEXT NOT NULL, created_at TEXT NOT NULL
+      )\`);
+      const tx = await client.transaction('write');
+      try {
+        const accountingId = 'asiento-cxc-' + paymentId;
+        const existingPosting = await tx.execute({
+          sql: 'SELECT id FROM accounting_entries WHERE id = ? LIMIT 1',
+          args: [accountingId],
+        });
+        if (existingPosting.rows.length) {
+          await tx.rollback();
+          return res.status(200).json({ ok: true, posted: true, duplicate: true, paymentId });
+        }
+        const stored = await tx.execute({
+          sql: 'SELECT * FROM accounts_receivable WHERE id = ? LIMIT 1',
+          args: [receivableId],
+        });
+        const row: any = stored.rows[0];
+        if (!row || Number(row.is_voided || 0) === 1) throw new Error('La cuenta por cobrar no existe o está anulada.');
+        const history = (() => { try { return JSON.parse(String(row.payment_history || '[]')); } catch { return []; } })();
+        const pendingPayment: any = Array.isArray(history)
+          ? history.find((item: any) => String(item.id) === paymentId && item.verificationStatus === 'pendiente')
+          : null;
+        if (!pendingPayment) throw new Error('El reporte de pago ya no está pendiente de aprobación.');
+        const amount = Number(pendingPayment.amountUSD || 0);
+        const balance = Number(row.balance_usd || 0);
+        if (!Number.isFinite(amount) || amount <= 0 || amount > balance + 0.0001) throw new Error('El pago reportado supera el saldo pendiente.');
+        const newPaid = Number(row.amount_paid_usd || 0) + amount;
+        const newBalance = Math.max(0, balance - amount);
+        const isSettled = newBalance <= 0.01;
+        const approvedAt = new Date().toISOString();
+        const approvedPayment = {
+          ...pendingPayment,
+          verificationStatus: 'aprobado',
+          approvedBy,
+          approvedAt,
+          balanceAfterUSD: newBalance,
+          isFullSettlement: isSettled,
+        };
+        const nextHistory = history.map((item: any) => String(item.id) === paymentId ? approvedPayment : item);
+        await tx.execute({
+          sql: 'UPDATE accounts_receivable SET amount_paid_usd=?, balance_usd=?, status=?, payment_history=? WHERE id=?',
+          args: [newPaid, newBalance, isSettled ? 'pagado' : String(row.status || 'al_dia'), JSON.stringify(nextHistory), receivableId],
+        });
+        await tx.execute({
+          sql: 'UPDATE customers SET current_debt_usd=MAX(0,COALESCE(current_debt_usd,0)-?) WHERE id=?',
+          args: [amount, String(row.customer_id)],
+        });
+        if (isSettled && row.invoice_id) {
+          await tx.execute({
+            sql: "UPDATE invoices SET payment_status='pagado' WHERE id=? AND customer_id=?",
+            args: [String(row.invoice_id), String(row.customer_id)],
+          });
+        }
+
+        const splits = Array.isArray(approvedPayment.paymentSplits) && approvedPayment.paymentSplits.length
+          ? approvedPayment.paymentSplits
+          : [{
+              method: approvedPayment.paymentMethod,
+              amountUSD: Number(approvedPayment.amountUSD || 0),
+              amountBs: Number(approvedPayment.amountBs || 0),
+              reference: approvedPayment.reference || null,
+            }];
+        const lines: any[] = [];
+        for (const split of splits) {
+          lines.push({
+            account: 'CAJA/BANCO - ' + String(split.method || approvedPayment.paymentMethod),
+            debitUSD: Number(split.amountUSD || 0),
+            debitBs: Number(split.amountBs || 0),
+            creditUSD: 0,
+            creditBs: 0,
+            paymentMethod: String(split.method || approvedPayment.paymentMethod),
+            reference: split.reference || approvedPayment.reference || null,
           });
         }
         lines.push({
           account: 'CUENTAS POR COBRAR - CLIENTES',
           debitUSD: 0,
           debitBs: 0,
-          creditUSD: Number(payment.amountUSD || 0),
-          creditBs: Number(payment.amountBs || 0),
-          paymentMethod: String(payment.paymentMethod || 'mixto'),
+          creditUSD: amount,
+          creditBs: Number(approvedPayment.amountBs || 0),
+          paymentMethod: String(approvedPayment.paymentMethod || 'mixto'),
         });
-
         await tx.execute({
-          sql: `INSERT OR IGNORE INTO accounting_entries
+          sql: \`INSERT OR IGNORE INTO accounting_entries
             (id, order_id, invoice_id, document_number, entry_date, description, source, lines, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\`,
           args: [
-            'asiento-cxc-' + paymentId,
+            accountingId,
             'cxc-payment-' + paymentId,
-            String(receivable.invoiceId),
-            String(receivable.invoiceNumber),
-            String(payment.date || new Date().toISOString()),
-            'Cobro CxC aprobado ' + String(receivable.invoiceNumber),
+            String(row.invoice_id || ''),
+            String(row.invoice_number || ''),
+            String(approvedPayment.date || approvedAt),
+            'Cobro CxC aprobado ' + String(row.invoice_number || ''),
             'customer_receivable_payment_approval',
             JSON.stringify(lines),
-            new Date().toISOString(),
+            approvedAt,
           ],
         });
-
         await tx.execute({
           sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('accounts_receivable', ?, 'payment_approved', ?)",
-          args: [String(receivable.id), new Date().toISOString()],
+          args: [receivableId, approvedAt],
         });
         await tx.commit();
-
         const verify = await client.execute({
           sql: 'SELECT id FROM accounting_entries WHERE id = ? LIMIT 1',
-          args: ['asiento-cxc-' + paymentId],
+          args: [accountingId],
         });
         if (!verify.rows.length) throw new Error('Turso no confirmó el asiento del cobro CxC aprobado');
-        return res.status(200).json({ ok: true, posted: true, paymentId });
-      } catch (e) {
+        return res.status(200).json({ ok: true, posted: true, duplicate: false, paymentId });
+      } catch (error) {
         try { await tx.rollback(); } catch {}
-        throw e;
+        throw error;
       }
     }
 
