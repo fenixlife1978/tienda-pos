@@ -23,6 +23,7 @@ import { OfflineIndicator } from './components/common/OfflineIndicator';
 
 
 class ErpRenderBoundary extends Component<{ children?: React.ReactNode }, { hasError: boolean; message: string }> {
+  declare readonly props: { children?: React.ReactNode };
   state = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: unknown) {
@@ -205,6 +206,7 @@ class AppRenderBoundary extends Component<
   { children?: React.ReactNode },
   { hasError: boolean; message: string }
 > {
+  declare readonly props: { children?: React.ReactNode };
   state = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: unknown) {
