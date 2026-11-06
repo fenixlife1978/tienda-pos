@@ -1362,6 +1362,7 @@ export default async function handler(req: any, res: any) {
       if (!customerId || !updates.length) return res.status(400).json({ error: 'No hay pagos CxC para aplicar.' });
       await ensureColumn(client, 'customers', 'current_debt_usd', 'REAL DEFAULT 0');
       await ensureColumn(client, 'accounts_receivable', 'payment_history', 'TEXT');
+      await ensureColumn(client, 'accounts_receivable', 'is_voided', 'INTEGER DEFAULT 0');
       await ensureColumn(client, 'invoices', 'payment_status', 'TEXT');
       await client.execute(`CREATE TABLE IF NOT EXISTS accounting_entries (
         id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE, invoice_id TEXT NOT NULL,
@@ -1465,9 +1466,13 @@ export default async function handler(req: any, res: any) {
           processedCount++;
         }
         if (appliedTotal > 0) {
+          const debtTotal = await tx.execute({
+            sql: 'SELECT COALESCE(SUM(balance_usd),0) AS total_debt FROM accounts_receivable WHERE customer_id=? AND COALESCE(is_voided,0)=0',
+            args: [customerId],
+          });
           await tx.execute({
-            sql: 'UPDATE customers SET current_debt_usd=MAX(0,COALESCE(current_debt_usd,0)-?) WHERE id=?',
-            args: [appliedTotal, customerId],
+            sql: 'UPDATE customers SET current_debt_usd=? WHERE id=?',
+            args: [Number(debtTotal.rows[0]?.total_debt || 0), customerId],
           });
           await tx.execute({
             sql: "INSERT INTO activity_changes (table_name,entity_id,operation,changed_at) VALUES ('customers',?,'receivable_payment',?)",
@@ -1545,9 +1550,13 @@ export default async function handler(req: any, res: any) {
           sql: 'UPDATE accounts_receivable SET amount_paid_usd=?, balance_usd=?, status=?, payment_history=? WHERE id=?',
           args: [newPaid, newBalance, isSettled ? 'pagado' : String(row.status || 'al_dia'), JSON.stringify(nextHistory), receivableId],
         });
+        const debtTotal = await tx.execute({
+          sql: 'SELECT COALESCE(SUM(balance_usd),0) AS total_debt FROM accounts_receivable WHERE customer_id=? AND COALESCE(is_voided,0)=0',
+          args: [String(row.customer_id)],
+        });
         await tx.execute({
-          sql: 'UPDATE customers SET current_debt_usd=MAX(0,COALESCE(current_debt_usd,0)-?) WHERE id=?',
-          args: [amount, String(row.customer_id)],
+          sql: 'UPDATE customers SET current_debt_usd=? WHERE id=?',
+          args: [Number(debtTotal.rows[0]?.total_debt || 0), String(row.customer_id)],
         });
         if (isSettled && row.invoice_id) {
           await tx.execute({
