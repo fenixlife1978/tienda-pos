@@ -50,6 +50,21 @@ async function verifyPassword(password: string, encoded: string) {
   }
 }
 
+async function createCustomerSession(client: any, customerId: string) {
+  await client.execute(`CREATE TABLE IF NOT EXISTS customer_sessions (
+    id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL, revoked_at TEXT
+  )`);
+  const sessionId = randomBytes(32).toString('base64url');
+  const now = new Date();
+  const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  await client.execute({
+    sql: 'INSERT INTO customer_sessions (id,customer_id,created_at,expires_at,revoked_at) VALUES (?,?,?,?,NULL)',
+    args: [sessionId, customerId, now.toISOString(), expires.toISOString()],
+  });
+  return sessionId;
+}
+
 function publicCustomer(row: any) {
   const extra = row.extra_data ? JSON.parse(String(row.extra_data)) : {};
   return {
@@ -83,6 +98,103 @@ export default async function handler(req: any, res: any) {
   const operation = String(body.operation || '');
   const identifier = String(body.identifier || '').trim();
   const password = String(body.password || '');
+  if (operation === 'logout') {
+    try {
+      const client = db();
+      const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || body.sessionId || '').trim();
+      if (sessionId) {
+        await client.execute({
+          sql: 'UPDATE customer_sessions SET revoked_at=? WHERE id=? AND revoked_at IS NULL',
+          args: [new Date().toISOString(), sessionId],
+        });
+      }
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error('Customer logout error:', error);
+      return res.status(500).json({ error: 'No se pudo cerrar la sesión del cliente' });
+    }
+  }
+  if (operation === 'notifySeller') {
+    try {
+      const client = db();
+      const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || '').trim();
+      let customerId = '';
+      if (sessionId) {
+        const session = await client.execute({
+          sql: `SELECT s.customer_id FROM customer_sessions s
+                JOIN customers c ON c.id=s.customer_id
+                WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
+                  AND COALESCE(c.account_status,'active')='active' LIMIT 1`,
+          args: [sessionId, new Date().toISOString()],
+        });
+        customerId = String(session.rows[0]?.customer_id || '');
+      }
+      const relatedOrderId = String(body.relatedOrderId || '').trim();
+      if (relatedOrderId) {
+        const order = await client.execute({
+          sql: 'SELECT customer_id, channel FROM orders WHERE id=? LIMIT 1',
+          args: [relatedOrderId],
+        });
+        const orderRow: any = order.rows[0];
+        if (!orderRow || String(orderRow.channel) !== 'online') return res.status(404).json({ error: 'Pedido online no encontrado' });
+        if (customerId ? customerId !== String(orderRow.customer_id || '') : String(orderRow.customer_id || '') !== 'cust-generic') {
+          return res.status(403).json({ error: 'No puedes notificar sobre este pedido' });
+        }
+      } else if (!customerId) {
+        return res.status(401).json({ error: 'Sesión de cliente requerida' });
+      }
+      const title = String(body.title || '').trim().slice(0, 120);
+      const message = String(body.message || '').trim().slice(0, 500);
+      const type = String(body.type || 'order_status');
+      if (!title || !message || !['order_status', 'credit_alert'].includes(type)) {
+        return res.status(400).json({ error: 'Notificación de cliente no válida' });
+      }
+      await client.execute(`CREATE TABLE IF NOT EXISTS system_notifications (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL, type TEXT NOT NULL,
+        target_role TEXT, target_customer_id TEXT, related_order_id TEXT, read INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`);
+      const notificationId = 'notif-' + randomBytes(12).toString('hex');
+      const createdAt = new Date().toISOString();
+      await client.execute({
+        sql: 'INSERT INTO system_notifications (id,title,message,type,target_role,target_customer_id,related_order_id,read,created_at) VALUES (?,?,?,?,\'seller\',NULL,?,0,?)',
+        args: [notificationId, title, message, type, relatedOrderId || null, createdAt],
+      });
+      await client.execute({
+        sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('system_notifications', ?, 'customer_notification', ?)",
+        args: [notificationId, createdAt],
+      });
+      return res.status(200).json({ ok: true, notificationId });
+    } catch (error) {
+      console.error('Customer notification error:', error);
+      return res.status(500).json({ error: 'No se pudo enviar la notificación a administración' });
+    }
+  }
+  if (operation === 'updatePreferences') {
+    try {
+      const client = db();
+      const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || '').trim();
+      if (!sessionId) return res.status(401).json({ error: 'Sesión de cliente requerida' });
+      const session = await client.execute({
+        sql: `SELECT s.customer_id FROM customer_sessions s
+              JOIN customers c ON c.id=s.customer_id
+              WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
+                AND COALESCE(c.account_status,'active')='active' LIMIT 1`,
+        args: [sessionId, new Date().toISOString()],
+      });
+      const customerId = String(session.rows[0]?.customer_id || '');
+      if (!customerId) return res.status(401).json({ error: 'La sesión del cliente expiró o fue revocada' });
+      const preferences = body.preferences || {};
+      await client.execute({
+        sql: 'UPDATE customers SET notification_preferences=? WHERE id=?',
+        args: [JSON.stringify(preferences), customerId],
+      });
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error('Customer preferences error:', error);
+      return res.status(500).json({ error: 'No se pudieron guardar las preferencias' });
+    }
+  }
   if (!['login', 'register'].includes(operation)) return res.status(400).json({ error: 'Operación no válida' });
   if (!password || (operation === 'register' && password.length < 8)) {
     return res.status(400).json({ error: operation === 'register' ? 'La contraseña debe tener al menos 8 caracteres' : 'Credenciales incompletas' });
@@ -124,7 +236,8 @@ export default async function handler(req: any, res: any) {
           customer.assignedPriceTier || 'mayorista',customer.verificationNotes || null,extra,registeredAt],
       });
       const saved = await client.execute({ sql: 'SELECT * FROM customers WHERE id = ? LIMIT 1', args: [id] });
-      return res.status(201).json({ customer: publicCustomer(saved.rows[0]) });
+      const sessionId = await createCustomerSession(client, id);
+      return res.status(201).json({ customer: publicCustomer(saved.rows[0]), sessionId });
     }
 
     if (!identifier) return res.status(400).json({ error: 'Indica correo, RIF o teléfono' });
@@ -154,7 +267,8 @@ export default async function handler(req: any, res: any) {
       }
     }
     if (!valid) return res.status(401).json({ error: 'Credenciales incorrectas' });
-    return res.status(200).json({ customer: publicCustomer(row) });
+    const sessionId = await createCustomerSession(client, String(row.id));
+    return res.status(200).json({ customer: publicCustomer(row), sessionId });
   } catch (error: any) {
     console.error('Customer auth error:', error);
     return res.status(500).json({ error: 'No se pudo completar la autenticación del cliente' });

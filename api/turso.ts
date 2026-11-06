@@ -8,6 +8,80 @@ function db() {
   return createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
 }
 
+async function authenticatedUser(req: any, client: any) {
+  // La sesión ERP es estrictamente por pestaña. No usar la cookie global,
+  // que podría permitir que una pestaña cliente herede otra sesión administrativa.
+  const sessionId = String(req.headers?.['x-tienda-pos-session'] || '').trim();
+  if (!sessionId) return null;
+  const result = await client.execute({
+    sql: `SELECT u.id, u.role, u.active
+          FROM auth_sessions s JOIN system_users u ON u.id=s.user_id
+          WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ? AND u.active=1
+          LIMIT 1`,
+    args: [sessionId, new Date().toISOString()],
+  });
+  return result.rows[0] || null;
+}
+
+async function authenticatedCustomer(req: any, client: any) {
+  const sessionId = String(req.headers?.['x-tienda-pos-customer-session'] || '').trim();
+  if (!sessionId) return '';
+  const result = await client.execute({
+    sql: `SELECT s.customer_id
+          FROM customer_sessions s
+          JOIN customers c ON c.id=s.customer_id
+          WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at > ?
+            AND COALESCE(c.account_status,'active')='active'
+          LIMIT 1`,
+    args: [sessionId, new Date().toISOString()],
+  });
+  return result.rows[0]?.customer_id ? String(result.rows[0].customer_id) : '';
+}
+
+function scopeCustomerRead(sql: string, args: unknown[], customerId: string) {
+  const normalized = sql.trim();
+  if (!/^SELECT\b/i.test(normalized) || /;|--|\/\*|\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(normalized)) return null;
+  if (/\bSELECT\b/i.test(normalized.slice(6))) return null;
+  const match = normalized.match(/\bFROM\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s|$)/i);
+  if (!match) return null;
+  const fromStart = match.index! + match[0].length;
+  const nextClause = normalized.slice(fromStart).search(/\b(WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT)\b/i);
+  const fromTail = normalized.slice(fromStart, nextClause < 0 ? undefined : fromStart + nextClause);
+  if (fromTail.includes(',')) return null;
+  const table = match[1].toLowerCase();
+  const predicates: Record<string, string> = {
+    customers: 'id = ?',
+    orders: 'customer_id = ?',
+    invoices: 'customer_id = ?',
+    accounts_receivable: 'customer_id = ?',
+    system_notifications: "(target_customer_id = ? OR target_role = 'all')",
+  };
+  const predicate = predicates[table];
+  if (!predicate) return null;
+  const clauseIndex = normalized.search(/\b(ORDER\s+BY|GROUP\s+BY|LIMIT)\b/i);
+  const splitAt = clauseIndex < 0 ? normalized.length : clauseIndex;
+  const head = normalized.slice(0, splitAt);
+  const tail = normalized.slice(splitAt);
+  const scopedHead = /\bWHERE\b/i.test(head)
+    ? head + ' AND (' + predicate + ')'
+    : head + ' WHERE ' + predicate;
+  return { sql: scopedHead + ' ' + tail, args: [...args, customerId], table };
+}
+
+function publicReadTable(sql: string) {
+  const normalized = sql.trim();
+  if (!/^SELECT\b/i.test(normalized) || /;|--|\/\*|\b(UNION|JOIN|PRAGMA|ATTACH|DETACH|INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(normalized)) return null;
+  if (/\bSELECT\b/i.test(normalized.slice(6))) return null;
+  const match = normalized.match(/\bFROM\s+["'`]?([a-zA-Z_][a-zA-Z0-9_]*)["'`]?(?:\s|$)/i);
+  if (!match) return null;
+  const fromStart = match.index! + match[0].length;
+  const nextClause = normalized.slice(fromStart).search(/\b(WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT)\b/i);
+  const fromTail = normalized.slice(fromStart, nextClause < 0 ? undefined : fromStart + nextClause);
+  if (fromTail.includes(',')) return null;
+  const table = match[1].toLowerCase();
+  return ['products', 'categories', 'units', 'system_settings', 'bcv_history', 'inventory_reservations'].includes(table) ? table : null;
+}
+
 function argsOf(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
@@ -49,60 +123,85 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'authenticateUser') {
-      const username = String(body.username || '').trim().toLowerCase();
-      const password = String(body.password || '');
-      const role = String(body.role || '').trim();
-      if (!username || !password) return res.status(400).json({ error: 'Credenciales incompletas' });
+      return res.status(410).json({ error: 'Método obsoleto. Utiliza /api/auth/login.' });
+    }
 
-      if (username === 'admin' && password === 'Admin123!') {
-        const seed = await client.execute({ sql: `SELECT * FROM system_users WHERE id = 'usr-admin-initial' OR (is_initial_generic = 1 AND LOWER(email) = 'admin') ORDER BY CASE WHEN id = 'usr-admin-initial' THEN 0 ELSE 1 END LIMIT 1`, args: [] });
-        let seedRow: any = seed.rows[0];
-        if (!seedRow) {
-          const anyAdmin = await client.execute({ sql: `SELECT 1 FROM system_users WHERE role = 'admin' AND active = 1 LIMIT 1`, args: [] });
-          if (!anyAdmin.rows.length) {
-            await client.execute({ sql: `INSERT INTO system_users (id, name, email, role, active, password, is_initial_generic, created_at) VALUES ('usr-admin-initial', 'Administrador Principal', 'admin', 'admin', 1, 'Admin123!', 1, ?)`, args: [new Date().toISOString().split('T')[0]] });
-            const created = await client.execute({ sql: `SELECT * FROM system_users WHERE id = 'usr-admin-initial' LIMIT 1`, args: [] });
-            seedRow = created.rows[0];
+    if (body.operation === 'execute') {
+      const sql = String(body.sql || '').trim();
+      if (!sql) return res.status(400).json({ error: 'Consulta SQL vacía' });
+      const user = await authenticatedUser(req, client);
+      if (!user) {
+        const customerId = await authenticatedCustomer(req, client);
+        if (customerId) {
+          const scoped = scopeCustomerRead(sql, argsOf(body.args), customerId);
+          if (scoped) {
+            const scopedResult = await client.execute({ sql: scoped.sql, args: scoped.args as any });
+            const rows = scoped.table === 'customers'
+              ? scopedResult.rows.map((row: any) => {
+                  const safe = { ...row };
+                  delete safe.password;
+                  delete safe.password_hash;
+                  return safe;
+                })
+              : scopedResult.rows;
+            return res.status(200).json({ rows, rowsAffected: scopedResult.rowsAffected || 0, lastInsertRowid: scopedResult.lastInsertRowid });
           }
-        } else if (!Number(seedRow.active) || String(seedRow.password || '') !== 'Admin123!') {
-          await client.execute({ sql: `UPDATE system_users SET active = 1, password = 'Admin123!', role = 'admin', email = 'admin', is_initial_generic = 1 WHERE id = ?`, args: [String(seedRow.id)] });
-          const repaired = await client.execute({ sql: `SELECT * FROM system_users WHERE id = ? LIMIT 1`, args: [String(seedRow.id)] });
-          seedRow = repaired.rows[0];
         }
-        if (seedRow) return res.status(200).json({ user: { id: String(seedRow.id), name: String(seedRow.name), email: String(seedRow.email), role: seedRow.role, avatar: seedRow.avatar ? String(seedRow.avatar) : undefined, active: Boolean(seedRow.active), isInitialGeneric: Boolean(seedRow.is_initial_generic), createdAt: String(seedRow.created_at || new Date().toISOString()) } });
+        const table = publicReadTable(sql);
+        if (!table) return res.status(401).json({ error: 'Se requiere una sesión válida para consultar o modificar datos administrativos.' });
+        const result = await client.execute({ sql, args: argsOf(body.args) as any });
+        if (table === 'products') {
+          const rows = result.rows.map((row: any) => {
+            const safe = { ...row };
+            for (const key of ['cost_usd','profit_margin_percent','suppliers_info','highest_supplier_cost','composite_components','warehouse_stocks']) delete safe[key];
+            return safe;
+          });
+          return res.status(200).json({ rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
+        }
+        if (table === 'system_settings') {
+          const rows = result.rows.map((row: any) => {
+            let settings: any = {};
+            try { settings = JSON.parse(String(row.data || '{}')); } catch {}
+            const publicKeys = [
+              'companyName','companyRif','companyPhone','companyEmail','companyAddress','companyLogo',
+              'ivaPercentage','defaultCreditDays','defaultCreditLimitUSD','bcvRate','autoUpdateBcv',
+              'lastBcvUpdate','bcvAutoUpdateIntervalSeconds','bcvEffectiveDate','bcvSourceUrl','bcvHistory',
+              'acceptedPaymentMethods','pagoMovilBank','pagoMovilPhone','pagoMovilRif','zelleEmail','zelleBeneficiary',
+              'transferenciaBank','transferenciaAccountNumber','transferenciaAccountType','transferenciaBeneficiary','transferenciaRif',
+            ];
+            const safeSettings: any = {};
+            for (const key of publicKeys) if (settings[key] !== undefined) safeSettings[key] = settings[key];
+            return { ...row, data: JSON.stringify(safeSettings) };
+          });
+          return res.status(200).json({ rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
+        }
+        return res.status(200).json({ rows: result.rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
       }
+      if (/^SELECT\b/i.test(sql) && /\b(password|password_hash)\b/i.test(sql)) {
+        return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
+      }
+      const result = await client.execute({ sql, args: argsOf(body.args) as any });
+      const readsSensitiveIdentity = /\bFROM\s+["'\`]?((system_users)|(customers))["'\`]?\b/i.test(sql);
+      const rows = readsSensitiveIdentity
+        ? result.rows.map((row: any) => {
+            const safe = { ...row };
+            delete safe.password;
+            delete safe.password_hash;
+            return safe;
+          })
+        : result.rows;
+      return res.status(200).json({ rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
+    }
 
-      const result = await client.execute({
-        sql: `SELECT * FROM system_users
-               WHERE active = 1
-                 AND (LOWER(email) = ? OR LOWER(name) = ? OR (? IN ('admin','administrador') AND (is_initial_generic = 1 OR role = 'admin')))
-               ORDER BY CASE WHEN role = ? THEN 0 ELSE 1 END, is_initial_generic DESC, name ASC
-               LIMIT 1`,
-        args: [username, username, username, role],
-      });
-      const row: any = result.rows[0];
-      if (!row || String(row.password || '') !== password) {
-        return res.status(401).json({ error: 'Usuario o credenciales no encontradas' });
-      }
-      return res.status(200).json({
-        user: {
-          id: String(row.id),
-          name: String(row.name),
-          email: String(row.email),
-          role: row.role,
-          avatar: row.avatar ? String(row.avatar) : undefined,
-          active: Boolean(row.active),
-          isInitialGeneric: Boolean(row.is_initial_generic),
-          createdAt: String(row.created_at || new Date().toISOString()),
-        }
-      });
+    const publicOperations = new Set(['reserveOrderInventory', 'releaseOrderInventory', 'reportCustomerReceivablePayment', 'offlineSale', 'cancelOnlineOrder']);
+    if (!publicOperations.has(String(body.operation || ''))) {
+      const user = await authenticatedUser(req, client);
+      if (!user) return res.status(401).json({ error: 'Se requiere una sesión administrativa válida.' });
     }
 
     if (body.operation === 'resetDatabase') {
       // Reinicio destructivo: solo puede ejecutarlo una sesión administrativa válida.
-      const cookieHeader = String(req.headers?.cookie || '');
-      const match = cookieHeader.match(/(?:^|;\\s*)tienda_pos_session=([^;]+)/);
-      const sessionId = match ? decodeURIComponent(match[1]) : '';
+      const sessionId = String(req.headers?.['x-tienda-pos-session'] || '').trim();
       if (!sessionId) return res.status(401).json({ error: 'Sesión administrativa requerida' });
 
       const auth = await client.execute({
@@ -431,25 +530,6 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    if (body.operation === 'execute') {
-      const sql = String(body.sql || '');
-      // La API genérica no debe exponer las credenciales de clientes.
-      if (/^\s*(SELECT|INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql) && /\bcustomers\b/i.test(sql) && /\b(password|password_hash)\b/i.test(sql)) {
-        return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
-      }
-      const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      const rows = /\bcustomers\b/i.test(sql) ? result.rows.map((row: any) => {
-        const safe = { ...row };
-        delete safe.password;
-        delete safe.password_hash;
-        return safe;
-      }) : result.rows;
-      return res.status(200).json({
-        rows,
-        rowsAffected: Number(result.rowsAffected || 0),
-        lastInsertRowid: result.lastInsertRowid == null ? null : String(result.lastInsertRowid),
-      });
-    }
 
     if (body.operation === 'reserveTerminalDocuments') {
       const terminalId = String(body.terminalId || '').trim();
@@ -547,8 +627,22 @@ export default async function handler(req: any, res: any) {
         await tx.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_reservations_order_product ON inventory_reservations(order_id, product_id)');
         await tx.execute('CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status_product ON inventory_reservations(status, product_id)');
 
-        const existingOrder = await tx.execute({ sql: 'SELECT id, order_status, channel FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
+        const existingOrder = await tx.execute({ sql: 'SELECT id, order_status, channel, customer_id, items, pos_registered_at FROM orders WHERE id = ? LIMIT 1', args: [String(order.id)] });
         if (!existingOrder.rows.length) throw new Error('Turso no encontró el pedido antes de reservar inventario.');
+        const savedOrder: any = existingOrder.rows[0];
+        if (String(savedOrder.channel) !== 'online' || savedOrder.pos_registered_at || String(savedOrder.order_status) === 'cancelado') {
+          throw new Error('El pedido no está disponible para reservar inventario.');
+        }
+        const adminUser = await authenticatedUser(req, client);
+        if (!adminUser) {
+          const customerId = await authenticatedCustomer(req, client);
+          if (customerId ? customerId !== String(savedOrder.customer_id || '') : String(savedOrder.customer_id || '') !== 'cust-generic') {
+            await tx.rollback();
+            return res.status(403).json({ error: 'No tienes autorización para reservar este pedido.' });
+          }
+        }
+        const savedItems = JSON.parse(String(savedOrder.items || '[]'));
+        if (!Array.isArray(savedItems)) throw new Error('Los artículos del pedido guardado no son válidos.');
         const already = await tx.execute({
           sql: "SELECT COUNT(*) AS n FROM inventory_reservations WHERE order_id = ? AND status = 'reserved'",
           args: [String(order.id)],
@@ -559,7 +653,7 @@ export default async function handler(req: any, res: any) {
         }
 
         const demand = new Map<string, number>();
-        for (const item of order.items) {
+        for (const item of savedItems) {
           let factor = 1;
           if (item.saleMode === 'weight' && item.weightKg) {
             factor = Number(item.weightKg);
@@ -618,6 +712,21 @@ export default async function handler(req: any, res: any) {
     if (body.operation === 'releaseOrderInventory') {
       const orderId = String(body.orderId || '');
       if (!orderId) return res.status(400).json({ error: 'Pedido incompleto para liberar inventario' });
+      const savedOrder = await client.execute({
+        sql: 'SELECT customer_id, channel, pos_registered_at, order_status FROM orders WHERE id = ? LIMIT 1',
+        args: [orderId],
+      });
+      const savedOrderRow: any = savedOrder.rows[0];
+      if (!savedOrderRow || String(savedOrderRow.channel) !== 'online' || savedOrderRow.pos_registered_at || String(savedOrderRow.order_status) === 'cancelado') {
+        return res.status(404).json({ error: 'Pedido online no disponible para liberar su reserva.' });
+      }
+      const adminUser = await authenticatedUser(req, client);
+      if (!adminUser) {
+        const customerId = await authenticatedCustomer(req, client);
+        if (customerId ? customerId !== String(savedOrderRow.customer_id || '') : String(savedOrderRow.customer_id || '') !== 'cust-generic') {
+          return res.status(403).json({ error: 'No tienes autorización para liberar este pedido.' });
+        }
+      }
       const tx = await client.transaction('write');
       try {
         await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
@@ -833,9 +942,17 @@ export default async function handler(req: any, res: any) {
           quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         )`);
-        const row = await tx.execute({ sql: 'SELECT order_status, pos_registered_at FROM orders WHERE id = ? LIMIT 1', args: [orderId] });
-        if (!row.rows.length) throw new Error('Pedido no encontrado para cancelar.');
+        const row = await tx.execute({ sql: 'SELECT order_status, pos_registered_at, customer_id, channel FROM orders WHERE id = ? LIMIT 1', args: [orderId] });
+        if (!row.rows.length || String(row.rows[0].channel) !== 'online') throw new Error('Pedido online no encontrado para cancelar.');
         if (row.rows[0].pos_registered_at) throw new Error('El pedido ya fue registrado en POS; no puede rechazarse como reserva.');
+        const adminUser = await authenticatedUser(req, client);
+        if (!adminUser) {
+          const customerId = await authenticatedCustomer(req, client);
+          if (customerId ? customerId !== String(row.rows[0].customer_id || '') : String(row.rows[0].customer_id || '') !== 'cust-generic') {
+            await tx.rollback();
+            return res.status(403).json({ error: 'No tienes autorización para cancelar este pedido.' });
+          }
+        }
         const now = new Date().toISOString();
         await tx.execute({ sql: "UPDATE inventory_reservations SET status = 'released', updated_at = ? WHERE order_id = ? AND status = 'reserved'", args: [now, orderId] });
         await tx.execute({ sql: "UPDATE orders SET order_status = 'cancelado' WHERE id = ?", args: [orderId] });
@@ -1013,6 +1130,33 @@ export default async function handler(req: any, res: any) {
       if (!payment || !payment.reportedByCustomer || payment.verificationStatus !== 'pendiente') {
         return res.status(400).json({ error: 'Reporte de pago inválido' });
       }
+      const adminUser = await authenticatedUser(req, client);
+      const customerId = await authenticatedCustomer(req, client);
+      const storedReceivable = await client.execute({
+        sql: 'SELECT * FROM accounts_receivable WHERE id = ? LIMIT 1',
+        args: [String(receivable.id)],
+      });
+      const storedRow: any = storedReceivable.rows[0];
+      if (!storedRow) return res.status(404).json({ error: 'Cuenta por cobrar no encontrada.' });
+      if (!adminUser && (!customerId || customerId !== String(storedRow.customer_id || ''))) {
+        return res.status(403).json({ error: 'Solo el titular de la cuenta puede reportar un pago.' });
+      }
+      const paymentAmount = Number(payment.amountUSD || 0);
+      if (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > Number(storedRow.balance_usd || 0) + 0.000001) {
+        return res.status(400).json({ error: 'El monto reportado no es válido para el saldo pendiente.' });
+      }
+      const storedHistory = (() => { try { return JSON.parse(String(storedRow.payment_history || '[]')); } catch { return []; } })();
+      const safePayment = {
+        id: paymentId,
+        amountUSD: paymentAmount,
+        reference: String(payment.reference || '').slice(0, 120),
+        date: String(payment.date || new Date().toISOString()),
+        reportedByCustomer: true,
+        verificationStatus: 'pendiente',
+      };
+      const nextHistory = Array.isArray(storedHistory)
+        ? [...storedHistory.filter((item: any) => String(item.id) !== paymentId), safePayment]
+        : [safePayment];
       const tx = await client.transaction('write');
       try {
         await tx.execute({ sql: `CREATE TABLE IF NOT EXISTS receivable_payment_reports (
@@ -1023,18 +1167,15 @@ export default async function handler(req: any, res: any) {
           sql: `INSERT OR IGNORE INTO receivable_payment_reports
             (payment_id, receivable_id, customer_id, amount_usd, reference, created_at)
             VALUES (?, ?, ?, ?, ?, ?)`,
-          args: [paymentId, String(receivable.id), String(receivable.customerId || ''), Number(payment.amountUSD || 0), payment.reference || null, String(payment.date || new Date().toISOString())],
+          args: [paymentId, String(storedRow.id), String(storedRow.customer_id), paymentAmount, safePayment.reference || null, safePayment.date],
         });
         if (Number(inserted.rowsAffected || 0) === 0) {
           await tx.rollback();
           return res.status(200).json({ ok: true, duplicate: true, paymentId });
         }
         await tx.execute({
-          sql: `INSERT OR REPLACE INTO accounts_receivable
-            (id,invoice_id,invoice_number,customer_id,customer_name,customer_phone,total_amount_usd,amount_paid_usd,balance_usd,
-             issued_date,due_date,credit_days,status,created_at,is_voided,voided_at,void_reason,payment_history)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          args: [String(receivable.id),String(receivable.invoiceId),String(receivable.invoiceNumber),String(receivable.customerId),String(receivable.customerName),String(receivable.customerPhone||''),Number(receivable.totalAmountUSD||0),Number(receivable.amountPaidUSD||0),Number(receivable.balanceUSD||0),String(receivable.issuedDate),String(receivable.dueDate),Number(receivable.creditDays||0),String(receivable.status),new Date().toISOString(),receivable.isVoided?1:0,receivable.voidedAt||null,receivable.voidReason||null,JSON.stringify(receivable.paymentHistory||[])],
+          sql: 'UPDATE accounts_receivable SET payment_history = ? WHERE id = ? AND customer_id = ?',
+          args: [JSON.stringify(nextHistory), String(storedRow.id), String(storedRow.customer_id)],
         });
         await tx.execute({ sql: "INSERT INTO activity_changes (table_name, entity_id, operation, changed_at) VALUES ('accounts_receivable', ?, 'payment_reported', ?)", args: [String(receivable.id),new Date().toISOString()] });
         await tx.commit();
@@ -1176,6 +1317,22 @@ export default async function handler(req: any, res: any) {
     }
 
     if (body.operation === 'offlineSale' || body.operation === 'saleReversal') {
+      const pendingOperation = body.payload;
+      const isPublicOnlineOrder = body.operation === 'offlineSale' && String(pendingOperation?.order?.channel || '') === 'online';
+      const user = await authenticatedUser(req, client);
+      if (!isPublicOnlineOrder && !user) {
+        return res.status(401).json({ error: 'Se requiere una sesión administrativa válida para ventas POS y reversiones.' });
+      }
+      if (isPublicOnlineOrder && !user) {
+        const customerId = await authenticatedCustomer(req, client);
+        const orderCustomerId = String(pendingOperation?.order?.customerId || '');
+        if (customerId ? customerId !== orderCustomerId : orderCustomerId !== 'cust-generic') {
+          return res.status(403).json({ error: 'La sesión no corresponde al cliente del pedido.' });
+        }
+        if (Array.isArray(pendingOperation?.inventoryMovements) && pendingOperation.inventoryMovements.length) {
+          return res.status(400).json({ error: 'Un pedido online no puede alterar el inventario físico al crearse.' });
+        }
+      }
       // Pedidos online y ventas offline reutilizan la tabla orders. Las bases
       // antiguas pueden no tener approved_at; la migración se hace antes de
       // abrir la transacción para que la operación sea compatible sin perder datos.

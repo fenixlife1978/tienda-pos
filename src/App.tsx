@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Component } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/common/Header';
 import { LandingPage } from './components/landing/LandingPage';
@@ -22,7 +22,8 @@ import { BusinessSettingsModal } from './components/erp/BusinessSettingsModal';
 import { OfflineIndicator } from './components/common/OfflineIndicator';
 
 
-class ErpRenderBoundary extends React.Component<React.PropsWithChildren, { hasError: boolean; message: string }> {
+class ErpRenderBoundary extends Component<{ children?: React.ReactNode }, { hasError: boolean; message: string }> {
+  declare readonly props: { children?: React.ReactNode };
   state = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: unknown) {
@@ -201,10 +202,11 @@ const MainLayout: React.FC = () => {
   );
 };
 
-class AppRenderBoundary extends React.Component<
-  React.PropsWithChildren,
+class AppRenderBoundary extends Component<
+  { children?: React.ReactNode },
   { hasError: boolean; message: string }
 > {
+  declare readonly props: { children?: React.ReactNode };
   state = { hasError: false, message: '' };
 
   static getDerivedStateFromError(error: unknown) {

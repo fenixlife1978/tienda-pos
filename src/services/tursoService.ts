@@ -1,5 +1,6 @@
 type TursoClient = any;
 import {
+  AppNotification,
   BcvHistoryEntry,
   Customer,
   Invoice,
@@ -64,9 +65,19 @@ class TursoService {
   }
 
   private async request(operation: string, payload: Record<string, unknown> = {}) {
+    const tabSession = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('tienda_pos_tab_session') || ''
+      : '';
+    const customerSession = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('omni_customer_tab_session') || ''
+      : '';
     const response = await fetch('/api/turso', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(tabSession ? { 'X-Tienda-Pos-Session': tabSession } : {}),
+        ...(customerSession ? { 'X-Tienda-Pos-Customer-Session': customerSession } : {}),
+      },
       credentials: 'same-origin',
       body: JSON.stringify({ operation, ...payload }),
       cache: 'no-store',
@@ -994,7 +1005,16 @@ class TursoService {
       loadErrors.push(`${table}: ${message}`);
     };
     const loadAll = !tables || tables.size === 0;
-    const shouldLoad = (table: string) => loadAll || tables!.has(table);
+    const hasAdminSession = typeof sessionStorage !== 'undefined' && Boolean(sessionStorage.getItem('tienda_pos_tab_session'));
+    const hasCustomerSession = typeof sessionStorage !== 'undefined' && Boolean(sessionStorage.getItem('omni_customer_tab_session'));
+    const adminOnlyTables = new Set([
+      'customers', 'suppliers', 'orders', 'invoices', 'accounts_receivable',
+      'accounts_payable', 'purchase_entries', 'system_users', 'system_notifications', 'bcv_history',
+    ]);
+    const customerScopedTables = new Set(['customers', 'orders', 'invoices', 'accounts_receivable', 'system_notifications']);
+    const shouldLoad = (table: string) =>
+      (loadAll || tables!.has(table)) &&
+      (hasAdminSession || !adminOnlyTables.has(table) || (hasCustomerSession && customerScopedTables.has(table)));
     let settings: SystemSettings | null = null;
     let categories: ProductCategory[] = [];
     let units: ProductUnit[] = [];
@@ -1128,11 +1148,13 @@ class TursoService {
       // Reservas online: el stock físico permanece intacto; el catálogo muestra
       // stock disponible = stock físico - reservas activas.
       try {
-        await client.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
-          id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
-          quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        )`);
+        if (hasAdminSession) {
+          await client.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
+            id TEXT PRIMARY KEY, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+            quantity REAL NOT NULL, status TEXT NOT NULL DEFAULT 'reserved',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+          )`);
+        }
         const reservations = await client.execute(
           "SELECT product_id, COALESCE(SUM(quantity), 0) AS reserved FROM inventory_reservations WHERE status = 'reserved' GROUP BY product_id"
         );
@@ -1734,7 +1756,11 @@ class TursoService {
       cache: 'no-store', body: JSON.stringify({ operation: 'login', identifier, password }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.customer) throw new Error(String(data.error || 'Credenciales incorrectas'));
+    if (!response.ok || !data.customer || !data.sessionId) throw new Error(String(data.error || 'Credenciales incorrectas'));
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('omni_customer_tab_session', String(data.sessionId));
+      sessionStorage.removeItem('tienda_pos_tab_session');
+    }
     return data.customer as Customer;
   }
 
@@ -1744,8 +1770,69 @@ class TursoService {
       cache: 'no-store', body: JSON.stringify({ operation: 'register', customer, password }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.customer) throw new Error(String(data.error || 'No se pudo registrar el cliente'));
+    if (!response.ok || !data.customer || !data.sessionId) throw new Error(String(data.error || 'No se pudo registrar el cliente'));
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('omni_customer_tab_session', String(data.sessionId));
+      sessionStorage.removeItem('tienda_pos_tab_session');
+    }
     return data.customer as Customer;
+  }
+
+  public async logoutCustomer(): Promise<void> {
+    const sessionId = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('omni_customer_tab_session') || ''
+      : '';
+    if (sessionId) {
+      await fetch('/api/customer-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Tienda-Pos-Customer-Session': sessionId },
+        credentials: 'same-origin',
+        cache: 'no-store',
+        body: JSON.stringify({ operation: 'logout' }),
+      });
+    }
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('omni_customer_tab_session');
+  }
+
+  public async notifySellerFromCustomer(notification: {
+    title: string;
+    message: string;
+    type: string;
+    relatedOrderId?: string;
+  }): Promise<void> {
+    const sessionId = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('omni_customer_tab_session') || ''
+      : '';
+    const response = await fetch('/api/customer-auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionId ? { 'X-Tienda-Pos-Customer-Session': sessionId } : {}),
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ operation: 'notifySeller', ...notification }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(String(data.error || 'No se pudo notificar a administración'));
+  }
+
+  public async updateCustomerPreferences(preferences: Customer['notificationPreferences']): Promise<void> {
+    const sessionId = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('omni_customer_tab_session') || ''
+      : '';
+    const response = await fetch('/api/customer-auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionId ? { 'X-Tienda-Pos-Customer-Session': sessionId } : {}),
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ operation: 'updatePreferences', preferences }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(String(data.error || 'No se pudieron guardar las preferencias'));
   }
 
   public async setCustomerAccountStatus(customerId: string, status: 'active' | 'suspended' | 'deleted'): Promise<void> {
@@ -2205,7 +2292,7 @@ class TursoService {
 
   public async checkServerHealth(): Promise<boolean> {
     try {
-      await this.request({ operation: 'health' });
+      await this.request('health');
       return true;
     } catch {
       return false;

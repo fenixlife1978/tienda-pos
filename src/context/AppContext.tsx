@@ -843,7 +843,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const syncWithTurso = (forceReload = false): Promise<void> => {
-    if (syncInFlightRef.current) return syncInFlightRef.current;
+    if (syncInFlightRef.current) {
+      if (!forceReload) return syncInFlightRef.current;
+      return syncInFlightRef.current.then(() => syncWithTurso(true));
+    }
 
     const run = (async () => {
       if (!tursoService.isConfigured()) return;
@@ -1117,21 +1120,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const initTursoOnMount = async () => {
       if (tursoService.isConfigured()) {
-        // Las operaciones POS pendientes son datos transaccionales y deben sobrevivir
-        // a recargas/cierres del navegador hasta que Turso las confirme. La cola solo
-        // se limpia mediante el flujo explícito de reinicio de base de datos.
-        // La inicialización del esquema ocurre una sola vez por dispositivo.
-        // En recargas posteriores no bloqueamos la interfaz esperando DDL de Turso.
-        const schemaReady = localStorage.getItem('omni_turso_schema_ready') === '1';
-        if (!schemaReady) {
-          const bootstrap = await bootstrapTursoSchema();
-          if (bootstrap.success) {
-            localStorage.setItem('omni_turso_schema_ready', '1');
+        // El portal público solo consulta el catálogo. El bootstrap y las
+        // migraciones de esquema requieren una sesión administrativa validada.
+        const hasAdminSession = Boolean(sessionStorage.getItem('tienda_pos_tab_session'));
+        if (hasAdminSession) {
+          const schemaReady = localStorage.getItem('omni_turso_schema_ready') === '1';
+          if (!schemaReady) {
+            const bootstrap = await bootstrapTursoSchema();
+            if (bootstrap.success) localStorage.setItem('omni_turso_schema_ready', '1');
           }
         }
 
-        // El snapshot de Turso se carga inmediatamente; no se vuelve a crear
-        // tablas ni se espera a que termine un bootstrap en cada F5.
+        // La primera lectura pública solo hidrata los datos del catálogo;
+        // con sesión administrativa válida se cargan también los módulos ERP.
         await syncWithTurso(true);
 
         // La sesión cliente ya fue pintada desde sessionStorage. syncWithTurso(true)
@@ -1355,9 +1356,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       badge: options.badge,
     };
 
-    // Siempre persistimos la alerta en Turso. El receptor la recogerá mediante
-    // el cursor de cambios aunque esté en otro dispositivo.
-    await tursoService.saveNotification(newNotif);
+    // Los clientes solo pueden publicar notificaciones de su propia cuenta/pedido
+    // mediante una ruta dedicada; el ERP conserva la escritura administrativa.
+    if (effectiveTargetRole === 'seller' && !isAdminActiveRef.current) {
+      await tursoService.notifySellerFromCustomer(newNotif);
+    } else {
+      await tursoService.saveNotification(newNotif);
+    }
 
     if (!shouldDisplayHere) return;
 
@@ -1590,9 +1595,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logoutCustomer = () => {
-    // Cerrar sesión del cliente es una acción local de esta pestaña.
-    // No debe generar una notificación global ni persistirse en Turso,
-    // porque las sesiones de administrador y cliente son independientes.
+    // Revocar la sesión del cliente en Turso y cerrar únicamente esta pestaña.
+    void tursoService.logoutCustomer().catch((error) =>
+      console.warn('No se pudo revocar la sesión del cliente:', error)
+    );
     setCurrentCustomer(null);
     currentCustomerRef.current = null;
     setCurrentUser(INITIAL_GENERIC_ADMIN);
@@ -1610,7 +1616,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentCustomer(updated);
     setCustomers((prev) => prev.map((c) => (c.id === currentCustomer.id ? updated : c)));
     if (tursoService.isConfigured() && navigator.onLine) {
-      void tursoService.saveCustomer(updated).catch((error) =>
+      void tursoService.updateCustomerPreferences(preferences).catch((error) =>
         console.warn('No se pudieron guardar las preferencias de notificaciones en Turso:', error)
       );
     }
@@ -1750,7 +1756,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   ) => {
     const saleMode = options.saleMode || (options.presentation ? 'presentation' : 'standard');
-    const availableStock = Math.max(0, Number(availableStock || 0) - Number(product.reservedStock || 0));
+    const availableStock = Math.max(0, Number(product.stock || 0) - Number(product.reservedStock || 0));
     const quantity = options.quantity !== undefined ? options.quantity : 1;
 
     if (availableStock <= 0) {
