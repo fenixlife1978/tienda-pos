@@ -2028,6 +2028,19 @@ class TursoService {
     return { duplicate: Boolean(result.duplicate) };
   }
 
+  public async applyReceivablePayments(
+    customerId: string,
+    updates: Array<{ receivableId: string; paymentRecord: ReceivablePaymentRecord }>
+  ): Promise<{ appliedTotal: number; processedCount: number; duplicate: boolean }> {
+    const result = await this.request('applyReceivablePayments', { customerId, updates });
+    if (!result?.ok) throw new Error(String(result?.error || 'Turso no confirmó los pagos de CxC.'));
+    return {
+      appliedTotal: Number(result.appliedTotal || 0),
+      processedCount: Number(result.processedCount || 0),
+      duplicate: Boolean(result.duplicate),
+    };
+  }
+
   public async saveReceivable(r: ReceivableItem) {
     const client = this.getClient();
     if (!client) return;
