@@ -179,7 +179,7 @@ interface AppContextType {
       sourceReportId?: string;
     }
   ) => Promise<void>;
-  reportCustomerReceivablePayment:
+  reportCustomerReceivablePayment: (
     receivableId: string,
     amountUSD: number,
     details: {
