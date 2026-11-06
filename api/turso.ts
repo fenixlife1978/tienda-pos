@@ -100,7 +100,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ rows: result.rows, rowsAffected: result.rowsAffected || 0, lastInsertRowid: result.lastInsertRowid });
     }
 
-    const publicOperations = new Set(['reserveOrderInventory', 'releaseOrderInventory', 'reportCustomerReceivablePayment']);
+    const publicOperations = new Set(['reserveOrderInventory', 'releaseOrderInventory', 'reportCustomerReceivablePayment', 'offlineSale']);
     if (!publicOperations.has(String(body.operation || ''))) {
       const user = await authenticatedUser(req, client);
       if (!user) return res.status(401).json({ error: 'Se requiere una sesión administrativa válida.' });
