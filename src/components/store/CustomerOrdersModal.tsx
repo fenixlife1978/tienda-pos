@@ -17,6 +17,7 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { getOrderWhatsAppUrl } from '../../utils/whatsappUtils';
+import { InvoiceModal } from '../common/InvoiceModal';
 
 export const CustomerOrdersModal: React.FC = () => {
   const {
@@ -27,6 +28,7 @@ export const CustomerOrdersModal: React.FC = () => {
     invoices,
     reorder,
     setSelectedInvoiceForModal,
+    selectedInvoiceForModal,
     settings,
   } = useApp();
 
