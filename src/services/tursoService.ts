@@ -1793,6 +1793,29 @@ class TursoService {
     if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('omni_customer_tab_session');
   }
 
+  public async notifySellerFromCustomer(notification: {
+    title: string;
+    message: string;
+    type: string;
+    relatedOrderId?: string;
+  }): Promise<void> {
+    const sessionId = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('omni_customer_tab_session') || ''
+      : '';
+    const response = await fetch('/api/customer-auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionId ? { 'X-Tienda-Pos-Customer-Session': sessionId } : {}),
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ operation: 'notifySeller', ...notification }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(String(data.error || 'No se pudo notificar a administración'));
+  }
+
   public async updateCustomerPreferences(preferences: Customer['notificationPreferences']): Promise<void> {
     const sessionId = typeof sessionStorage !== 'undefined'
       ? sessionStorage.getItem('omni_customer_tab_session') || ''
