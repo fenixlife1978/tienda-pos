@@ -2028,6 +2028,11 @@ class TursoService {
     return { duplicate: Boolean(result.duplicate) };
   }
 
+  public async rejectCustomerReceivablePayment(receivableId: string, paymentId: string, rejectedBy: string, notes: string): Promise<void> {
+    const result = await this.request('rejectCustomerReceivablePayment', { receivableId, paymentId, rejectedBy, notes });
+    if (!result?.ok) throw new Error(String(result?.error || 'Turso no confirmó el rechazo del pago reportado.'));
+  }
+
   public async applyReceivablePayments(
     customerId: string,
     updates: Array<{ receivableId: string; paymentRecord: ReceivablePaymentRecord }>
