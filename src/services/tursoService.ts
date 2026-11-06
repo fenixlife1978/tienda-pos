@@ -67,11 +67,15 @@ class TursoService {
     const tabSession = typeof sessionStorage !== 'undefined'
       ? sessionStorage.getItem('tienda_pos_tab_session') || ''
       : '';
+    const customerSession = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('omni_customer_tab_session') || ''
+      : '';
     const response = await fetch('/api/turso', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(tabSession ? { 'X-Tienda-Pos-Session': tabSession } : {}),
+        ...(customerSession ? { 'X-Tienda-Pos-Customer-Session': customerSession } : {}),
       },
       credentials: 'same-origin',
       body: JSON.stringify({ operation, ...payload }),
@@ -1748,7 +1752,11 @@ class TursoService {
       cache: 'no-store', body: JSON.stringify({ operation: 'login', identifier, password }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.customer) throw new Error(String(data.error || 'Credenciales incorrectas'));
+    if (!response.ok || !data.customer || !data.sessionId) throw new Error(String(data.error || 'Credenciales incorrectas'));
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('omni_customer_tab_session', String(data.sessionId));
+      sessionStorage.removeItem('tienda_pos_tab_session');
+    }
     return data.customer as Customer;
   }
 
@@ -1758,8 +1766,28 @@ class TursoService {
       cache: 'no-store', body: JSON.stringify({ operation: 'register', customer, password }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.customer) throw new Error(String(data.error || 'No se pudo registrar el cliente'));
+    if (!response.ok || !data.customer || !data.sessionId) throw new Error(String(data.error || 'No se pudo registrar el cliente'));
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('omni_customer_tab_session', String(data.sessionId));
+      sessionStorage.removeItem('tienda_pos_tab_session');
+    }
     return data.customer as Customer;
+  }
+
+  public async logoutCustomer(): Promise<void> {
+    const sessionId = typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem('omni_customer_tab_session') || ''
+      : '';
+    if (sessionId) {
+      await fetch('/api/customer-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Tienda-Pos-Customer-Session': sessionId },
+        credentials: 'same-origin',
+        cache: 'no-store',
+        body: JSON.stringify({ operation: 'logout' }),
+      });
+    }
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('omni_customer_tab_session');
   }
 
   public async setCustomerAccountStatus(customerId: string, status: 'active' | 'suspended' | 'deleted'): Promise<void> {
