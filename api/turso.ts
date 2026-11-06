@@ -175,7 +175,7 @@ export default async function handler(req: any, res: any) {
         return res.status(403).json({ error: 'Las credenciales no se pueden consultar mediante la API de datos' });
       }
       const result = await client.execute({ sql, args: argsOf(body.args) as any });
-      const readsSensitiveIdentity = /\\bFROM\\s+["'`]?((system_users)|(customers))["'`]?\\b/i.test(sql);
+      const readsSensitiveIdentity = /\bFROM\\s+["'`]?((system_users)|(customers))["'`]?\\b/i.test(sql);
       const rows = readsSensitiveIdentity
         ? result.rows.map((row: any) => {
             const safe = { ...row };
@@ -607,21 +607,6 @@ export default async function handler(req: any, res: any) {
     if (body.operation === 'reserveOrderInventory') {
       const order = body.order || {};
       if (!order.id || !Array.isArray(order.items)) return res.status(400).json({ error: 'Pedido incompleto para reservar inventario' });
-      const savedOrder = await client.execute({
-        sql: 'SELECT customer_id, channel, pos_registered_at, order_status FROM orders WHERE id = ? LIMIT 1',
-        args: [orderId],
-      });
-      const savedOrderRow: any = savedOrder.rows[0];
-      if (!savedOrderRow || String(savedOrderRow.channel) !== 'online' || savedOrderRow.pos_registered_at || String(savedOrderRow.order_status) === 'cancelado') {
-        return res.status(404).json({ error: 'Pedido online no disponible para liberar su reserva.' });
-      }
-      const adminUser = await authenticatedUser(req, client);
-      if (!adminUser) {
-        const customerId = await authenticatedCustomer(req, client);
-        if (customerId ? customerId !== String(savedOrderRow.customer_id || '') : String(savedOrderRow.customer_id || '') !== 'cust-generic') {
-          return res.status(403).json({ error: 'No tienes autorización para liberar este pedido.' });
-        }
-      }
       const tx = await client.transaction('write');
       try {
         await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
@@ -719,6 +704,21 @@ export default async function handler(req: any, res: any) {
     if (body.operation === 'releaseOrderInventory') {
       const orderId = String(body.orderId || '');
       if (!orderId) return res.status(400).json({ error: 'Pedido incompleto para liberar inventario' });
+      const savedOrder = await client.execute({
+        sql: 'SELECT customer_id, channel, pos_registered_at, order_status FROM orders WHERE id = ? LIMIT 1',
+        args: [orderId],
+      });
+      const savedOrderRow: any = savedOrder.rows[0];
+      if (!savedOrderRow || String(savedOrderRow.channel) !== 'online' || savedOrderRow.pos_registered_at || String(savedOrderRow.order_status) === 'cancelado') {
+        return res.status(404).json({ error: 'Pedido online no disponible para liberar su reserva.' });
+      }
+      const adminUser = await authenticatedUser(req, client);
+      if (!adminUser) {
+        const customerId = await authenticatedCustomer(req, client);
+        if (customerId ? customerId !== String(savedOrderRow.customer_id || '') : String(savedOrderRow.customer_id || '') !== 'cust-generic') {
+          return res.status(403).json({ error: 'No tienes autorización para liberar este pedido.' });
+        }
+      }
       const tx = await client.transaction('write');
       try {
         await tx.execute(`CREATE TABLE IF NOT EXISTS inventory_reservations (
