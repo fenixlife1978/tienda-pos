@@ -944,15 +944,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const productGenerationAtReadStart = productWriteGenerationRef.current;
         const cloudData = await tursoService.loadAllData(tablesToLoad);
+        const loadErrors = Array.isArray(cloudData.loadErrors) ? cloudData.loadErrors : [];
+        const failedTables = new Set(loadErrors.map((error) => String(error).split(':', 1)[0].trim()));
+        const canApplyTable = (...tableNames: string[]) => tableNames.every((table) => !failedTables.has(table));
 
-        if (!tablesToLoad || tablesToLoad.has('products')) {
+        if ((!tablesToLoad || tablesToLoad.has('products')) && canApplyTable('products')) {
           if (productGenerationAtReadStart === productWriteGenerationRef.current) {
             setProducts(cloudData.products);
           }
         }
-        if (!tablesToLoad || tablesToLoad.has('categories')) setCategories(cloudData.categories);
-        if (!tablesToLoad || tablesToLoad.has('units')) setUnits(cloudData.units);
-        if (!tablesToLoad || tablesToLoad.has('customers')) {
+        if ((!tablesToLoad || tablesToLoad.has('categories')) && canApplyTable('categories')) setCategories(cloudData.categories);
+        if ((!tablesToLoad || tablesToLoad.has('units')) && canApplyTable('units')) setUnits(cloudData.units);
+        if ((!tablesToLoad || tablesToLoad.has('customers')) && canApplyTable('customers')) {
           setCustomers(cloudData.customers);
           const activeCustomerId = currentCustomerIdRef.current;
           if (activeCustomerId) {
@@ -972,14 +975,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           }
         }
-        if (!tablesToLoad || tablesToLoad.has('suppliers')) setSuppliers(cloudData.suppliers);
-        if (!tablesToLoad || tablesToLoad.has('orders')) setOrders(cloudData.orders);
-        if (!tablesToLoad || tablesToLoad.has('invoices')) setInvoices(cloudData.invoices);
-        if (!tablesToLoad || tablesToLoad.has('accounts_receivable')) setReceivables(cloudData.receivables);
-        if (!tablesToLoad || tablesToLoad.has('accounts_payable')) setPayables(cloudData.payables);
-        if (!tablesToLoad || tablesToLoad.has('purchase_entries')) setPurchaseEntries(cloudData.purchaseEntries);
-        if (!tablesToLoad || tablesToLoad.has('system_users')) setUsers(cloudData.users);
-        if (!tablesToLoad || tablesToLoad.has('system_notifications')) {
+        if ((!tablesToLoad || tablesToLoad.has('suppliers')) && canApplyTable('suppliers')) setSuppliers(cloudData.suppliers);
+        if ((!tablesToLoad || tablesToLoad.has('orders')) && canApplyTable('orders')) setOrders(cloudData.orders);
+        if ((!tablesToLoad || tablesToLoad.has('invoices')) && canApplyTable('invoices')) setInvoices(cloudData.invoices);
+        if ((!tablesToLoad || tablesToLoad.has('accounts_receivable')) && canApplyTable('accounts_receivable')) setReceivables(cloudData.receivables);
+        if ((!tablesToLoad || tablesToLoad.has('accounts_payable')) && canApplyTable('accounts_payable')) setPayables(cloudData.payables);
+        if ((!tablesToLoad || tablesToLoad.has('purchase_entries')) && canApplyTable('purchase_entries')) setPurchaseEntries(cloudData.purchaseEntries);
+        if ((!tablesToLoad || tablesToLoad.has('system_users')) && canApplyTable('system_users')) setUsers(cloudData.users);
+        if ((!tablesToLoad || tablesToLoad.has('system_notifications')) && canApplyTable('system_notifications')) {
           if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
           const notificationsClearedAt = localStorage.getItem('omni_notifications_cleared_at');
           const clearedAtMs = notificationsClearedAt ? new Date(notificationsClearedAt).getTime() : 0;
@@ -1068,7 +1071,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         isInitialSyncDoneRef.current = true;
   
-        if (!tablesToLoad || tablesToLoad.has('system_settings')) {
+        if ((!tablesToLoad || tablesToLoad.has('system_settings')) && canApplyTable('system_settings', 'bcv_history')) {
           if (cloudData.settings) {
             setSettings(cloudData.settings);
           } else {
@@ -1076,13 +1079,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
   
-        // Guardamos exactamente el cursor que devolvió el servidor. Si otra
-        // operación ocurre durante la lectura, el siguiente ciclo la detectará.
-        cloudChangeTokenRef.current = changeState.hasMore
-          ? (changeState.changes.length > 0 ? changeState.changes[changeState.changes.length - 1].id : cloudChangeTokenRef.current)
-          : changeState.latestId;
-  
-        const loadErrors = Array.isArray(cloudData.loadErrors) ? cloudData.loadErrors : [];
+        // No consumimos el cursor si una o más tablas fallaron. El siguiente ciclo
+        // volverá a pedir esos cambios y podrá hidratar los módulos pendientes.
+        if (loadErrors.length === 0) {
+          cloudChangeTokenRef.current = changeState.hasMore
+            ? (changeState.changes.length > 0 ? changeState.changes[changeState.changes.length - 1].id : cloudChangeTokenRef.current)
+            : changeState.latestId;
+        }
         setTursoState({
           isConnected: true,
           isSyncing: false,
