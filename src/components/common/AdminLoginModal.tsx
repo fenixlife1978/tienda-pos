@@ -101,8 +101,21 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ isOpen, onClos
       terminals = await tursoService.listUserTerminals(matchedUser.id, true);
     } catch (terminalError) {
       console.error('Error cargando cajas asignadas durante el login:', terminalError);
-      setError('No se pudieron cargar las cajas asignadas. Verifica la conexión e inténtalo nuevamente.');
-      return;
+      if (String(matchedUser.role || '').trim().toLowerCase() === 'admin') {
+        // La cuenta administrativa utiliza siempre la caja administrativa predeterminada.
+        // Un fallo transitorio al leer las asignaciones no debe bloquear el acceso al ERP.
+        terminalIdentity.setId('terminal-admin-default');
+        terminals = [{
+          id: 'terminal-admin-default',
+          code: 'CAJA-ADMIN',
+          name: 'Caja Administrador',
+          active: true,
+          createdAt: new Date().toISOString(),
+        }];
+      } else {
+        setError('No se pudieron cargar las cajas asignadas. Verifica la conexión e inténtalo nuevamente.');
+        return;
+      }
     }
     setAssignedTerminals(terminals);
     if (terminals.length === 1) {
