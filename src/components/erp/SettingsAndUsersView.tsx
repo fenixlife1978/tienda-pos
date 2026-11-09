@@ -130,21 +130,25 @@ export const SettingsAndUsersView: React.FC = () => {
 
   const createBackupFromPages = async () => {
     const manifest = await backupRequest('GET', 'action=manifest');
-    if (!manifest || manifest.format !== 'tienda-pos-global-backup' || !Array.isArray(manifest.tables)) throw new Error('Manifiesto de Turso inválido.');
-    const tables = [];
-    for (const table of manifest.tables) {
-      const rows: any[] = [];
-      for (let offset = 0; offset < table.rowCount; offset += manifest.pageSize) {
-        const page = await backupRequest('GET', 'action=page&table=' + encodeURIComponent(table.name) + '&offset=' + offset);
-        if (page.table !== table.name || page.offset !== offset || !Array.isArray(page.rows) || !page.rows.length) throw new Error('Exportación incompleta en ' + table.name + '.');
-        rows.push(...page.rows);
+    if (!manifest || manifest.format !== 'tienda-pos-global-backup' || !manifest.exportId || !Array.isArray(manifest.tables)) throw new Error('Manifiesto de Turso inválido.');
+    try {
+      const tables = [];
+      for (const table of manifest.tables) {
+        const rows: any[] = [];
+        for (let offset = 0; offset < table.rowCount; offset += manifest.pageSize) {
+          const page = await backupRequest('GET', 'action=page&exportId=' + encodeURIComponent(manifest.exportId) + '&table=' + encodeURIComponent(table.name) + '&offset=' + offset);
+          if (page.table !== table.name || page.offset !== offset || !Array.isArray(page.rows) || !page.rows.length) throw new Error('Instantánea incompleta en ' + table.name + '. Genera un respaldo nuevo.');
+          rows.push(...page.rows);
+        }
+        if (rows.length !== table.rowCount) throw new Error('La instantánea de ' + table.name + ' está incompleta.');
+        tables.push({ name: table.name, columns: table.columns, rows });
       }
-      if (rows.length !== table.rowCount) throw new Error('La tabla ' + table.name + ' cambió durante la exportación. Repite el respaldo.');
-      tables.push({ name: table.name, columns: table.columns, rows });
+      const backup = { format: manifest.format, version: manifest.version, createdAt: manifest.createdAt, source: manifest.source, tables };
+      if (new Blob([JSON.stringify(backup)]).size > 25 * 1024 * 1024) throw new Error('El respaldo supera el máximo de 25 MB.');
+      return backup;
+    } finally {
+      try { await backupRequest('POST', '', { action: 'export-release', exportId: manifest.exportId }); } catch {}
     }
-    const backup = { format: manifest.format, version: manifest.version, createdAt: manifest.createdAt, source: manifest.source, tables };
-    if (new Blob([JSON.stringify(backup)]).size > 25 * 1024 * 1024) throw new Error('El respaldo supera el máximo de 25 MB.');
-    return backup;
   };
 
   const handleCreateBackup = async () => {
