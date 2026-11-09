@@ -151,6 +151,7 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const client = db();
   try {
+    await client.execute('PRAGMA foreign_keys = ON');
     const admin = await requireAdmin(req, client);
     if (!admin) return res.status(403).json({ error: 'Acceso exclusivo para administradores.' });
     res.setHeader('Cache-Control', 'no-store, max-age=0');
