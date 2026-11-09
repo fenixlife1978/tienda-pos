@@ -103,16 +103,15 @@ export const SettingsAndUsersView: React.FC = () => {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMessage, setBackupMessage] = useState('');
+  const [pendingRestore, setPendingRestore] = useState<any>(null);
 
-
-  const backupRequest = async (method: 'GET' | 'POST', body?: unknown) => {
+  const backupRequest = async (method: 'GET' | 'POST', query = '', body?: unknown) => {
     const session = sessionStorage.getItem('tienda_pos_tab_session') || '';
-    const response = await fetch('/api/admin-backup', {
+    const response = await fetch('/api/admin-backup' + (query ? '?' + query : ''), {
       method,
       headers: { ...(session ? { 'X-Tienda-Pos-Session': session } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
-      cache: 'no-store',
-      credentials: 'same-origin',
+      cache: 'no-store', credentials: 'same-origin',
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'No se pudo completar el respaldo.');
@@ -125,36 +124,77 @@ export const SettingsAndUsersView: React.FC = () => {
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = 'TIENDA_POS_RESPALDO_GLOBAL' + suffix + '_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
-    anchor.click();
-    URL.revokeObjectURL(url);
+    document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+  };
+
+  const createBackupFromPages = async () => {
+    const manifest = await backupRequest('GET', 'action=manifest');
+    if (!manifest || manifest.format !== 'tienda-pos-global-backup' || !Array.isArray(manifest.tables)) throw new Error('Manifiesto de Turso inválido.');
+    const tables = [];
+    for (const table of manifest.tables) {
+      const rows: any[] = [];
+      for (let offset = 0; offset < table.rowCount; offset += manifest.pageSize) {
+        const page = await backupRequest('GET', 'action=page&table=' + encodeURIComponent(table.name) + '&offset=' + offset);
+        if (page.table !== table.name || page.offset !== offset || !Array.isArray(page.rows) || !page.rows.length) throw new Error('Exportación incompleta en ' + table.name + '.');
+        rows.push(...page.rows);
+      }
+      if (rows.length !== table.rowCount) throw new Error('La tabla ' + table.name + ' cambió durante la exportación. Repite el respaldo.');
+      tables.push({ name: table.name, columns: table.columns, rows });
+    }
+    const backup = { format: manifest.format, version: manifest.version, createdAt: manifest.createdAt, source: manifest.source, tables };
+    if (new Blob([JSON.stringify(backup)]).size > 25 * 1024 * 1024) throw new Error('El respaldo supera el máximo de 25 MB.');
+    return backup;
   };
 
   const handleCreateBackup = async () => {
     setBackupBusy(true); setBackupMessage('');
-    try {
-      const data = await backupRequest('GET');
-      downloadBackup(data);
-      setBackupMessage('Respaldo global generado y descargado correctamente.');
-    } catch (error: any) { setBackupMessage(error.message || 'Error generando respaldo.'); }
+    try { downloadBackup(await createBackupFromPages()); setBackupMessage('Respaldo global generado y descargado por bloques desde Turso.'); }
+    catch (error: any) { setBackupMessage(error.message || 'Error generando respaldo.'); }
     finally { setBackupBusy(false); }
   };
 
   const handleRestoreBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
+    const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
     if (file.size > 25 * 1024 * 1024) { setBackupMessage('El archivo supera el límite de 25 MB.'); return; }
     try {
       const parsed = JSON.parse(await file.text());
-      if (!confirm('ATENCIÓN: se reemplazará toda la información actual de Turso por la del respaldo. Antes se descargará una copia del estado actual. ¿Deseas continuar?')) return;
-      setBackupBusy(true); setBackupMessage('Validando y restaurando respaldo...');
-      const result = await backupRequest('POST', parsed);
-      if (result.preRestoreBackup) downloadBackup(result.preRestoreBackup, '_ANTES_DE_RESTAURAR');
-      setBackupMessage('Restauración completada. Se descargó también el respaldo previo. Inicia sesión nuevamente.');
-      sessionStorage.removeItem('tienda_pos_tab_session');
-      setTimeout(() => window.location.reload(), 1800);
-    } catch (error: any) { setBackupMessage(error.message || 'No se pudo restaurar el respaldo.'); }
+      if (!parsed || parsed.format !== 'tienda-pos-global-backup' || parsed.version !== 1 || !Array.isArray(parsed.tables)) throw new Error('Archivo de respaldo incompatible.');
+      if (!confirm('Primero se descargará una copia completa del estado actual. Todavía no se modificará ningún dato. ¿Continuar?')) return;
+      setBackupBusy(true); setBackupMessage('Generando copia de seguridad previa...');
+      downloadBackup(await createBackupFromPages(), '_ANTES_DE_RESTAURAR');
+      setPendingRestore(parsed);
+      setBackupMessage('Copia previa descargada. Confirma la restauración en el siguiente paso.');
+    } catch (error: any) { setBackupMessage(error.message || 'No se pudo preparar la restauración.'); }
     finally { setBackupBusy(false); }
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!pendingRestore) return;
+    setBackupBusy(true); let operationId = '';
+    try {
+      const raw = JSON.stringify(pendingRestore);
+      const bytes = new TextEncoder().encode(raw);
+      if (bytes.byteLength > 25 * 1024 * 1024) throw new Error('El respaldo supera el máximo de 25 MB.');
+      const hash = await crypto.subtle.digest('SHA-256', bytes);
+      const sha256 = Array.from(new Uint8Array(hash)).map((v) => v.toString(16).padStart(2, '0')).join('');
+      const size = 200 * 1024, totalChunks = Math.ceil(raw.length / size);
+      const init = await backupRequest('POST', '', { action: 'restore-init', totalChunks, byteLength: bytes.byteLength, sha256 });
+      operationId = init.operationId;
+      for (let i = 0; i < totalChunks; i++) {
+        await backupRequest('POST', '', { action: 'restore-chunk', operationId, chunkIndex: i, payload: raw.slice(i * size, (i + 1) * size) });
+        setBackupMessage('Subiendo respaldo: bloque ' + (i + 1) + ' de ' + totalChunks + '...');
+      }
+      const result = await backupRequest('POST', '', { action: 'restore-commit', operationId });
+      if (!result.success) throw new Error('Turso no confirmó la restauración.');
+      setPendingRestore(null); setBackupMessage('Restauración completada. Inicia sesión nuevamente.');
+      sessionStorage.removeItem('tienda_pos_tab_session');
+      window.setTimeout(() => window.location.reload(), 1800);
+    } catch (error: any) {
+      if (operationId) { try { await backupRequest('POST', '', { action: 'restore-abort', operationId }); } catch {} }
+      setBackupMessage(error.message || 'No se pudo restaurar el respaldo.');
+    } finally { setBackupBusy(false); }
   };
 
   const handleManualBcvRefresh = async () => {
