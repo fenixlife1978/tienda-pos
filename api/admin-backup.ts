@@ -88,7 +88,7 @@ export default async function handler(req: any, res: any) {
       }
       incoming.set(item.name, item);
     }
-    if (!incoming.has('system_users')) {
+    if (incoming.size !== liveTables.length || liveTables.some((table) => !incoming.has(table))) {\n      return res.status(400).json({ error: 'El respaldo está incompleto: debe contener todas las tablas de esta base de datos.' });\n    }\n    if (!incoming.has('system_users')) {
       return res.status(400).json({ error: 'El respaldo no contiene los usuarios del sistema.' });
     }
 
@@ -114,7 +114,7 @@ export default async function handler(req: any, res: any) {
       await tx.execute('DELETE FROM auth_sessions');
       await tx.execute('DELETE FROM customer_sessions');
       await tx.commit();
-      return res.status(200).json({ success: true, restoredTables: incoming.size, restoredAt: now, sessionsReset: true });
+      return res.status(200).json({ success: true, restoredTables: incoming.size, restoredAt: now, sessionsReset: true, preRestoreBackup });
     } catch (error) {
       try { await tx.rollback(); } catch {}
       throw error;
