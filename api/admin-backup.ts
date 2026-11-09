@@ -100,6 +100,7 @@ export default async function handler(req: any, res: any) {
     // La transacción revierte todos los cambios si una sentencia falla.
     const tx = await client.transaction('write');
     try {
+      await tx.execute('PRAGMA defer_foreign_keys = ON');
       const now = new Date().toISOString();
       for (const table of [...liveTables].reverse()) {
         if (incoming.has(table)) await tx.execute(`DELETE FROM "${table.replace(/"/g, '""')}"`);
@@ -115,8 +116,10 @@ export default async function handler(req: any, res: any) {
         }
       }
       // Las sesiones nunca se restauran: obliga a autenticar nuevamente.
-      await tx.execute('DELETE FROM auth_sessions');
-      await tx.execute('DELETE FROM customer_sessions');
+      const sessionTables = await tx.execute(`SELECT name FROM sqlite_master WHERE type='table' AND name IN ('auth_sessions','customer_sessions')`);
+      const existingSessionTables = new Set(sessionTables.rows.map((row: any) => String(row.name)));
+      if (existingSessionTables.has('auth_sessions')) await tx.execute('DELETE FROM auth_sessions');
+      if (existingSessionTables.has('customer_sessions')) await tx.execute('DELETE FROM customer_sessions');
       await tx.commit();
       return res.status(200).json({ success: true, restoredTables: incoming.size, restoredAt: now, sessionsReset: true, preRestoreBackup });
     } catch (error) {
