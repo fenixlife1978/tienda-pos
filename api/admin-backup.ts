@@ -53,7 +53,7 @@ function decodeValue(value: any): any {
   }
   if (value && typeof value === 'object' && !Array.isArray(value) && value.__tienda_pos_type === 'bigint' &&
       typeof value.value === 'string' && Object.keys(value).length === 2) {
-    return Number(value.value);
+    return BigInt(value.value);
   }
   if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return value;
   throw new Error('El respaldo contiene un valor no compatible.');
