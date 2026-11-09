@@ -316,6 +316,15 @@ export const SettingsAndUsersView: React.FC = () => {
             <span>Solo administrador. La restauración reemplaza los datos actuales, exige un respaldo completo compatible y revoca las sesiones para exigir un nuevo inicio de sesión. Los JSON contienen información comercial y de usuarios: consérvalos en un lugar seguro.</span>
           </div>
           {backupBusy && <p className="text-xs text-indigo-700 font-semibold animate-pulse">Procesando operación de respaldo…</p>}
+          {pendingRestore && (
+            <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 space-y-2">
+              <p className="text-xs font-bold text-rose-900">La copia previa ya fue descargada. Esta acción reemplazará los datos actuales.</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={backupBusy} onClick={handleConfirmRestore} className="px-4 py-2 rounded-lg bg-rose-600 text-white text-xs font-bold disabled:opacity-50">Confirmar restauración</button>
+                <button type="button" disabled={backupBusy} onClick={() => setPendingRestore(null)} className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold disabled:opacity-50">Cancelar</button>
+              </div>
+            </div>
+          )}
           {backupMessage && <p role="status" className="text-xs font-semibold text-slate-700">{backupMessage}</p>}
         </section>
       )}
