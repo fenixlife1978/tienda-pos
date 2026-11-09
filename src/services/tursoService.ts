@@ -2212,20 +2212,40 @@ class TursoService {
   }
 
   public async listUserTerminals(userId: string, activeOnly = true): Promise<Terminal[]> {
-    const client = this.getClient(); if (!client) return [];
+    const client = this.getClient();
+    if (!client) throw new Error('No hay conexión disponible con Turso para consultar las cajas.');
+
     await this.ensureTerminalSchema(client);
-    const user = await client.execute({ sql: 'SELECT id, role FROM system_users WHERE id = ? LIMIT 1', args: [userId] });
-    const role = String(user.rows[0]?.role || '');
-    if (role === 'admin') {
-      await client.execute({
-        sql: "INSERT OR IGNORE INTO terminals (id, code, name, active, created_at) VALUES ('terminal-admin-default', 'CAJA-ADMIN', 'Caja Administrador', 1, ?)",
-        args: [new Date().toISOString()],
-      });
-      await client.execute({
-        sql: "INSERT OR IGNORE INTO terminal_user_assignments (terminal_id, user_id, assigned_at) VALUES ('terminal-admin-default', ?, ?)",
-        args: [userId, new Date().toISOString()],
-      });
+
+    const user = await client.execute({
+      sql: 'SELECT id, role FROM system_users WHERE id = ? LIMIT 1',
+      args: [userId],
+    });
+    const userRow: any = user.rows[0];
+    if (!userRow) {
+      throw new Error('No se encontró el usuario autenticado al consultar sus cajas.');
     }
+
+    // La autenticación valida el rol sin distinguir mayúsculas ni espacios.
+    // La consulta de cajas debe aplicar exactamente la misma normalización.
+    const role = String(userRow.role || '').trim().toLowerCase();
+    if (role === 'admin') {
+      const now = new Date().toISOString();
+      // Crear la caja administrativa y su asignación en una sola operación
+      // transaccional e idempotente: evita estados parciales si hay dos accesos
+      // simultáneos o una interrupción entre ambas escrituras.
+      await client.batch([
+        {
+          sql: "INSERT OR IGNORE INTO terminals (id, code, name, active, created_at) VALUES ('terminal-admin-default', 'CAJA-ADMIN', 'Caja Administrador', 1, ?)",
+          args: [now],
+        },
+        {
+          sql: "INSERT OR IGNORE INTO terminal_user_assignments (terminal_id, user_id, assigned_at) VALUES ('terminal-admin-default', ?, ?)",
+          args: [userId, now],
+        },
+      ], 'write');
+    }
+
     const r = await client.execute({
       sql: `SELECT t.* FROM terminals t
             INNER JOIN terminal_user_assignments a ON a.terminal_id = t.id
