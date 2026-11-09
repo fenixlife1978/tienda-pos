@@ -90,7 +90,8 @@ export default async function handler(req: any, res: any) {
     }
     if (incoming.size !== liveTables.length || liveTables.some((table) => !incoming.has(table))) {
       return res.status(400).json({ error: 'El respaldo está incompleto: debe contener todas las tablas de esta base de datos.' });
-    }\n    if (!incoming.has('system_users')) {
+    }
+    if (!incoming.has('system_users')) {
       return res.status(400).json({ error: 'El respaldo no contiene los usuarios del sistema.' });
     }
 
