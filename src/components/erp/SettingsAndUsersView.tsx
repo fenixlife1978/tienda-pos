@@ -165,7 +165,7 @@ export const SettingsAndUsersView: React.FC = () => {
       setBackupBusy(true); setBackupMessage('Generando copia de seguridad previa...');
       downloadBackup(await createBackupFromPages(), '_ANTES_DE_RESTAURAR');
       setPendingRestore(parsed);
-      setBackupMessage('Copia previa descargada. Confirma la restauración en el siguiente paso.');
+      setBackupMessage('Descarga de la copia previa iniciada. Verifica que el archivo se haya guardado antes de confirmar la restauración.');
     } catch (error: any) { setBackupMessage(error.message || 'No se pudo preparar la restauración.'); }
     finally { setBackupBusy(false); }
   };
@@ -318,7 +318,7 @@ export const SettingsAndUsersView: React.FC = () => {
           {backupBusy && <p className="text-xs text-indigo-700 font-semibold animate-pulse">Procesando operación de respaldo…</p>}
           {pendingRestore && (
             <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 space-y-2">
-              <p className="text-xs font-bold text-rose-900">La copia previa ya fue descargada. Esta acción reemplazará los datos actuales.</p>
+              <p className="text-xs font-bold text-rose-900">Verifica que el archivo de respaldo previo esté guardado. Esta acción reemplazará los datos actuales.</p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={backupBusy} onClick={handleConfirmRestore} className="px-4 py-2 rounded-lg bg-rose-600 text-white text-xs font-bold disabled:opacity-50">Confirmar restauración</button>
                 <button type="button" disabled={backupBusy} onClick={() => setPendingRestore(null)} className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold disabled:opacity-50">Cancelar</button>
