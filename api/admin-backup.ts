@@ -39,8 +39,11 @@ async function tableInfo(client: any, table: string) {
   return result.rows.filter((r: any) => Number(r.hidden || 0) === 0).map((r: any) => String(r.name));
 }
 function encodeValue(value: any): any {
-  if (value instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
+  if (value instanceof ArrayBuffer) {
     return { __tienda_pos_type: 'blob', base64: Buffer.from(value).toString('base64') };
+  }
+  if (ArrayBuffer.isView(value) || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
+    return { __tienda_pos_type: 'blob', base64: Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('base64') };
   }
   if (value === undefined) return null;
   if (typeof value === 'bigint') return { __tienda_pos_type: 'bigint', value: value.toString() };
