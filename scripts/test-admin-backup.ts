@@ -95,7 +95,9 @@ try {
   assert.equal(check.rows.length, 1, 'restoration must remove rows added after the snapshot');
   assert.equal(Number(check.rows[0].quantity), 4);
   assert.equal(String(check.rows[0].amount), '9007199254740993');
-  assert.deepEqual(Array.from(check.rows[0].payload as Uint8Array), [0, 255, 34, 10]);
+  const blobValue = check.rows[0].payload;
+  const blobBytes = blobValue instanceof ArrayBuffer ? Array.from(new Uint8Array(blobValue)) : Array.from(blobValue as unknown as Uint8Array);
+  assert.deepEqual(blobBytes, [0, 255, 34, 10]);
   assert.equal(Number(check.rows[0].doubled), 8, 'generated column must be recomputed');
   const sessions = await client.execute('SELECT COUNT(*) AS n FROM auth_sessions');
   const customerSessions = await client.execute('SELECT COUNT(*) AS n FROM customer_sessions');
