@@ -251,21 +251,26 @@ export default async function handler(req: any, res: any) {
       const tx = await client.transaction('write');
       try {
         await tx.execute('PRAGMA defer_foreign_keys = ON');
-        for (const table of [...liveTables].reverse()) await tx.execute(`DELETE FROM ${quote(table)}`);
+        await tx.batch([...liveTables].reverse().map((table) => `DELETE FROM ${quote(table)}`));
         for (const table of liveTables) {
           const item = incoming.get(table);
           if (!item.rows.length) continue;
           const names = item.columns.map(quote).join(', ');
           const placeholders = item.columns.map(() => '?').join(', ');
           const sql = `INSERT INTO ${quote(table)} (${names}) VALUES (${placeholders})`;
-          for (const row of item.rows) {
-            await tx.execute({ sql, args: item.columns.map((column: string) => decodeValue(row[column])) });
+          for (let offset = 0; offset < item.rows.length; offset += PAGE_SIZE) {
+            const statements = item.rows.slice(offset, offset + PAGE_SIZE).map((row: any) => ({
+              sql, args: item.columns.map((column: string) => decodeValue(row[column])),
+            }));
+            await tx.batch(statements);
           }
         }
         const sessions = await tx.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('auth_sessions','customer_sessions')");
         const sessionTables = new Set(sessions.rows.map((row: any) => String(row.name)));
-        if (sessionTables.has('auth_sessions')) await tx.execute('DELETE FROM auth_sessions');
-        if (sessionTables.has('customer_sessions')) await tx.execute('DELETE FROM customer_sessions');
+        const sessionDeletes: string[] = [];
+        if (sessionTables.has('auth_sessions')) sessionDeletes.push('DELETE FROM auth_sessions');
+        if (sessionTables.has('customer_sessions')) sessionDeletes.push('DELETE FROM customer_sessions');
+        if (sessionDeletes.length) await tx.batch(sessionDeletes);
         await tx.commit();
       } catch (error) {
         try { await tx.rollback(); } catch {}
