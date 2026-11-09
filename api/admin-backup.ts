@@ -67,22 +67,53 @@ async function ensureStage(client: any) {
     payload TEXT NOT NULL, expires_at TEXT NOT NULL,
     PRIMARY KEY(operation_id, chunk_index)
   )`);
+  await client.execute(`CREATE TABLE IF NOT EXISTS _admin_backup_export_staging (
+    export_id TEXT NOT NULL, admin_id TEXT NOT NULL, table_name TEXT NOT NULL,
+    page_offset INTEGER NOT NULL, payload TEXT NOT NULL, done INTEGER NOT NULL,
+    expires_at TEXT NOT NULL, PRIMARY KEY(export_id, table_name, page_offset)
+  )`);
 }
 async function cleanExpired(client: any) {
-  await client.execute({ sql: 'DELETE FROM _admin_backup_staging WHERE expires_at < ?', args: [new Date().toISOString()] });
+  const now = new Date().toISOString();
+  await client.execute({ sql: 'DELETE FROM _admin_backup_staging WHERE expires_at < ?', args: [now] });
+  await client.execute({ sql: 'DELETE FROM _admin_backup_export_staging WHERE expires_at < ?', args: [now] });
 }
 function parseBody(req: any) {
   return typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
 }
-async function exportManifest(client: any) {
-  const tables = await listTables(client);
-  const result = [];
-  for (const name of tables) {
-    const columns = await tableInfo(client, name);
-    const count = await client.execute(`SELECT COUNT(*) AS total FROM ${quote(name)}`);
-    result.push({ name, columns, rowCount: Number(count.rows[0]?.total || 0) });
+async function exportManifest(client: any, adminId: string) {
+  const exportId = randomUUID();
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const tx = await client.transaction('write');
+  const tables = [];
+  let stagedBytes = 0;
+  try {
+    const names = await listTables(tx);
+    for (const name of names) {
+      const columns = await tableInfo(tx, name);
+      const count = await tx.execute(`SELECT COUNT(*) AS total FROM ${quote(name)}`);
+      const rowCount = Number(count.rows[0]?.total || 0);
+      if (!Number.isSafeInteger(rowCount) || rowCount < 0) throw new Error(`No se pudo determinar el tamaño de ${name}.`);
+      tables.push({ name, columns, rowCount });
+      for (let offset = 0; offset < rowCount; offset += PAGE_SIZE) {
+        const page = await tx.execute({ sql: `SELECT * FROM ${quote(name)} LIMIT ? OFFSET ?`, args: [PAGE_SIZE, offset] });
+        const rows = page.rows.map((row: any) => Object.fromEntries(columns.map((column) => [column, encodeValue(row[column])])));
+        if (rows.length !== Math.min(PAGE_SIZE, rowCount - offset)) throw new Error(`La instantánea de ${name} no pudo leerse completa.`);
+        const payload = JSON.stringify(rows);
+        stagedBytes += Buffer.byteLength(payload, 'utf8');
+        if (stagedBytes > MAX_BACKUP_BYTES) throw new Error('El respaldo supera el máximo de 25 MB.');
+        await tx.execute({
+          sql: 'INSERT INTO _admin_backup_export_staging (export_id, admin_id, table_name, page_offset, payload, done, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [exportId, adminId, name, offset, payload, rows.length < PAGE_SIZE ? 1 : 0, expiresAt],
+        });
+      }
+    }
+    await tx.commit();
+  } catch (error) {
+    try { await tx.rollback(); } catch {}
+    throw error;
   }
-  return { format: FORMAT, version: VERSION, createdAt: new Date().toISOString(), source: 'Turso', pageSize: PAGE_SIZE, tables: result };
+  return { exportId, format: FORMAT, version: VERSION, createdAt: new Date().toISOString(), source: 'Turso', pageSize: PAGE_SIZE, tables };
 }
 async function validateBackup(client: any, backup: any) {
   if (!backup || backup.format !== FORMAT || backup.version !== VERSION || !Array.isArray(backup.tables)) {
@@ -123,30 +154,30 @@ export default async function handler(req: any, res: any) {
     const admin = await requireAdmin(req, client);
     if (!admin) return res.status(403).json({ error: 'Acceso exclusivo para administradores.' });
     res.setHeader('Cache-Control', 'no-store, max-age=0');
+    await ensureStage(client);
+    await cleanExpired(client);
 
     if (req.method === 'GET') {
       const action = String(req.query?.action || 'manifest');
-      if (action === 'manifest') return res.status(200).json(await exportManifest(client));
+      if (action === 'manifest') return res.status(200).json(await exportManifest(client, String(admin.id)));
       if (action === 'page') {
         const table = String(req.query?.table || '');
+        const exportId = String(req.query?.exportId || '');
         const offset = Number(req.query?.offset || 0);
-        if (!Number.isSafeInteger(offset) || offset < 0 || !table || !(await listTables(client)).includes(table)) {
+        if (!exportId || !Number.isSafeInteger(offset) || offset < 0 || offset % PAGE_SIZE !== 0 || !table) {
           return res.status(400).json({ error: 'Página de respaldo inválida.' });
         }
-        const columns = await tableInfo(client, table);
         const result = await client.execute({
-          sql: `SELECT * FROM ${quote(table)} LIMIT ? OFFSET ?`,
-          args: [PAGE_SIZE, offset],
+          sql: 'SELECT payload, done FROM _admin_backup_export_staging WHERE export_id=? AND admin_id=? AND table_name=? AND page_offset=? AND expires_at>? LIMIT 1',
+          args: [exportId, String(admin.id), table, offset, new Date().toISOString()],
         });
-        const rows = result.rows.map((row: any) => Object.fromEntries(columns.map((column) => [column, encodeValue(row[column])])));
-        return res.status(200).json({ table, offset, rows, done: rows.length < PAGE_SIZE });
+        if (!result.rows.length) return res.status(404).json({ error: 'La instantánea de respaldo venció o no existe. Genera un respaldo nuevo.' });
+        return res.status(200).json({ table, offset, rows: JSON.parse(String(result.rows[0].payload)), done: Number(result.rows[0].done) === 1 });
       }
       return res.status(400).json({ error: 'Acción de exportación desconocida.' });
     }
 
     const body = parseBody(req);
-    await ensureStage(client);
-    await cleanExpired(client);
     const action = String(body.action || '');
 
     if (action === 'restore-init') {
