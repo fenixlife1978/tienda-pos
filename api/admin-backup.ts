@@ -35,8 +35,8 @@ async function listTables(client: any) {
     .filter((name: string) => !EXCLUDED.has(name) && !RESERVED.has(name) && !name.startsWith('sqlite_'));
 }
 async function tableInfo(client: any, table: string) {
-  const result = await client.execute(`PRAGMA table_info(${quote(table)})`);
-  return result.rows.map((r: any) => String(r.name));
+  const result = await client.execute(`PRAGMA table_xinfo(${quote(table)})`);
+  return result.rows.filter((r: any) => Number(r.hidden || 0) === 0).map((r: any) => String(r.name));
 }
 function encodeValue(value: any): any {
   if (value instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
@@ -49,7 +49,10 @@ function encodeValue(value: any): any {
 function decodeValue(value: any): any {
   if (value && typeof value === 'object' && !Array.isArray(value) && value.__tienda_pos_type === 'blob' &&
       typeof value.base64 === 'string' && Object.keys(value).length === 2) {
-    return new Uint8Array(Buffer.from(value.base64, 'base64'));
+    if (value.base64.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.base64)) throw new Error('El respaldo contiene un BLOB inválido.');
+    const bytes = Buffer.from(value.base64, 'base64');
+    if (bytes.toString('base64') !== value.base64) throw new Error('El respaldo contiene un BLOB inválido.');
+    return new Uint8Array(bytes);
   }
   if (value && typeof value === 'object' && !Array.isArray(value) && value.__tienda_pos_type === 'bigint' &&
       typeof value.value === 'string' && Object.keys(value).length === 2) {
