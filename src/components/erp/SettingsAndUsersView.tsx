@@ -24,6 +24,9 @@ import {
   TrendingUp,
   Save,
   Phone,
+  Download,
+  Upload,
+  DatabaseBackup,
 } from 'lucide-react';
 
 export const SettingsAndUsersView: React.FC = () => {
@@ -98,6 +101,105 @@ export const SettingsAndUsersView: React.FC = () => {
   });
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMessage, setBackupMessage] = useState('');
+  const [pendingRestore, setPendingRestore] = useState<any>(null);
+
+  const backupRequest = async (method: 'GET' | 'POST', query = '', body?: unknown) => {
+    const session = sessionStorage.getItem('tienda_pos_tab_session') || '';
+    const response = await fetch('/api/admin-backup' + (query ? '?' + query : ''), {
+      method,
+      headers: { ...(session ? { 'X-Tienda-Pos-Session': session } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      cache: 'no-store', credentials: 'same-origin',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'No se pudo completar el respaldo.');
+    return data;
+  };
+
+  const downloadBackup = (data: unknown, suffix = '') => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'TIENDA_POS_RESPALDO_GLOBAL' + suffix + '_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+    document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+  };
+
+  const createBackupFromPages = async () => {
+    const manifest = await backupRequest('GET', 'action=manifest');
+    if (!manifest || manifest.format !== 'tienda-pos-global-backup' || !manifest.exportId || !Array.isArray(manifest.tables)) throw new Error('Manifiesto de Turso inválido.');
+    try {
+      const tables = [];
+      for (const table of manifest.tables) {
+        const rows: any[] = [];
+        for (let offset = 0; offset < table.rowCount; offset += manifest.pageSize) {
+          const page = await backupRequest('GET', 'action=page&exportId=' + encodeURIComponent(manifest.exportId) + '&table=' + encodeURIComponent(table.name) + '&offset=' + offset);
+          if (page.table !== table.name || page.offset !== offset || !Array.isArray(page.rows) || !page.rows.length) throw new Error('Instantánea incompleta en ' + table.name + '. Genera un respaldo nuevo.');
+          rows.push(...page.rows);
+        }
+        if (rows.length !== table.rowCount) throw new Error('La instantánea de ' + table.name + ' está incompleta.');
+        tables.push({ name: table.name, columns: table.columns, rows });
+      }
+      const backup = { format: manifest.format, version: manifest.version, createdAt: manifest.createdAt, source: manifest.source, tables };
+      if (new Blob([JSON.stringify(backup)]).size > 25 * 1024 * 1024) throw new Error('El respaldo supera el máximo de 25 MB.');
+      return backup;
+    } finally {
+      try { await backupRequest('POST', '', { action: 'export-release', exportId: manifest.exportId }); } catch {}
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    setBackupBusy(true); setBackupMessage('');
+    try { downloadBackup(await createBackupFromPages()); setBackupMessage('Respaldo global generado y descargado por bloques desde Turso.'); }
+    catch (error: any) { setBackupMessage(error.message || 'Error generando respaldo.'); }
+    finally { setBackupBusy(false); }
+  };
+
+  const handleRestoreBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; event.target.value = '';
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { setBackupMessage('El archivo supera el límite de 25 MB.'); return; }
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!parsed || parsed.format !== 'tienda-pos-global-backup' || parsed.version !== 1 || !Array.isArray(parsed.tables)) throw new Error('Archivo de respaldo incompatible.');
+      if (!confirm('Primero se descargará una copia completa del estado actual. Todavía no se modificará ningún dato. ¿Continuar?')) return;
+      setBackupBusy(true); setBackupMessage('Generando copia de seguridad previa...');
+      downloadBackup(await createBackupFromPages(), '_ANTES_DE_RESTAURAR');
+      setPendingRestore(parsed);
+      setBackupMessage('Descarga de la copia previa iniciada. Verifica que el archivo se haya guardado antes de confirmar la restauración.');
+    } catch (error: any) { setBackupMessage(error.message || 'No se pudo preparar la restauración.'); }
+    finally { setBackupBusy(false); }
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!pendingRestore) return;
+    setBackupBusy(true); let operationId = '';
+    try {
+      const raw = JSON.stringify(pendingRestore);
+      const bytes = new TextEncoder().encode(raw);
+      if (bytes.byteLength > 25 * 1024 * 1024) throw new Error('El respaldo supera el máximo de 25 MB.');
+      const hash = await crypto.subtle.digest('SHA-256', bytes);
+      const sha256 = Array.from(new Uint8Array(hash)).map((v) => v.toString(16).padStart(2, '0')).join('');
+      const size = 200 * 1024, totalChunks = Math.ceil(raw.length / size);
+      const init = await backupRequest('POST', '', { action: 'restore-init', totalChunks, byteLength: bytes.byteLength, sha256 });
+      operationId = init.operationId;
+      for (let i = 0; i < totalChunks; i++) {
+        await backupRequest('POST', '', { action: 'restore-chunk', operationId, chunkIndex: i, payload: raw.slice(i * size, (i + 1) * size) });
+        setBackupMessage('Subiendo respaldo: bloque ' + (i + 1) + ' de ' + totalChunks + '...');
+      }
+      const result = await backupRequest('POST', '', { action: 'restore-commit', operationId });
+      if (!result.success) throw new Error('Turso no confirmó la restauración.');
+      setPendingRestore(null); setBackupMessage('Restauración completada. Inicia sesión nuevamente.');
+      sessionStorage.removeItem('tienda_pos_tab_session');
+      window.setTimeout(() => window.location.reload(), 1800);
+    } catch (error: any) {
+      if (operationId) { try { await backupRequest('POST', '', { action: 'restore-abort', operationId }); } catch {} }
+      setBackupMessage(error.message || 'No se pudo restaurar el respaldo.');
+    } finally { setBackupBusy(false); }
+  };
 
   const handleManualBcvRefresh = async () => {
     setIsRefreshingBcv(true);
@@ -192,6 +294,44 @@ export const SettingsAndUsersView: React.FC = () => {
           Parámetros fiscales de la empresa, actualización del tipo de cambio oficial y control de usuarios.
         </p>
       </div>
+
+
+      {currentUser?.role === 'admin' && (
+        <section className="bg-white p-5 rounded-2xl border border-indigo-200 shadow-xs space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center"><DatabaseBackup className="w-5 h-5" /></div>
+            <div><h3 className="font-bold text-slate-900 text-sm">Respaldo y Restauración Global</h3>
+              <p className="text-xs text-slate-500">Copia completa de la base de datos operativa de Turso en formato JSON.</p></div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button type="button" disabled={backupBusy} onClick={handleCreateBackup}
+              className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-left disabled:opacity-50">
+              <Download className="w-5 h-5 mb-2" /><span className="block text-sm font-bold">Crear respaldo global</span>
+              <span className="block text-xs mt-1">Exportar tablas y registros directamente desde Turso.</span>
+            </button>
+            <label className={'p-4 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-950 text-left cursor-pointer ' + (backupBusy ? 'opacity-50 pointer-events-none' : '')}>
+              <Upload className="w-5 h-5 mb-2" /><span className="block text-sm font-bold">Restaurar respaldo JSON</span>
+              <span className="block text-xs mt-1">Validar y reemplazar el contenido actual.</span>
+              <input type="file" accept=".json,application/json" className="hidden" disabled={backupBusy} onChange={handleRestoreBackup} />
+            </label>
+          </div>
+          <div className="flex items-start gap-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600">
+            <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>Solo administrador. La restauración reemplaza los datos actuales, exige un respaldo completo compatible y revoca las sesiones para exigir un nuevo inicio de sesión. Los JSON contienen información comercial y de usuarios: consérvalos en un lugar seguro.</span>
+          </div>
+          {backupBusy && <p className="text-xs text-indigo-700 font-semibold animate-pulse">Procesando operación de respaldo…</p>}
+          {pendingRestore && (
+            <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 space-y-2">
+              <p className="text-xs font-bold text-rose-900">Verifica que el archivo de respaldo previo esté guardado. Esta acción reemplazará los datos actuales.</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={backupBusy} onClick={handleConfirmRestore} className="px-4 py-2 rounded-lg bg-rose-600 text-white text-xs font-bold disabled:opacity-50">Confirmar restauración</button>
+                <button type="button" disabled={backupBusy} onClick={() => setPendingRestore(null)} className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold disabled:opacity-50">Cancelar</button>
+              </div>
+            </div>
+          )}
+          {backupMessage && <p role="status" className="text-xs font-semibold text-slate-700">{backupMessage}</p>}
+        </section>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
