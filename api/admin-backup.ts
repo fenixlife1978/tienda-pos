@@ -88,12 +88,15 @@ export default async function handler(req: any, res: any) {
       }
       incoming.set(item.name, item);
     }
-    if (incoming.size !== liveTables.length || liveTables.some((table) => !incoming.has(table))) {\n      return res.status(400).json({ error: 'El respaldo está incompleto: debe contener todas las tablas de esta base de datos.' });\n    }\n    if (!incoming.has('system_users')) {
+    if (incoming.size !== liveTables.length || liveTables.some((table) => !incoming.has(table))) {
+      return res.status(400).json({ error: 'El respaldo está incompleto: debe contener todas las tablas de esta base de datos.' });
+    }\n    if (!incoming.has('system_users')) {
       return res.status(400).json({ error: 'El respaldo no contiene los usuarios del sistema.' });
     }
 
-    // Guardamos un snapshot en memoria antes de modificar. Si falla cualquier
-    // sentencia, la transacción se revierte íntegramente.
+    // Capturamos un respaldo del estado actual antes de reemplazarlo.
+    const preRestoreBackup = await makeBackup(client);
+    // La transacción revierte todos los cambios si una sentencia falla.
     const tx = await client.transaction('write');
     try {
       const now = new Date().toISOString();
