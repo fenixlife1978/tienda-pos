@@ -54,6 +54,10 @@ try {
     sql: 'INSERT INTO inventory (id, category_id, name, quantity, amount, payload) VALUES (?, ?, ?, ?, ?, ?)',
     args: [7, 1, 'Artículo de prueba', 4, 9007199254740993n, new Uint8Array([0, 255, 34, 10])],
   });
+  await client.batch(Array.from({ length: 349 }, (_, i) => ({
+    sql: 'INSERT INTO inventory (id, category_id, name, quantity, amount) VALUES (?, ?, ?, ?, ?)',
+    args: [i + 8, 1, 'Artículo ' + (i + 1), i + 1, i + 100],
+  })), 'write');
 
   const manifest = await call('GET', { action: 'manifest' });
   assert.ok(manifest.exportId);
@@ -92,7 +96,7 @@ try {
   assert.equal(restored.success, true);
 
   const check = await client.execute('SELECT id, quantity, amount, payload, doubled FROM inventory ORDER BY id');
-  assert.equal(check.rows.length, 1, 'restoration must remove rows added after the snapshot');
+  assert.equal(check.rows.length, 350, 'restoration must remove rows added after the snapshot and restore all snapshot pages');
   assert.equal(Number(check.rows[0].quantity), 4);
   assert.equal(String(check.rows[0].amount), '9007199254740993');
   const blobValue = check.rows[0].payload;
