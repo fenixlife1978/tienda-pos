@@ -6,7 +6,7 @@ const VERSION = 1;
 const MAX_BACKUP_BYTES = 25 * 1024 * 1024;
 const MAX_CHUNK_CHARS = 300 * 1024;
 const PAGE_SIZE = 150;
-const EXCLUDED = new Set(['auth_sessions', 'customer_sessions', 'sqlite_sequence', '_admin_backup_staging']);
+const EXCLUDED = new Set(['auth_sessions', 'customer_sessions', 'sqlite_sequence', '_admin_backup_staging', '_admin_backup_export_staging']);
 const RESERVED = new Set(['sqlite_master', 'sqlite_schema', 'sqlite_temp_master', 'sqlite_temp_schema']);
 
 function db() {
@@ -219,6 +219,10 @@ export default async function handler(req: any, res: any) {
     }
     if (action === 'restore-abort') {
       await client.execute({ sql: 'DELETE FROM _admin_backup_staging WHERE operation_id=? AND admin_id=?', args: [String(body.operationId || ''), String(admin.id)] });
+      return res.status(200).json({ success: true });
+    }
+    if (action === 'export-release') {
+      await client.execute({ sql: 'DELETE FROM _admin_backup_export_staging WHERE export_id=? AND admin_id=?', args: [String(body.exportId || ''), String(admin.id)] });
       return res.status(200).json({ success: true });
     }
     if (action === 'restore-commit') {
