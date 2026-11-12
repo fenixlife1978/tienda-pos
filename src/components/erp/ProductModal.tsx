@@ -832,8 +832,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       priceListMatrix,
 
       // Pestaña Inventario
-      stock: calculatedStock,
-      initialStock: finalInitialStock,
+      stock: productToEdit?.stock ?? 0,
+      initialStock: productToEdit?.initialStock ?? 0,
       minStock: finalMinStock,
       maxStock: finalMaxStock,
       reorderPoint: finalReorderPoint,
@@ -2001,14 +2001,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={initialStockStr}
+                      value={productToEdit ? String(productToEdit.initialStock ?? 0) : '0'}
+                      disabled
                       onChange={(e) => {
                         if (e.target.value === '' || /^\d+$/.test(e.target.value)) setInitialStockStr(e.target.value);
                       }}
                       placeholder="50"
                       className="w-full px-3 py-1.5 border border-slate-300 rounded-lg font-mono font-bold text-sm"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1">Existencia al iniciar operaciones</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Se incorpora mediante Ajuste (+) o Entrada por Compra.</p>
                   </div>
 
                   {/* Stock Actual Físico */}
@@ -2018,7 +2019,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       type="text"
                       inputMode="numeric"
                       disabled={isComposite}
-                      value={isComposite ? String(compositeVirtualStock) : stockStr}
+                      value={isComposite ? String(compositeVirtualStock) : String(productToEdit?.stock ?? 0)}
+                      disabled
                       onChange={(e) => {
                         if (e.target.value === '' || /^\d+$/.test(e.target.value)) setStockStr(e.target.value);
                       }}
@@ -2028,7 +2030,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                       }`}
                     />
                     <p className="text-[10px] text-slate-400 mt-1">
-                      {isComposite ? `Virtual (${compositeVirtualStock} combos)` : 'Disponible para la venta'}
+                      {isComposite ? `Virtual (${compositeVirtualStock} combos)` : 'Solo lectura. Use Ajustes o Compras para modificarla.'}
                     </p>
                   </div>
 
