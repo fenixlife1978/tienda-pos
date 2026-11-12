@@ -3027,34 +3027,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateProduct = (product: Product) => {
     const previous = products.find((p) => p.id === product.id);
-    const stockDelta = previous ? Number((product.stock - previous.stock).toFixed(3)) : 0;
-    const updated = products.map((p) => (p.id === product.id ? product : p));
+    // La edición del maestro nunca modifica existencias: el stock solo cambia
+    // mediante movimientos de inventario (ajustes, compras, ventas, etc.).
+    const safeProduct = previous
+      ? { ...product, stock: previous.stock, initialStock: previous.initialStock ?? 0 }
+      : product;
+    const updated = products.map((p) => (p.id === safeProduct.id ? safeProduct : p));
     setProducts(updated);
     broadcastStockUpdate(updated, {
-      productIds: [product.id],
+      productIds: [safeProduct.id],
       source: 'adjustment',
-      summary: `Producto actualizado: ${product.name}`,
+      summary: `Datos del producto actualizados: ${safeProduct.name}`,
     });
 
-    // If the product editor changes stock directly, convert that change into
-    // an inventory movement instead of syncing the whole stock snapshot.
-    void persistProductAuthoritatively(product, stockDelta !== 0)
+    // Preservar siempre la existencia autoritativa en Turso. Evita que una
+    // edición del maestro reemplace el saldo calculado por movimientos.
+    void persistProductAuthoritatively(safeProduct, true)
       .then(() => syncWithTurso(true))
       .catch((error) => {
         console.error('Error confirming product in Turso:', error);
         void syncWithTurso(true).catch(() => {});
       });
-
-    if (stockDelta !== 0) {
-      offlineSyncService.enqueueInventoryMovement({
-        productId: product.id,
-        quantityDelta: stockDelta,
-        movementType: 'adjustment',
-      });
-      if (navigator.onLine && tursoService.isConfigured()) {
-        offlineSyncService.flush().catch((error) => console.warn('Cambio de stock en cola:', error));
-      }
-    }
   };
 
   const deleteProduct = (productId: string) => {
