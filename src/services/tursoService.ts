@@ -425,6 +425,7 @@ class TursoService {
           price_usd REAL NOT NULL,
           stock REAL NOT NULL,
           min_stock REAL NOT NULL,
+          max_stock REAL DEFAULT 0,
           unit TEXT NOT NULL,
           image TEXT,
           is_offer INTEGER DEFAULT 0,
@@ -1113,6 +1114,7 @@ class TursoService {
             stock: Number(row.stock),
             reservedStock: Number(row.reserved_stock || 0),
             minStock: Number(row.min_stock),
+            maxStock: Number(row.max_stock ?? 0),
             unit: String(row.unit),
             warehouseStocks: row.warehouse_stocks ? JSON.parse(String(row.warehouse_stocks)) : undefined,
             image: String(row.image || ''),
@@ -1693,7 +1695,7 @@ class TursoService {
       sql: `
         INSERT OR IGNORE INTO products (
           id, code, name, category, cost_usd, profit_margin_percent, price_usd,
-          stock, min_stock, unit, image, is_offer, discount_percentage,
+          stock, min_stock, max_stock, unit, image, is_offer, discount_percentage,
           description, applies_iva, alternative_prices, presentations,
           suppliers_info, highest_supplier_cost, is_composite,
           composite_components, composite_virtual_stock, is_weighable,
@@ -1702,7 +1704,7 @@ class TursoService {
       `,
       args: [
         p.id, p.code, p.name, p.category, p.costUSD, p.profitMarginPercent ?? null,
-        p.priceUSD, p.stock, p.minStock, p.unit, p.image || '', p.isOffer ? 1 : 0,
+        p.priceUSD, p.stock, p.minStock, p.maxStock ?? 0, p.unit, p.image || '', p.isOffer ? 1 : 0,
         p.discountPercentage ?? 0, p.description || '', p.appliesIva === false ? 0 : 1,
         p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
         p.presentations ? JSON.stringify(p.presentations) : null,
@@ -1720,7 +1722,7 @@ class TursoService {
       sql: `
         UPDATE products SET
           code = ?, name = ?, category = ?, cost_usd = ?, profit_margin_percent = ?,
-          price_usd = ?, min_stock = ?, unit = ?, image = ?, is_offer = ?,
+          price_usd = ?, min_stock = ?, max_stock = ?, unit = ?, image = ?, is_offer = ?,
           discount_percentage = ?, description = ?, applies_iva = ?,
           alternative_prices = ?, presentations = ?, suppliers_info = ?,
           highest_supplier_cost = ?, is_composite = ?, composite_components = ?,
@@ -1730,7 +1732,7 @@ class TursoService {
       `,
       args: [
         p.code, p.name, p.category, p.costUSD, p.profitMarginPercent ?? null,
-        p.priceUSD, p.minStock, p.unit, p.image || '', p.isOffer ? 1 : 0,
+        p.priceUSD, p.minStock, p.maxStock ?? 0, p.unit, p.image || '', p.isOffer ? 1 : 0,
         p.discountPercentage ?? 0, p.description || '', p.appliesIva === false ? 0 : 1,
         p.alternativePrices ? JSON.stringify(p.alternativePrices) : null,
         p.presentations ? JSON.stringify(p.presentations) : null,
