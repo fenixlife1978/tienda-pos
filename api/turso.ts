@@ -296,6 +296,7 @@ export default async function handler(req: any, res: any) {
         await ensureColumn(client, 'products', String(name), String(type));
       }
 
+      await ensureColumn(client, 'products', 'max_stock', 'REAL DEFAULT 0');
       const tx = await client.transaction('write');
       try {
         const current = await tx.execute({
@@ -315,18 +316,19 @@ export default async function handler(req: any, res: any) {
           sql: `
             INSERT INTO products (
               id, code, name, category, cost_usd, profit_margin_percent, price_usd,
-              stock, min_stock, unit, image, is_offer, discount_percentage,
+              stock, min_stock, max_stock, unit, image, is_offer, discount_percentage,
               offer_condition, offer_badge_text, offer_savings_usd, offer_savings_bs,
               offer_min_quantity, promotional_price_usd, offer_start_date, offer_end_date,
               warehouse_stocks, description, applies_iva, alternative_prices, presentations,
               suppliers_info, highest_supplier_cost, is_composite,
               composite_components, composite_virtual_stock, is_weighable,
               price_per_kg_usd, is_fractionable, fraction_unit, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               code=excluded.code, name=excluded.name, category=excluded.category,
               cost_usd=excluded.cost_usd, profit_margin_percent=excluded.profit_margin_percent,
               price_usd=excluded.price_usd, stock=excluded.stock, min_stock=excluded.min_stock,
+              max_stock=excluded.max_stock,
               unit=excluded.unit, image=excluded.image, is_offer=excluded.is_offer,
               discount_percentage=excluded.discount_percentage, offer_condition=excluded.offer_condition,
               offer_badge_text=excluded.offer_badge_text, offer_savings_usd=excluded.offer_savings_usd,
@@ -346,7 +348,7 @@ export default async function handler(req: any, res: any) {
           args: [
             id, String(p.code || ''), String(p.name || ''), String(p.category || ''),
             Number(p.costUSD ?? 0), p.profitMarginPercent ?? null, Number(p.priceUSD ?? 0),
-            stock, Number(p.minStock ?? 0), String(p.unit || ''), String(p.image || ''),
+            stock, Number(p.minStock ?? 0), Number(p.maxStock ?? 0), String(p.unit || ''), String(p.image || ''),
             p.isOffer ? 1 : 0, Number(p.discountPercentage ?? 0),
             p.offerCondition ?? null, p.offerBadgeText ?? null,
             p.offerSavingsUSD ?? null, p.offerSavingsBs ?? null, p.offerMinQuantity ?? null,
