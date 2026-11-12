@@ -2018,16 +2018,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     <input
                       type="text"
                       inputMode="numeric"
-                      disabled={isComposite}
                       value={isComposite ? String(compositeVirtualStock) : String(productToEdit?.stock ?? 0)}
                       disabled
                       onChange={(e) => {
                         if (e.target.value === '' || /^\d+$/.test(e.target.value)) setStockStr(e.target.value);
                       }}
                       placeholder="50"
-                      className={`w-full px-3 py-1.5 border rounded-lg font-mono font-bold text-sm ${
-                        isComposite ? 'bg-purple-50 text-purple-900 border-purple-300 cursor-not-allowed' : 'border-slate-300'
-                      }`}
+                      className="w-full px-3 py-1.5 border rounded-lg font-mono font-bold text-sm bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed"
                     />
                     <p className="text-[10px] text-slate-400 mt-1">
                       {isComposite ? `Virtual (${compositeVirtualStock} combos)` : 'Solo lectura. Use Ajustes o Compras para modificarla.'}
